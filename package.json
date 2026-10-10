@@ -1,0 +1,28 @@
+{
+  "name": "shanghai-3d-city",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A real-time 3D model of Shanghai in the browser, compiled from OpenStreetMap and elevation data with procedural detail.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 4317 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4317 --strictPort",
+    "fetch": "node tools/pipeline/fetch.mjs",
+    "compile": "node --max-old-space-size=4096 tools/pipeline/compile.mjs",
+    "pipeline": "node tools/pipeline/fetch.mjs && node --max-old-space-size=4096 tools/pipeline/compile.mjs",
+    "test": "node --test tools/tests/*.test.mjs"
+  },
+  "dependencies": {
+    "earcut": "^2.2.4",
+    "pngjs": "^7.0.0",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}

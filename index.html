@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>上海 · 三维城市</title>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <header id="title">
+      <p class="eyebrow">OpenStreetMap · 公开高程</p>
+      <h1>上海</h1>
+      <p id="subtitle">外滩 · 陆家嘴</p>
+    </header>
+    <section id="panel">
+      <label class="time">
+        <span>时刻 <strong id="clock">10:30</strong></span>
+        <input id="time" type="range" min="0" max="24" step="0.01" value="10.5" />
+      </label>
+      <div class="row">
+        <button type="button" id="now">上海此刻</button>
+        <button type="button" id="night">夜晚</button>
+      </div>
+      <label class="check"><input id="traffic" type="checkbox" checked /> 路面交通</label>
+      <label class="check"><input id="trains" type="checkbox" checked /> 地铁 / 列车</label>
+      <div class="presets" id="presets"></div>
+      <p id="stats">正在准备城市…</p>
+    </section>
+    <aside id="inspect" hidden></aside>
+    <p id="hint">拖拽平移 · 右键旋转 · 滚轮缩放 · WASD 移动 · N 切换日夜</p>
+    <p id="credit"></p>
+    <div id="gate" hidden>
+      <div>
+        <h2>还没有可浏览的城市数据</h2>
+        <p>先在项目目录编译一块上海，再刷新这个页面。</p>
+        <pre>npm install
+npm run pipeline
+npm run dev</pre>
+        <p>默认范围是外滩到陆家嘴。要换一块地方，改 <code>tools/pipeline/config.mjs</code> 里的边界，或运行 <code>npm run pipeline -- --bbox=南,西,北,东</code>。</p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
