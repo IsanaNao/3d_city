@@ -4,8 +4,40 @@ import { makeProjection } from '../../src/shared/geo.js';
 import { approachIsGreen, createSim, prepareGraph, stepSim } from '../../src/sim/traffic.js';
 import { decodeTile, encodeTile } from '../../src/shared/tileformat.js';
 import { compileDataset, settleGround } from '../pipeline/compile.mjs';
+import { liftAlong, parseCity } from '../pipeline/osm.mjs';
 import { clipPolygon, finalizeRing, offsetPolyline, resamplePolyline } from '../pipeline/geom.mjs';
 import { buildRoadGraph } from '../pipeline/graph.mjs';
+
+test('the Lujiazui ring stays a low deck and a viaduct ramp slopes down', () => {
+  const proj = makeProjection(121.5, 31.24);
+  const ring = [];
+  for (let i = 0; i <= 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    ring.push({ lat: 31.24 + Math.sin(a) * 0.00045, lon: 121.5 + Math.cos(a) * 0.0005 });
+  }
+  const parsed = parseCity([
+    { type: 'way', id: 1, tags: { highway: 'footway', bridge: 'yes', layer: '3' }, geometry: ring },
+    {
+      type: 'way', id: 2,
+      tags: { highway: 'trunk', bridge: 'yes', layer: '2', lanes: '2', name: '延安高架路' },
+      geometry: [{ lat: 31.2336, lon: 121.47 }, { lat: 31.2336, lon: 121.484 }],
+    },
+    {
+      type: 'way', id: 3,
+      tags: { highway: 'trunk_link', bridge: 'yes', layer: '2', lanes: '1' },
+      geometry: [{ lat: 31.2336, lon: 121.484 }, { lat: 31.2332, lon: 121.487 }],
+    },
+  ], proj, () => 4);
+  const foot = parsed.roads.find((road) => road.ring);
+  assert.ok(foot);
+  assert.ok(foot.width >= 8);
+  assert.ok(foot.lift > 5 && foot.lift < 8);
+  const ramp = parsed.roads.find((road) => road.link);
+  assert.equal(ramp.ramp, true);
+  const lifts = liftAlong(ramp, ramp.points);
+  assert.ok(lifts[0] > lifts.at(-1) + 4);
+  assert.ok(lifts.at(-1) < 1);
+});
 
 test('resample keeps endpoints and inserts samples', () => {
   const pts = resamplePolyline([[0, 0], [25, 0]], 10);

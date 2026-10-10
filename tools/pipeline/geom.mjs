@@ -259,24 +259,27 @@ export function offsetSides(points, half) {
   const left = [];
   const right = [];
   const rightOf = (d) => [-d[1], d[0]];
+  const closed = points.length > 3
+    && Math.hypot(points[0][0] - points.at(-1)[0], points[0][1] - points.at(-1)[1]) < 0.5;
+  const miter = (d0, d1) => {
+    const r1 = rightOf(d0);
+    const r2 = rightOf(d1);
+    let rx = r1[0] + r2[0];
+    let rz = r1[1] + r2[1];
+    const m = Math.hypot(rx, rz) || 1;
+    rx /= m;
+    rz /= m;
+    const dot = r1[0] * rx + r1[1] * rz;
+    const scale = Math.min(2.4, 1 / Math.max(0.4, dot));
+    return [rx * scale, rz * scale];
+  };
   for (let i = 0; i < points.length; i++) {
     let rx;
     let rz;
-    if (i === 0) [rx, rz] = rightOf(dirs[0]);
-    else if (i === points.length - 1) [rx, rz] = rightOf(dirs[dirs.length - 1]);
-    else {
-      const r1 = rightOf(dirs[i - 1]);
-      const r2 = rightOf(dirs[i]);
-      rx = r1[0] + r2[0];
-      rz = r1[1] + r2[1];
-      const m = Math.hypot(rx, rz) || 1;
-      rx /= m;
-      rz /= m;
-      const dot = r1[0] * rx + r1[1] * rz;
-      const scale = Math.min(2.4, 1 / Math.max(0.4, dot));
-      rx *= scale;
-      rz *= scale;
-    }
+    if (closed && (i === 0 || i === points.length - 1)) [rx, rz] = miter(dirs.at(-1), dirs[0]);
+    else if (i === 0) [rx, rz] = rightOf(dirs[0]);
+    else if (i === points.length - 1) [rx, rz] = rightOf(dirs.at(-1));
+    else [rx, rz] = miter(dirs[i - 1], dirs[i]);
     right.push([points[i][0] + rx * half, points[i][1] + rz * half]);
     left.push([points[i][0] - rx * half, points[i][1] - rz * half]);
   }

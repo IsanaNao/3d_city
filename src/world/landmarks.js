@@ -89,7 +89,8 @@ function pearlMeasures(h) {
     capsuleR: 8 * s,
     legR: 5.6 * s,
     shaftR: 4.5 * s,
-    foot: 64 * s,
+    foot: 40 * s,
+    plinth: 5.45 * s,
   };
 }
 
@@ -113,7 +114,7 @@ function pearl(h) {
   const bury = (point, toward, radius) => point.clone().lerp(toward, radius / point.distanceTo(toward));
 
   for (const angle of angles) {
-    const foot = along(angle, m.foot, 2.2);
+    const foot = along(angle, m.foot, m.plinth);
     const socket = along(angle, 15 * m.s, m.lowerC - 6 * m.s);
     const knee = foot.clone().lerp(socket, 0.45);
     knee.add(along(angle, 7 * m.s, 0));
@@ -162,7 +163,101 @@ function pearl(h) {
   antenna.translate(0, m.capsuleC + m.capsuleR + antennaH / 2, 0);
   tag(add(g, antenna, steel), 'antenna');
   add(g, new THREE.SphereGeometry(1.1 * m.s, 10, 8).translate(0, h * 0.998, 0), beaconMat);
-  add(g, new THREE.CylinderGeometry(16 * m.s, 22 * m.s, 5 * m.s, 18).translate(0, 2.4 * m.s, 0), dark);
+  pearlPlinth(g, m, angles);
+  return g;
+}
+
+const plinthMat = new THREE.MeshStandardMaterial({ color: 0xd8d3c9, roughness: 0.86, metalness: 0.03 });
+const treadMat = new THREE.MeshStandardMaterial({ color: 0xc4bfb4, roughness: 0.92, metalness: 0.02 });
+
+// The tower stands on a circular stepped podium. Stairs occupy the three
+// gaps between the legs; the terraces are the arcs the legs stand on.
+function pearlPlinth(g, m, angles) {
+  const s = m.s;
+  const gap = 0.5;
+  const terraces = [
+    { r: 78, y0: 0.04, y1: 1.15 },
+    { r: 64, y0: 1.1, y1: 2.45 },
+    { r: 52, y0: 2.4, y1: 3.9 },
+    { r: 43, y0: 3.85, y1: 5.45 },
+  ];
+  for (const terrace of terraces) {
+    for (let k = 0; k < 3; k++) {
+      const gapCenter = angles[k] + Math.PI / 3;
+      const a0 = gapCenter + gap / 2;
+      const a1 = gapCenter + (Math.PI * 2) / 3 - gap / 2;
+      const segs = Math.max(8, Math.round(((a1 - a0) / (Math.PI * 2)) * 36));
+      const geo = new THREE.CylinderGeometry(terrace.r * s, terrace.r * s, (terrace.y1 - terrace.y0) * s, segs, 1, false, a0, a1 - a0);
+      geo.translate(0, ((terrace.y0 + terrace.y1) / 2) * s, 0);
+      tag(add(g, geo, plinthMat), 'plinth');
+    }
+  }
+  for (let k = 0; k < 3; k++) {
+    const angle = angles[k] + Math.PI / 3;
+    const steps = 16;
+    for (let i = 0; i < steps; i++) {
+      const t = (i + 0.5) / steps;
+      const radius = (80 - t * 38) * s;
+      const y = (0.18 + t * 5.15) * s;
+      const geo = new THREE.BoxGeometry(2.3 * s, 0.3 * s, 7.4 * s);
+      geo.rotateY(-angle);
+      geo.translate(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+      tag(add(g, geo, treadMat), 'stair', angle);
+    }
+  }
+}
+
+function roundedRectShape(w, d, rad) {
+  const shape = new THREE.Shape();
+  const hw = w / 2;
+  const hd = d / 2;
+  const r = Math.min(rad, hw - 0.1, hd - 0.1);
+  shape.moveTo(-hw + r, -hd);
+  shape.lineTo(hw - r, -hd);
+  shape.absarc(hw - r, -hd + r, r, -Math.PI / 2, 0, false);
+  shape.lineTo(hw, hd - r);
+  shape.absarc(hw - r, hd - r, r, 0, Math.PI / 2, false);
+  shape.lineTo(-hw + r, hd);
+  shape.absarc(-hw + r, hd - r, r, Math.PI / 2, Math.PI, false);
+  shape.lineTo(-hw, -hd + r);
+  shape.absarc(-hw + r, -hd + r, r, Math.PI, Math.PI * 1.5, false);
+  return shape;
+}
+
+function extrudeUp(shape, depth) {
+  const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 6 });
+  geo.rotateX(-Math.PI / 2);
+  return geo;
+}
+
+// White Magnolia Plaza: a glass shaft with the horizontal light shelves SOM
+// designed, and the open observation deck that replaced the helipad.
+function magnolia(h) {
+  const g = new THREE.Group();
+  const s = h / 319.5;
+  const shaftH = 302 * s;
+  const shaft = extrudeUp(roundedRectShape(48 * s, 40 * s, 14 * s), shaftH);
+  tag(add(g, shaft, glassBlue), 'shaft');
+  for (let y = 16 * s; y < shaftH - 4 * s; y += 24 * s) {
+    const shelf = extrudeUp(roundedRectShape(50.6 * s, 42.6 * s, 15 * s), 0.7 * s);
+    shelf.translate(0, y, 0);
+    tag(add(g, shelf, steel), 'shelf');
+  }
+  const deck = extrudeUp(roundedRectShape(62 * s, 52 * s, 18 * s), 1.6 * s);
+  deck.translate(0, shaftH, 0);
+  tag(add(g, deck, concrete), 'deck');
+  const railOuter = roundedRectShape(61 * s, 51 * s, 17.5 * s);
+  const railInner = roundedRectShape(58.6 * s, 48.6 * s, 16.2 * s);
+  railOuter.holes.push(railInner);
+  const rail = extrudeUp(railOuter, 1.25 * s);
+  rail.translate(0, shaftH + 1.6 * s, 0);
+  tag(add(g, rail, glassBlue), 'rail');
+  const core = extrudeUp(roundedRectShape(16 * s, 14 * s, 3 * s), 14 * s);
+  core.translate(0, shaftH + 1.6 * s, 0);
+  tag(add(g, core, glassSilver), 'core');
+  const canopy = extrudeUp(roundedRectShape(56 * s, 46 * s, 16 * s), 0.8 * s);
+  canopy.translate(0, shaftH + 15.6 * s, 0);
+  tag(add(g, canopy, steel), 'canopy');
   return g;
 }
 
@@ -520,7 +615,7 @@ function stoneMat() {
   return new THREE.MeshStandardMaterial({ color: 0xe4d2b0, roughness: 0.78, metalness: 0.02 });
 }
 
-const BUILDERS = { pearl, shanghai, swfc, jinmao, customs };
+const BUILDERS = { pearl, shanghai, swfc, jinmao, customs, magnolia };
 
 export const landmarkNight = { pearlMat, pearlBand, beaconMat, clockMat };
 

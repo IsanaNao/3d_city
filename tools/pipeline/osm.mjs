@@ -95,9 +95,21 @@ function relationPolys(el, proj) {
 }
 
 export function carriageWidth(tags, highway) {
-  const tagged = parseMetres(tags.width);
-  if (tagged > 3 && tagged < 48) return tagged;
+  const name = tags.name || '';
   const lanes = Number.parseFloat(tags.lanes);
+  const tagged = parseMetres(tags.width);
+  // Century Avenue is a 100 m boulevard. Each OSM carriageway is one direction;
+  // a bare lane count understates the bus lanes and the shoulder.
+  if (/世纪大道/.test(name)) {
+    const n = lanes >= 1 && lanes <= 10 ? lanes : 4;
+    return Math.max(tagged > 3 ? tagged : 0, n * 3.6 + 3);
+  }
+  const elevated = tags.bridge === 'yes' || tags.bridge === 'viaduct' || Number(tags.layer) > 0;
+  if (elevated && (highway === 'trunk' || highway === 'motorway' || highway === 'trunk_link')) {
+    const n = lanes >= 1 && lanes <= 8 ? lanes : 2;
+    return Math.max(tagged > 3 && tagged < 48 ? tagged : 0, n * 3.6 + 2.2);
+  }
+  if (tagged > 3 && tagged < 48) return tagged;
   if (lanes >= 1 && lanes <= 10) return lanes * 3.35 + 0.5;
   return WIDTH[highway] || 6.5;
 }
@@ -106,12 +118,71 @@ export function laneCount(width) {
   return Math.max(1, Math.min(8, Math.round((width - 0.5) / 3.35)));
 }
 
-export function sidewalkWidthFor(highway, bridge) {
+export function sidewalkWidthFor(highway, bridge, name = '') {
   if (bridge) return 0;
   if (String(highway).includes('motorway') || highway === 'trunk' || highway === 'trunk_link') return 0;
+  if (/世纪大道|陆家嘴环路|中山东/.test(name)) return 7.2;
   if (highway === 'service' || highway === 'living_street') return 2.4;
   if (highway === 'primary' || highway === 'secondary' || highway === 'primary_link') return 4.4;
   return 3.5;
+}
+
+// Per-vertex deck height above the ground. Ramps fall from the viaduct to the street.
+export function liftAlong(road, points) {
+  const n = points.length;
+  const acc = new Array(n);
+  acc[0] = 0;
+  for (let i = 1; i < n; i++) {
+    acc[i] = acc[i - 1] + Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
+  }
+  const total = acc[n - 1] || 1;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    let lift = road.lift || 0;
+    if (road.ramp) {
+      const u = road.highAtStart ? acc[i] / total : 1 - acc[i] / total;
+      lift = road.liftHigh + (road.liftLow - road.liftHigh) * u;
+    }
+    out[i] = lift;
+  }
+  return out;
+}
+
+function nearestDist(p, roads) {
+  let best = Infinity;
+  for (const road of roads) {
+    for (const q of road.points) {
+      const d = (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2;
+      if (d < best) best = d;
+    }
+  }
+  return Math.sqrt(best);
+}
+
+function gradeRamps(roads) {
+  const mains = roads.filter((road) => road.drive && road.bridge && !road.link);
+  const decks = roads.filter((road) => road.bridge && road.ribbon && !road.steps);
+  for (const road of roads) {
+    const a = road.points[0];
+    const b = road.points.at(-1);
+    if (road.drive && road.link && road.bridge && mains.length) {
+      const da = nearestDist(a, mains);
+      const db = nearestDist(b, mains);
+      if (Math.min(da, db) > 50) continue;
+      road.ramp = true;
+      road.liftHigh = road.lift;
+      road.liftLow = 0.35;
+      road.highAtStart = da <= db;
+    } else if (road.steps && road.bridge && decks.length) {
+      const da = nearestDist(a, decks);
+      const db = nearestDist(b, decks);
+      if (Math.min(da, db) > 30) continue;
+      road.ramp = true;
+      road.liftHigh = road.lift;
+      road.liftLow = 0.2;
+      road.highAtStart = da <= db;
+    }
+  }
 }
 
 function parseSpeed(tags, fallback) {
@@ -285,7 +356,7 @@ export function parseCity(elements, proj, sampleHeight) {
         const layer = Number(tags.layer);
         const bridge = tags.bridge === 'yes' || tags.bridge === 'viaduct' || tags.bridge === 'cantilever' || layer > 0;
         const lv = Number.isFinite(layer) && layer > 0 ? layer : 1;
-        const lift = bridge ? 4.6 + lv * 3.8 : 0;
+        const lift = bridge ? 5.2 + (lv - 1) * 3.4 : 0;
         const width = carriageWidth(tags, highway);
         roads.push({
           id: el.id,
@@ -293,27 +364,56 @@ export function parseCity(elements, proj, sampleHeight) {
           drive: true,
           oneway,
           bridge,
+          link: /_link$/.test(highway),
           width,
           lanes: laneCount(width),
           cls: CLASS[highway] ?? ROAD.RESIDENTIAL,
           speed: parseSpeed(tags, SPEED[highway] || 8),
           lift,
-          sidewalk: sidewalkWidthFor(highway, bridge),
+          sidewalk: sidewalkWidthFor(highway, bridge, tags.name || ''),
         });
-      } else if ((highway === 'footway' || highway === 'path' || highway === 'pedestrian') && (tags.bridge === 'yes' || Number(tags.layer) > 0) && !line.closed) {
+      } else if ((highway === 'footway' || highway === 'path' || highway === 'pedestrian' || highway === 'steps') && (tags.bridge === 'yes' || Number(tags.layer) > 0)) {
         const layer = Number(tags.layer);
         const lv = Number.isFinite(layer) && layer > 0 ? layer : 1;
+        // The Lujiazui ring is a closed footway on layer 3. That layer is the
+        // stack of roads under it, not an 11 m flyover: the deck clears traffic
+        // by about six metres. The ring itself is a wide promenade, not a 3 m path.
+        const ring = line.closed;
+        const steps = highway === 'steps';
+        let span = 0;
+        if (ring) {
+          let minX = Infinity;
+          let maxX = -Infinity;
+          let minZ = Infinity;
+          let maxZ = -Infinity;
+          for (const p of points) {
+            if (p[0] < minX) minX = p[0];
+            if (p[0] > maxX) maxX = p[0];
+            if (p[1] < minZ) minZ = p[1];
+            if (p[1] > maxZ) maxZ = p[1];
+          }
+          span = Math.max(maxX - minX, maxZ - minZ);
+        }
+        // The Lujiazui circular footbridge is the large closed ring (about 110 m
+        // across). OSM gives it height=9. Smaller closed footways stay path-width.
+        const wideRing = ring && span > 90;
+        const taggedH = parseMetres(tags.height);
+        const lift = taggedH >= 4 && taggedH <= 16
+          ? taggedH
+          : (wideRing ? 6.2 : Math.min(6.4, 4.6 + (lv - 1) * 0.8));
         roads.push({
           id: el.id,
           points,
           drive: false,
           oneway: true,
           bridge: true,
-          width: 3.4,
+          ring: wideRing,
+          steps,
+          width: wideRing ? 9 : (steps ? 2.6 : 3.6),
           lanes: 1,
           cls: ROAD.SIDEWALK,
           speed: 0,
-          lift: 4.2 + lv * 2.4,
+          lift,
           sidewalk: 0,
           ribbon: true,
         });
@@ -355,6 +455,8 @@ export function parseCity(elements, proj, sampleHeight) {
       });
     }
   }
+
+  gradeRamps(roads);
 
   return {
     buildings: suppressOutlines(buildings),

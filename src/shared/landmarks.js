@@ -9,6 +9,7 @@ export const LANDMARK_SPECS = [
   { id: 'swfc', test: /环球金融中心|world financial center/i, h: 492, minH: 200, radius: 40 },
   { id: 'jinmao', test: /金茂大厦|jin mao tower/i, h: 421, minH: 200, radius: 40 },
   { id: 'customs', test: /江海关|外滩海关|customs house/i, h: 79, minH: 55, radius: 26 },
+  { id: 'magnolia', test: /白玉兰|sinar\s*mas|white magnolia|金光中心/i, h: 319.5, minH: 180, radius: 40 },
 ];
 
 function pointInPoly(x, z, ring) {

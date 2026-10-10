@@ -12,7 +12,7 @@ import {
   centroid, clipPolygon, clipPolyline, ensureWinding, finalizeRing, offsetSides,
   pointInPoly, polygonArea, polylineLength, resamplePolyline, ringBBox,
 } from './geom.mjs';
-import { parseCity } from './osm.mjs';
+import { liftAlong, parseCity } from './osm.mjs';
 
 function tilesOverlapping(bbox, tile = TILE) {
   if (!Number.isFinite(bbox.minX)) return [];
@@ -260,7 +260,7 @@ function placeProps(buildings, roads, land, sampleHeight, signals = []) {
   const nearJunction = (x, z, rad) => junctions.some((j) => (j[0] - x) ** 2 + (j[1] - z) ** 2 < rad * rad);
 
   for (const road of roads) {
-    if (!road.drive || road.cls === ROAD.LINK && road.bridge) continue;
+    if (!road.drive) continue;
     const treeStep = road.cls === ROAD.RESIDENTIAL || road.cls === ROAD.SERVICE ? 8 : 12;
     let walked = 0;
     let nextTree = treeStep * 0.45;
@@ -316,15 +316,52 @@ function placeProps(buildings, roads, land, sampleHeight, signals = []) {
           nextLamp += 30;
         }
       }
-      if (road.bridge && road.lift > 3) {
+      if (road.bridge && road.drive) {
         while (nextPier < walked + len) {
+          const t = (nextPier - walked) / len;
           const [x, z] = at(nextPier);
-          props.push({
-            kind: PROP.PIER, variant: 0, x, y: sampleHeight(x, z), z,
-            rot: Math.atan2(dx, dz), scale: 0.85, extra: road.lift,
-          });
+          const deck = road.y[i - 1] + (road.y[i] - road.y[i - 1]) * t;
+          const ground = sampleHeight(x, z);
+          const clearance = deck - ground;
+          if (clearance > 2.4) {
+            props.push({
+              kind: PROP.PIER, variant: 0, x, y: ground, z,
+              rot: Math.atan2(dx, dz), scale: 0.85, extra: clearance,
+            });
+          }
           nextPier += 22;
         }
+      }
+      walked += len;
+    }
+  }
+
+  for (const road of roads) {
+    if (!road.ribbon || !road.bridge || !road.y) continue;
+    let walked = 0;
+    let nextPier = road.ring ? 6 : 10;
+    const spacing = road.ring ? 20 : 26;
+    for (let i = 1; i < road.points.length; i++) {
+      const a = road.points[i - 1];
+      const b = road.points[i];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < 0.5) continue;
+      while (nextPier < walked + len) {
+        const t = (nextPier - walked) / len;
+        const x = a[0] + (b[0] - a[0]) * t;
+        const z = a[1] + (b[1] - a[1]) * t;
+        const deck = road.y[i - 1] + (road.y[i] - road.y[i - 1]) * t;
+        const ground = sampleHeight(x, z);
+        const clearance = deck - ground;
+        if (clearance > 2.2 && !blocked(x, z)) {
+          props.push({
+            kind: PROP.PIER, variant: 0, x, y: ground, z,
+            rot: Math.atan2(b[0] - a[0], b[1] - a[1]),
+            scale: road.ring ? 0.7 : 0.55,
+            extra: clearance,
+          });
+        }
+        nextPier += spacing;
       }
       walked += len;
     }
@@ -576,7 +613,8 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
     for (const part of clipPolyline(road.points, areaRect)) {
       const points = resamplePolyline(part, 16);
       if (points.length < 2 || polylineLength(points) < 4) continue;
-      const y = points.map(([x, z]) => sampleHeight(x, z) + 0.22 + (road.lift || 0));
+      const lifts = liftAlong(road, points);
+      const y = points.map(([x, z], i) => sampleHeight(x, z) + 0.22 + lifts[i]);
       draped.push({ ...road, points, y });
     }
   }
@@ -658,8 +696,8 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
       const deck = road.y.map((y) => y + 0.08);
       appendStrip(buckets, road.points, deck, road.width / 2, ROAD.SIDEWALK, road.bridge ? 10 + (road.lanes || 1) : 0, areaRect);
       if (road.bridge) {
-        appendSkirt(buckets, road.points, deck, road.width / 2, -0.85, areaRect, ROAD.SIDEWALK, 3);
-        appendSkirt(buckets, road.points, road.y, road.width / 2, road.lift || 4, areaRect);
+        appendSkirt(buckets, road.points, deck, road.width / 2, -0.9, areaRect, ROAD.SIDEWALK, 3);
+        appendSkirt(buckets, road.points, road.y, road.width / 2, 0.85, areaRect);
       }
       continue;
     }

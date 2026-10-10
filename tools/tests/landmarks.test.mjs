@@ -12,6 +12,8 @@ test('lane width follows OSM lanes and sidewalks skip bridges', () => {
   assert.equal(sidewalkWidthFor('primary', false), 4.4);
   assert.equal(sidewalkWidthFor('motorway', false), 0);
   assert.equal(sidewalkWidthFor('primary', true), 0);
+  assert.ok(carriageWidth({ lanes: '4', name: '世纪大道' }, 'primary') > 16);
+  assert.equal(sidewalkWidthFor('primary', false, '中山东一路'), 7.2);
 });
 
 test('named towers become landmarks and their parts are not extruded', () => {
@@ -169,6 +171,40 @@ test('swfc aperture is a large hole under a sharp top edge', () => {
     }
   });
   assert.ok(deep < 6, `top edge is still ${deep} m deep`);
+});
+
+test('pearl stands on a stepped circular plinth with stairs', () => {
+  const model = createLandmarks([{ id: 'pearl', x: 0, z: 0, y: 0, h: 468, yaw: 0 }]).children[0];
+  let terraces = 0;
+  let stairs = 0;
+  model.traverse((obj) => {
+    if (obj.userData?.part === 'plinth') terraces += 1;
+    if (obj.userData?.part === 'stair') stairs += 1;
+  });
+  assert.equal(terraces, 12);
+  assert.equal(stairs, 48);
+  const plinth = partBox(model, 'plinth');
+  assert.ok(plinth.max.y > 5 && plinth.max.y < 7);
+  assert.ok(plinth.max.x > 70, 'the lowest terrace is a wide circle');
+  const legs = partBox(model, 'leg');
+  assert.ok(legs.min.y > 4, 'the tripod stands on the upper terrace');
+});
+
+test('white magnolia has an open observation crown', () => {
+  const h = 319.5;
+  const model = createLandmarks([{ id: 'magnolia', x: 0, z: 0, y: 0, h, yaw: 0 }]).children[0];
+  const deck = partBox(model, 'deck');
+  const shaft = partBox(model, 'shaft');
+  const canopy = partBox(model, 'canopy');
+  assert.ok(deck.max.x > shaft.max.x + 3, 'the deck cantilevers past the shaft');
+  assert.ok(canopy.min.y > deck.max.y + 8, 'the viewing level is open under the roof');
+  assert.ok(canopy.max.y > h * 0.98 && canopy.max.y <= h + 0.2);
+  const marks = findLandmarks([{
+    name: '金光中心 (写字楼)', area: 3000, topY: 324, baseY: 4,
+    centroid: [1, 2], rings: [[[0, 0], [50, 0], [50, 40], [0, 40]]],
+  }]);
+  assert.equal(marks[0].id, 'magnolia');
+  assert.ok(marks[0].h >= 319.5);
 });
 
 test('parametric towers stand their full height', () => {
