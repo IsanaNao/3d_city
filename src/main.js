@@ -11,6 +11,7 @@ import { createPost } from './world/post.js';
 import { LampLight } from './world/lamplight.js';
 import { WaterMirror, WATER_LAYER } from './world/mirror.js';
 import { createStreamer, loadCity } from './world/streamer.js';
+import { loadPhotoTextures } from './world/textures.js';
 import { signMaterial } from './world/props.js';
 import { createCarFleet, createTrainMesh, setVehicleMatrix } from './world/vehicles.js';
 
@@ -48,6 +49,12 @@ controls.maxDistance = 4500;
 controls.screenSpacePanning = false;
 controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
 controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+
+if (params.get('photo') !== '0') {
+  loadPhotoTextures(renderer, base).then((ok) => {
+    if (!ok) console.info('No photo textures: run npm run textures. Using procedural surfaces.');
+  }).catch((error) => console.warn('Photo textures failed, using procedural surfaces:', error));
+}
 
 const env = new Environment(scene, renderer);
 const post = createPost(renderer, scene, camera, { ao: params.get('ao') !== '0' });
@@ -188,7 +195,7 @@ async function boot() {
   const city = await loadCity(areaId, base);
   subtitle.textContent = city.manifest.name;
   document.title = `${city.manifest.name} · 上海三维`;
-  credit.innerHTML = `${city.manifest.attribution.osm}<br>${city.manifest.attribution.dem}<br>做法来自 <a href="https://github.com/jeantimex/tokyo">jeantimex/tokyo</a>`;
+  credit.innerHTML = `${city.manifest.attribution.osm}<br>${city.manifest.attribution.dem}<br>照片纹理 Poly Haven · ambientCG (CC0)<br>做法来自 <a href="https://github.com/jeantimex/tokyo">jeantimex/tokyo</a>`;
   await streamer.start(city, signAtlas);
   waterLevel = city.manifest.waterLevel ?? streamer.heightAt(0, 0);
   beyond.position.y = Math.min(waterLevel, city.terrain.heights.reduce((a, b) => Math.min(a, b), Infinity)) - 1.5;

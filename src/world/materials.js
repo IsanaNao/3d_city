@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { FACADE_LAYERS, GROUND_LAYERS, WALL_LAYERS } from '../shared/textures.js';
+import { photoUniforms } from './textures.js';
 
 export const cityUniforms = {
   uNight: { value: 0 },
@@ -55,6 +57,38 @@ if (uLampOn > 0.5) {
 }
 `;
 
+// ---------------------------------------------------------------- photo textures
+// Detail photos (textures.js) are divided by their mean colour, so they carry the
+// pattern of tile, brick or stone while the surface keeps its own colour. Their
+// normal maps go through a screen-space tangent frame, so no tangents are stored.
+const glf = (n) => (Number.isInteger(n) ? `${n}.0` : String(+n.toFixed(6)));
+const layerConsts = (prefix, layers) => layers.map((l, i) => `const float ${prefix}_${l.key.toUpperCase()} = ${glf(i)};`).join('\n');
+const PHOTO_PARS = /* glsl */`
+uniform float uPhotoOn;
+vec2 gUv = vec2(0.0);
+vec3 gNt = vec3(0.0, 0.0, 1.0);
+float gNs = 0.0;
+vec3 photoNormal(vec3 n, vec3 eye, vec2 uv, vec3 m) {
+  vec3 q0 = dFdx(eye), q1 = dFdy(eye);
+  vec2 st0 = dFdx(uv), st1 = dFdy(uv);
+  vec3 q1perp = cross(q1, n), q0perp = cross(n, q0);
+  vec3 T = q1perp * st0.x + q0perp * st1.x;
+  vec3 B = q1perp * st0.y + q0perp * st1.y;
+  float det = max(dot(T, T), dot(B, B));
+  float s = det == 0.0 ? 0.0 : inversesqrt(det);
+  return normalize(T * (m.x * s) + B * (m.y * s) + n * m.z);
+}
+// the photos are stored top row first and sampled with v growing downwards
+vec3 readNormal(sampler2DArray map, vec2 uv, float layer) {
+  vec3 m = texture(map, vec3(uv, layer)).xyz * 2.0 - 1.0;
+  return vec3(m.x, -m.y, m.z);
+}
+`;
+const PHOTO_NORMAL = /* glsl */`
+#include <normal_fragment_maps>
+normal = photoNormal(normal, -vViewPosition, gUv, normalize(mix(vec3(0.0, 0.0, 1.0), gNt, gNs)));
+`;
+
 const WORLD_VERT_PARS = 'varying vec3 vWorld;\nvarying vec3 vWn;';
 const WORLD_VERT_SET = 'vWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWn = normalize(mat3(modelMatrix) * objectNormal);';
 
@@ -79,8 +113,44 @@ ${WORLD_VERT_PARS}
 float gRough, gMetal;
 vec3 gEmissive = vec3(0.0);
 vec3 gGlint = vec3(0.0);
+uniform sampler2DArray uWallAlb;
+uniform sampler2DArray uWallNor;
+uniform sampler2DArray uFacade;
+uniform vec3 uWallMean[${WALL_LAYERS.length}];
+uniform vec2 uWallScale[${WALL_LAYERS.length}];
+${layerConsts('W', WALL_LAYERS)}
+${PHOTO_PARS}
 ${NOISE}
+// Which photo a building wears: a detail layer for plain walls (and the parapet of
+// photo-facade towers), and optionally a whole-facade photo with its own windows.
+void pickPhoto(float kind, float height, float sf, bool glassy, out float layer, out float photo) {
+  float p = fract(sf * 7.31), q = fract(sf * 13.7);
+  photo = -1.0;
+  if (kind > 5.5) layer = W_STONE;
+  else if (glassy) { layer = W_CONCRETE; photo = p < 0.55 ? 0.0 : 1.0; }
+  else if (kind > 1.5 && kind < 3.5) {
+    layer = q < 0.5 ? W_CONCRETE : W_CLADDING;
+    if (height > 60.0 && p < 0.55) photo = p < 0.28 ? 0.0 : 1.0;
+    else if (height > 12.0 && p > 0.7) photo = 3.0;
+  } else if (kind > 0.5 && kind < 1.5) {
+    if (height < 13.0) layer = p < 0.45 ? W_BRICK_MIXED : p < 0.7 ? W_BRICK : W_PLASTER;
+    else {
+      layer = q < 0.6 ? W_TILE : W_MOSAIC;
+      if (p < 0.16) photo = 2.0;
+    }
+  } else if (kind > 3.5 && kind < 4.5) layer = p < 0.6 ? W_METAL : W_CONCRETE;
+  else if (kind > 4.5) layer = W_CONCRETE;
+  else if (height > 30.0) layer = p < 0.5 ? W_TILE : W_CONCRETE;
+  else layer = p < 0.45 ? W_PLASTER : p < 0.7 ? W_BRICK_MIXED : p < 0.85 ? W_MOSAIC : W_CONCRETE;
+}
+// Brick keeps the colour of the photographed brick; other layers take the building's.
+float ownColour(float layer) {
+  return layer == W_BRICK ? 0.85 : layer == W_BRICK_MIXED ? 0.75 : layer == W_STONE ? 0.25 : 0.0;
+}
 `;
+
+// Each facade photo dictates the window grid: storey height, bay width and opening.
+const FACADE_GRID = FACADE_LAYERS.map((l, i) => `if (photo == ${glf(i)}) { floorH = ${glf(l.floor)}; pitch = ${glf(l.floor * l.aspect)}; r = vec4(${l.win.map(glf).join(', ')}); pgrid = vec4(${glf(l.grid[0])}, ${glf(l.grid[1])}, ${glf(l.offset[0])}, ${glf(l.offset[1])}); }`).join('\n      else ');
 
 const FACADE_MAIN = /* glsl */`
 {
@@ -101,6 +171,18 @@ const FACADE_MAIN = /* glsl */`
   wall *= 0.95 + 0.1 * vnoise(st * vec2(1.7, 3.1) + seed);
   gRough = 0.86; gMetal = 0.0;
 
+  float layer = -1.0, photo = -1.0, gGrime = 1.0;
+  if (uPhotoOn > 0.5) {
+    pickPhoto(kind, height, sf, glassy, layer, photo);
+    if (isRoof) { layer = W_ROOF; photo = -1.0; }
+    int li = int(layer);
+    gUv = (isRoof ? vec2(vWorld.x, -vWorld.z) : vec2(vWall.x, -v)) * uWallScale[li] + fract(sf * vec2(13.1, 7.7));
+    vec3 tex = texture(uWallAlb, vec3(gUv, layer)).rgb;
+    wall = mix(wall * tex / uWallMean[li], tex * (0.9 + 0.2 * vnoise(st * 0.11 + seed * 0.37)), ownColour(layer));
+    gNt = readNormal(uWallNor, gUv, layer);
+    gNs = 1.0;
+  }
+
   if (isRoof) {
     if (gN.y > 0.62) {
       // concrete roofs: lighter and greyer than the walls, with patched membranes
@@ -116,6 +198,7 @@ const FACADE_MAIN = /* glsl */`
         + (1.0 - smoothstep(0.0, 1.6, v)) * 0.12
         + smoothstep(height - 2.5, height, v) * streak * 0.14;
       wall *= 1.0 - grime;
+      gGrime = 1.0 - grime;
     }
     // Bund stonework is floodlit from below at night.
     if (kind > 5.5) gEmissive += wall * vec3(1.0, 0.66, 0.32) * uNight * (0.16 + 0.34 * (1.0 - smoothstep(0.0, height, v)));
@@ -134,6 +217,11 @@ const FACADE_MAIN = /* glsl */`
     else if (kind < 5.5) { office = 1.0; }
     else { floorH = 4.4; pitch = 3.4; r = vec4(0.3, 0.7, 0.24, 0.84); office = 1.0; }
     if (glassy) { floorH = 3.9; pitch = 1.5; r = vec4(0.0, 1.0, 0.24, 1.0); office = 1.0; }
+    vec4 pgrid = vec4(1.0, 1.0, 0.0, 0.0);
+    if (photo > -0.5) {
+      ${FACADE_GRID}
+      if (photo < 1.5) office = 1.0;
+    }
 
     float cols = max(1.0, floor(vWall.y / pitch + 0.5));
     float cellW = max(vWall.y, 0.5) / cols;
@@ -146,9 +234,17 @@ const FACADE_MAIN = /* glsl */`
 
     bool shop = row < 0.5 && (kind > 2.5 && kind < 3.5 || kind > 5.5 && height < 40.0 || kind < 0.5 && height < 24.0);
     if (shop) r = vec4(0.05, 0.95, 0.03, 0.8);
+    bool usePhoto = photo > -0.5 && !shop;
+    vec4 ph = vec4(0.0);
+    if (usePhoto) {
+      // shift each building's photo by whole cells so neighbours differ
+      vec2 puv = vec2((u + pgrid.z) / pgrid.x, -(fyAll + pgrid.w) / pgrid.y) + floor(fract(sf * vec2(5.3, 3.7)) * pgrid.xy) / pgrid.xy;
+      ph = texture(uFacade, vec3(puv, photo));
+    }
     float valid = 1.0;
-    if (kind < 1.5 && !shop) valid *= step(0.18, hash12(room + 41.0));
-    float inWin = box(fx, r.x, r.y, wx) * box(fy, r.z, r.w, wy) * valid;
+    if (kind < 1.5 && !shop && !usePhoto) valid *= step(0.18, hash12(room + 41.0));
+    float inWin = usePhoto ? smoothstep(0.25, 0.75, ph.a) : box(fx, r.x, r.y, wx) * box(fy, r.z, r.w, wy) * valid;
+    gNs *= usePhoto ? 0.0 : 1.0 - inWin;
 
     // frame and mullions, in metres from the window edge
     vec2 wmin = vec2(r.x * cellW, r.z * floorH), wmax = vec2(r.y * cellW, r.w * floorH);
@@ -160,7 +256,7 @@ const FACADE_MAIN = /* glsl */`
     float mx = fract((pm.x - wmin.x) / max(wmax.x - wmin.x, 0.01) * panes);
     float mw = 0.03 * panes / max(wmax.x - wmin.x, 0.01);
     frame = max(frame, panes > 1.5 ? 1.0 - box(mx, mw, 1.0 - mw, max(fwidth(mx), 1e-4)) : 0.0);
-    frame *= 1.0 - far;
+    frame *= usePhoto ? 0.0 : 1.0 - far;
     float pane = inWin * (1.0 - frame);
 
     // interior mapping: the view ray meets a room box behind the glass
@@ -205,6 +301,13 @@ const FACADE_MAIN = /* glsl */`
 
     vec3 glassTint = glassy ? mix(vec3(0.2, 0.3, 0.38), vec3(0.3, 0.33, 0.34), fract(sf * 5.7)) : vec3(0.1, 0.11, 0.12);
     vec3 frameCol = fract(sf * 3.3) < 0.5 ? vec3(0.16, 0.17, 0.18) : vec3(0.62, 0.63, 0.63);
+    if (usePhoto) {
+      // the photo's own colours, nudged towards the building's tint
+      vec3 tintBy = diffuseColor.rgb / max(dot(diffuseColor.rgb, vec3(0.333)), 1e-3);
+      vec3 pc = ph.rgb * mix(vec3(1.0), tintBy, 0.2) * (0.85 + 0.3 * fract(sf * 9.1));
+      diffuseColor.rgb = pc * gGrime;
+      glassTint = mix(pc, glassTint, 0.25);
+    }
     diffuseColor.rgb = mix(diffuseColor.rgb, frameCol, inWin * frame);
     diffuseColor.rgb = mix(diffuseColor.rgb, glassTint, pane);
     gRough = mix(gRough, 0.45, inWin * frame);
@@ -245,7 +348,7 @@ const FACADE_MAIN = /* glsl */`
       gEmissive = mix(gEmissive, accentCol * dot(gEmissive, vec3(0.9)), accent * 0.8);
     }
     // the lintel shades the top of the opening
-    diffuseColor.rgb *= 1.0 - 0.35 * inWin * (1.0 - smoothstep(0.0, 0.18, wmax.y - pm.y)) * (1.0 - far);
+    if (!usePhoto) diffuseColor.rgb *= 1.0 - 0.35 * inWin * (1.0 - smoothstep(0.0, 0.18, wmax.y - pm.y)) * (1.0 - far);
     if (shop) {
       float sign = box(fy, 0.84, 0.985, wy) * box(fx, 0.03, 0.97, wx) * step(0.25, hash12(room + 57.0));
       vec3 sc = mix(hue(hash12(room + 71.0)), vec3(0.95), 0.35 * step(0.6, hash12(room + 83.0)));
@@ -258,7 +361,7 @@ const FACADE_MAIN = /* glsl */`
 `;
 
 function patchFacade(shader) {
-  Object.assign(shader.uniforms, cityUniforms);
+  Object.assign(shader.uniforms, cityUniforms, photoUniforms);
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', `#include <common>
       attribute float aSeed;
@@ -285,6 +388,7 @@ function patchFacade(shader) {
     .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = gRough;')
     .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = gMetal;')
     .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += gEmissive;')
+    .replace('#include <normal_fragment_maps>', PHOTO_NORMAL)
     // the direct diffuse light is zero in shadow: it tells whether the sun reaches this pane
     .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular += gGlint * smoothstep(0.0, 0.002, dot(reflectedLight.directDiffuse, vec3(0.333)));');
 }
@@ -292,21 +396,30 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-3';
+  material.customProgramCacheKey = () => 'sh-facade-4';
   return material;
 }
 
 // ---------------------------------------------------------------- ground
 // Land cover and terrain: vertex colours are sRGB; texture comes from noise.
+const GROUND_PARS = /* glsl */`
+uniform sampler2DArray uGroundAlb;
+uniform sampler2DArray uGroundNor;
+uniform vec3 uGroundMean[${GROUND_LAYERS.length}];
+uniform vec2 uGroundScale[${GROUND_LAYERS.length}];
+${layerConsts('G', GROUND_LAYERS)}
+${PHOTO_PARS}
+`;
+
 export function createGroundMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0 });
   material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, cityUniforms);
+    Object.assign(shader.uniforms, cityUniforms, photoUniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${WORLD_VERT_PARS}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\n${WORLD_VERT_SET}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${WORLD_VERT_PARS}\n${LAMP_PARS}\n${NOISE}`)
+      .replace('#include <common>', `#include <common>\n${WORLD_VERT_PARS}\n${LAMP_PARS}\n${NOISE}\n${GROUND_PARS}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         {
           vec3 c = pow(diffuseColor.rgb, vec3(2.2));
@@ -318,11 +431,23 @@ export function createGroundMaterial() {
           float turf = dot(c, vec3(0.3, 0.59, 0.11));
           c = mix(c, mix(vec3(turf), c, 0.6) * vec3(1.22, 1.12, 0.72) * 1.3, green);
           c *= (0.93 + 0.14 * blotch) * (0.95 + 0.1 * grain);
+          if (uPhotoOn > 0.5) {
+            vec2 uv = vec2(vWorld.x, -vWorld.z);
+            int gi = int(G_GRASS), pi = int(G_PAVEMENT);
+            vec2 uvG = uv * uGroundScale[gi], uvP = uv * uGroundScale[pi];
+            vec3 grassTex = texture(uGroundAlb, vec3(uvG, G_GRASS)).rgb / uGroundMean[gi];
+            vec3 paveTex = texture(uGroundAlb, vec3(uvP, G_PAVEMENT)).rgb / uGroundMean[pi];
+            c *= mix(paveTex, grassTex, green);
+            gUv = green > 0.5 ? uvG : uvP;
+            gNt = readNormal(uGroundNor, gUv, green > 0.5 ? G_GRASS : G_PAVEMENT);
+            gNs = 0.8;
+          }
           diffuseColor.rgb = c;
         }`)
+      .replace('#include <normal_fragment_maps>', PHOTO_NORMAL)
       .replace('#include <lights_fragment_end>', LAMP_READ);
   };
-  material.customProgramCacheKey = () => 'sh-ground-1';
+  material.customProgramCacheKey = () => 'sh-ground-2';
   return material;
 }
 
@@ -335,7 +460,24 @@ const ROAD = /* glsl */`
   if (cls < 0.5) col *= 0.9;
   if (vFlags > 0.5 && vFlags < 1.5) col *= 0.6;
   float rough = 0.86 - 0.1 * grain;
-  if (cls > 7.5 && cls < 8.5) {
+  vec2 ruv = vec2(vWorld.x, -vWorld.z);
+  if (uPhotoOn > 0.5 && cls < 7.5) {
+    int ai = int(G_ASPHALT);
+    gUv = ruv * uGroundScale[ai];
+    vec3 det = texture(uGroundAlb, vec3(gUv, G_ASPHALT)).rgb / uGroundMean[ai];
+    col *= det;
+    gNt = readNormal(uGroundNor, gUv, G_ASPHALT);
+    gNs = 0.7;
+  }
+  if (cls > 7.5 && cls < 8.5 && uPhotoOn > 0.5) {
+    int pi = int(G_PAVERS);
+    gUv = ruv * uGroundScale[pi];
+    vec3 det = texture(uGroundAlb, vec3(gUv, G_PAVERS)).rgb / uGroundMean[pi];
+    col = vec3(0.3, 0.295, 0.28) * det * (0.92 + 0.16 * grain);
+    gNt = readNormal(uGroundNor, gUv, G_PAVERS);
+    gNs = 1.0;
+    rough = 0.88;
+  } else if (cls > 7.5 && cls < 8.5) {
     // pavement: pale concrete slabs in running bond, fading out when smaller than a pixel
     vec2 q = vec2(along, across * 2.0) / vec2(0.6, 0.3);
     q.x += 0.5 * mod(floor(q.y), 2.0);
@@ -362,7 +504,9 @@ const ROAD = /* glsl */`
     float dash = step(0.45, fract(along / 9.0));
     float center = (1.0 - smoothstep(0.0, 0.03, abs(across))) * dash;
     if (cls > 4.5) center *= 0.25;
-    col = mix(col, vec3(0.62, 0.62, 0.58) * (0.85 + 0.2 * grain), clamp(edgeLine + center, 0.0, 1.0) * 0.9);
+    float paint = clamp(edgeLine + center, 0.0, 1.0) * 0.9;
+    col = mix(col, vec3(0.62, 0.62, 0.58) * (0.85 + 0.2 * grain), paint);
+    gNs *= 1.0 - 0.6 * paint;
   }
   diffuseColor.rgb = col;
   roughnessFactor = rough;
@@ -371,7 +515,7 @@ const ROAD = /* glsl */`
 export function createRoadMaterial() {
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, cityUniforms);
+    Object.assign(shader.uniforms, cityUniforms, photoUniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         attribute vec2 aRoad;
@@ -394,12 +538,14 @@ export function createRoadMaterial() {
         varying float vFlags;
         ${WORLD_VERT_PARS}
         ${LAMP_PARS}
-        ${NOISE}`)
+        ${NOISE}
+        ${GROUND_PARS}`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         ${ROAD}`)
+      .replace('#include <normal_fragment_maps>', PHOTO_NORMAL)
       .replace('#include <lights_fragment_end>', LAMP_READ);
   };
-  material.customProgramCacheKey = () => 'sh-road-2';
+  material.customProgramCacheKey = () => 'sh-road-3';
   material.polygonOffset = true;
   material.polygonOffsetFactor = -1;
   material.polygonOffsetUnits = -1;

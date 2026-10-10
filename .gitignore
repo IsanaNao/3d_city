@@ -5,6 +5,8 @@ dist/
 # Raw downloads and compiled city tiles can be large. Rebuild with npm run pipeline.
 data/
 public/tiles/
+# CC0 photo textures, packed to KTX2 by npm run textures
+public/textures/
 
 *.log
 .DS_Store

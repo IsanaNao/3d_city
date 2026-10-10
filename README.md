@@ -8,7 +8,7 @@
 
 做法来自 [jeantimex/tokyo](https://github.com/jeantimex/tokyo)（[MIT](https://github.com/jeantimex/tokyo/blob/master/LICENSE)）。东京那个项目用 PLATEAU 的建筑和地形、程序化立面、昼夜灯光、沿路行驶的车辆，以及分块加载。本仓库是按同样的四条思路为上海写的独立实现，没有复制 tokyo 的源代码。PLATEAU 只覆盖日本，所以这里改用 OpenStreetMap 和公开高程。
 
-地图数据 © [OpenStreetMap](https://www.openstreetmap.org/copyright) 贡献者，许可为 ODbL。高程来自 [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) 上的 Mapzen Terrarium（含 SRTM 等公开 DEM）；Terrarium 下载失败时会改用 [Open-Meteo](https://open-meteo.com/) 的 Copernicus DEM 采样。
+地图数据 © [OpenStreetMap](https://www.openstreetmap.org/copyright) 贡献者，许可为 ODbL。高程来自 [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) 上的 Mapzen Terrarium（含 SRTM 等公开 DEM）；Terrarium 下载失败时会改用 [Open-Meteo](https://open-meteo.com/) 的 Copernicus DEM 采样。墙面、屋顶、路面和地面的照片纹理来自 [Poly Haven](https://polyhaven.com) 和 [ambientCG](https://ambientcg.com)，全部是 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)（公有领域），清单见下文。
 
 ## 准备数据
 
@@ -42,6 +42,14 @@ npm run pipeline -- --area=bund
 
 市中心建筑密集，范围加大后 Overpass 查询和编译都会更慢，瓦片也会变多。先用默认小范围确认浏览正常，再往外扩。
 
+照片纹理同样不进 git（`public/textures/` 和下载缓存 `data/textures/`）。安装依赖后执行一次：
+
+```bash
+npm run textures
+```
+
+脚本按 `src/shared/textures.js` 里的清单下载 1K JPG，收成带完整 mip 链的 KTX2 纹理数组（Basis UASTC，显卡上转成 BC7 / ASTC 等压缩格式）。没有这些文件时，立面和地面退回程序化表面，页面照常打开。加 `--force` 会重新下载。
+
 ### 管线在做什么
 
 1. 用 Overpass 拉取建筑（含 `height` / `building:levels` / `building:part`）、道路、信号灯、铁路与地铁、水面、公园和广场。
@@ -65,7 +73,7 @@ npm run dev
 - 点一栋建筑可以看名称、用途和大致高度。
 - 「俯瞰 / 外滩 / 陆家嘴」是三个固定机位。地址栏也可以直接指定：`?view=overview`、`?view=bund`、`?view=lujiazui`，以及 `?time=21` 或 `?night=1`。
 - 任意机位：`?cam=x,y,z&look=x,y,z`（局部米制坐标，X 向东、Y 向上、Z 向南），方便截图和多角度录屏复现同一个画面。
-- 画质开关：`?ao=0` 关闭环境光遮蔽，`?mirror=0` 关闭江面实时倒影（这两项最耗 GPU），`?clouds=0.5` 打开程序化云层。
+- 画质开关：`?ao=0` 关闭环境光遮蔽，`?mirror=0` 关闭江面实时倒影（这两项最耗 GPU），`?clouds=0.5` 打开程序化云层，`?photo=0` 关闭照片纹理。
 
 还没有瓦片时，页面会停在说明，而不是黑屏。
 
@@ -93,9 +101,12 @@ src/world/              瓦片流式加载、立面/地面/水面/天空着色�
 src/sim/                右侧通行、信号灯、跟车、地铁
 src/shared/             投影、二进制瓦片、建筑高度、网格生成（浏览器和 Node 共用）
 tools/pipeline/         下载、几何裁剪、路网、编译
-tools/tests/            格式、几何、交通和编译测试
+tools/assets/           CC0 照片纹理的下载与 KTX2 打包
+tools/tests/            格式、几何、交通、纹理和编译测试
 public/tiles/           编译输出（不入库）
+public/textures/        打包后的纹理数组（不入库）
 data/raw/               OSM 与高程缓存（不入库）
+data/textures/          纹理原图缓存（不入库）
 ```
 
 瓦片头是 `SHG1`（格式版本 2，含屋顶形状与屋顶高度），地形头是 `DEM1`，都是小端二进制。一块瓦片里有裁好的建筑环（边上的共享边不生成内墙）、地面、道路三角带，以及树木、路灯、空调、水箱和招牌的实例点。旧版瓦片需要重新 `npm run compile`。
@@ -107,6 +118,7 @@ data/raw/               OSM 与高程缓存（不入库）
 - 窗户按每面墙的长度排成整数列，转角处不会切开窗户；窗户边缘用屏幕空间导数抗锯齿，窗户小到一两个像素时淡出为平均亮度，远处不会出现闪烁的颗粒。
 - 窗户有窗框和竖梃，玻璃后面用 interior mapping 画出房间的进深；夜里亮灯的房间光从房间里某盏灯发出，向窗角衰减，一部分窗拉着窗帘，光会溢到窗框和墙上。高塔夜里大多是暗玻璃，只有几层成带亮着，少数塔楼整栋一种颜色。外滩的历史建筑夜里有暖色泛光。
 - 白天玻璃是金属度高、粗糙度低的 PBR 面，反射天空环境贴图，并带太阳的镜面高光；墙面有雨痕、墙脚污渍和檐下水渍。
+- 照片纹理按用途和高度选层，再乘上建筑自己的颜色：高层住宅用白瓷砖或马赛克，低层住宅用红砖、青红砖或抹灰，办公和商业用混凝土板或挂板，厂房用压型钢板，外滩历史建筑用砂岩块石，平屋顶用旧混凝土。玻璃幕墙和一部分较高的办公楼、住宅改贴整张立面照片（ambientCG），照片自带的玻璃遮罩决定哪些像素是窗户，夜里的房间灯光、窗帘和太阳高光仍落在这些窗格上。沥青、人行道砖、草地和广场铺装铺在道路和地面上。纹理坐标按世界米缩放，法线在屏幕空间重建，不用另存切线。黄浦江仍是实时倒影，没有用水面照片。
 
 ### 光照与后处理（对齐 tokyo 的做法）
 
@@ -122,12 +134,41 @@ data/raw/               OSM 与高程缓存（不入库）
 
 还比较粗的地方：
 
-- 没有 PLATEAU 那种带 LOD 的实测建筑模型，形体是 OSM 脚印和 `building:part` 拉高，只支持穹顶、尖顶和洋葱顶几种屋顶；上海中心的扭转、环球金融中心的开口要靠 OSM 分段近似。窗户和招牌是着色器和实例，不是逐栋贴图。
+- 没有 PLATEAU 那种带 LOD 的实测建筑模型，形体是 OSM 脚印和 `building:part` 拉高，只支持穹顶、尖顶和洋葱顶几种屋顶；上海中心的扭转、环球金融中心的开口要靠 OSM 分段近似。窗户和招牌是着色器和可平铺的立面照片，不是逐栋航拍。
 - 交通是单车道的右侧偏移，没有真实车道数展开、变道和行人。
 - 地铁在地面或略高于地面的路径上移动；隧道不会真正进入地下空间。
 - 高程被压成平原上的缓坡，用来避免雷达楼体，不是厘米级地形。
-- 没有 tokyo 用到的 PLATEAU 墙面与屋顶航拍纹理、Poly Haven 材质贴图、takram 物理大气与体积云、屏幕空间窗户反射和镜头光晕；对应部分用程序化噪声、解析天空和简化的大气透射代替。也没有城市级范围。
+- 没有 tokyo 用到的 PLATEAU 墙面与屋顶航拍（那些纹理不能再分发）。卫星和街景同样不用：OpenAerialMap 在这一带只有约 1 公里分辨率的影像，单幅许可也不明确；Google、Esri、Mapbox、百度等航拍和街景都不能再分发。墙面和地面改用下面这些 CC0 照片。也没有 takram 体积云、屏幕空间窗户反射和镜头光晕，天空仍是解析模型。范围也不是全市。
+
+## 照片纹理
+
+每张都是 CC0 1.0，可以商用、可以再分发、不要求署名。这里仍记下作者和原地址。
+
+墙面和屋顶是细节纹理：打包时记下线性平均色，着色器用它除掉照片自身的颜色，建筑顶点色才透得出来。立面照片保留原色，金属度图放在 alpha 里当作玻璃遮罩。
+
+| 层 | 用在 | 来源 | 作者 | 许可 |
+| --- | --- | --- | --- | --- |
+| `tile` | 高层住宅白瓷砖 | [Long White Tiles](https://polyhaven.com/a/long_white_tiles) | Jenelle van Heerden, Sergej Majboroda | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `mosaic` | 八九十年代住宅马赛克 | [Rounded Square Tiled Wall](https://polyhaven.com/a/rounded_square_tiled_wall) | Charlotte Baglioni | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `brick` | 红砖里弄 | [Red Brick 03](https://polyhaven.com/a/red_brick_03) | Rob Tuytel | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `brick_mixed` | 石库门青红砖 | [Mixed Brick Wall](https://polyhaven.com/a/mixed_brick_wall) | Dimitrios Savva | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `concrete` | 办公楼石材 / 混凝土板 | [Concrete Panels](https://polyhaven.com/a/concrete_panels) | Amal Kumar | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `cladding` | 商业楼外墙挂板 | [Exterior Wall Cladding](https://polyhaven.com/a/exterior_wall_cladding) | Charlotte Baglioni | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `stone` | 外滩历史建筑块石 | [Sandstone Blocks 08](https://polyhaven.com/a/sandstone_blocks_08) | Rob Tuytel | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `plaster` | 抹灰墙 | [Grey Plaster](https://polyhaven.com/a/grey_plaster) | Rob Tuytel | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `metal` | 厂房压型钢板 | [Box Profile Metal Sheet](https://polyhaven.com/a/box_profile_metal_sheet) | Amal Kumar | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `roof` | 平屋顶 | [Concrete Floor Worn 001](https://polyhaven.com/a/concrete_floor_worn_001) | Dimitrios Savva, Rico Cilliers | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `asphalt` | 沥青路面 | [Asphalt 02](https://polyhaven.com/a/asphalt_02) | Rob Tuytel | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `pavers` | 人行道砖 | [Concrete Pavers](https://polyhaven.com/a/concrete_pavers) | Amal Kumar | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `grass` | 草地 | [Leafy Grass](https://polyhaven.com/a/leafy_grass) | Charlotte Baglioni | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `pavement` | 广场和空地 | [Concrete Pavement](https://polyhaven.com/a/concrete_pavement) | Charlotte Baglioni | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `glass_panels` | 整块玻璃幕墙 | [Facade001](https://ambientcg.com/view?id=Facade001) | ambientCG (Lennart Demes) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `glass_bands` | 带窗间墙的玻璃幕墙 | [Facade006](https://ambientcg.com/view?id=Facade006) | ambientCG (Lennart Demes) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `brick_windows` | 砖墙方窗 | [Facade018A](https://ambientcg.com/view?id=Facade018A) | ambientCG (Lennart Demes) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `concrete_windows` | 混凝土方窗 | [Facade019A](https://ambientcg.com/view?id=Facade019A) | ambientCG (Lennart Demes) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+
+Poly Haven 的条目在 [polyhaven.com](https://polyhaven.com/license)，ambientCG 的在 [ambientcg.com/about](https://ambientcg.com/about)；两处都声明材质为 CC0。`npm run textures` 还会在 `public/textures/CREDITS.md` 再写一份同样的清单。
 
 ## 许可
 
-本仓库代码使用 [MIT License](LICENSE)。OpenStreetMap 数据另行适用 ODbL，不能把数据的许可说成 MIT。
+本仓库代码使用 [MIT License](LICENSE)。OpenStreetMap 数据另行适用 ODbL，不能把数据的许可说成 MIT。照片纹理另行适用 CC0 1.0，不能把它们的许可说成 MIT。
