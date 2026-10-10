@@ -54,7 +54,15 @@ function add(group, geo, mat) {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  mesh.frustumCulled = false;
+  geo.computeBoundingSphere();
   group.add(mesh);
+  return mesh;
+}
+
+function tag(mesh, part, angle) {
+  mesh.userData.part = part;
+  if (angle != null) mesh.userData.angle = angle;
   return mesh;
 }
 
@@ -64,53 +72,97 @@ function sphere(r, y, mat) {
   return { geo, mat };
 }
 
+const concrete = new THREE.MeshStandardMaterial({ color: 0xc3ccd4, metalness: 0.35, roughness: 0.48 });
+
+// Published figures for the 468 m tower, scaled if a different height is passed in.
+// Lower sphere Ø50 m at 93 m, upper Ø45 m at 272.5 m, space capsule Ø16 m at 342 m.
+// Three 9 m columns link the large spheres; three splayed legs carry them from the ground.
+function pearlMeasures(h) {
+  const s = h / 468;
+  return {
+    s,
+    lowerC: 93 * s,
+    lowerR: 25 * s,
+    upperC: 272.5 * s,
+    upperR: 22.5 * s,
+    capsuleC: 342 * s,
+    capsuleR: 8 * s,
+    legR: 5.6 * s,
+    shaftR: 4.5 * s,
+    foot: 64 * s,
+  };
+}
+
+function along(angle, radius, y) {
+  return new THREE.Vector3(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+}
+
+function tube(group, points, radius, mat, part, angle) {
+  const curve = points.length === 2
+    ? new THREE.LineCurve3(points[0], points[1])
+    : new THREE.CatmullRomCurve3(points);
+  const geo = new THREE.TubeGeometry(curve, Math.max(2, (points.length - 1) * 6), radius, 12, false);
+  return tag(add(group, geo, mat), part, angle);
+}
+
 function pearl(h) {
   const g = new THREE.Group();
-  const lowerY = h * 0.205;
-  const upperY = h * 0.555;
-  const angles = [0, 1, 2].map((k) => (k / 3) * Math.PI * 2 + 0.35);
-  const spreadAt = (t) => 6.5 + 38 * (1 - t) ** 1.25;
-  const column = (angle, t0, t1) => {
-    const pts = [];
-    const steps = Math.max(2, Math.round((t1 - t0) * 24));
-    for (let i = 0; i <= steps; i++) {
-      const t = t0 + (t1 - t0) * (i / steps);
-      const spread = spreadAt(t);
-      pts.push(new THREE.Vector3(Math.cos(angle) * spread, t * upperY, Math.sin(angle) * spread));
-    }
-    add(g, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), steps, 2.7, 8, false), steel);
-  };
+  const m = pearlMeasures(h);
+  // One leg toward the usual southeast view, so the tripod reads in the close camera.
+  const angles = [0, 1, 2].map((k) => (k / 3) * Math.PI * 2 + 0.85);
+  const bury = (point, toward, radius) => point.clone().lerp(toward, radius / point.distanceTo(toward));
+
   for (const angle of angles) {
-    column(angle, 0, 0.18);
-    column(angle, 0.56, 0.9);
-    const podT = 0.66;
-    const spread = spreadAt(podT);
-    add(g, new THREE.SphereGeometry(7.2, 16, 12).translate(Math.cos(angle) * spread, podT * upperY, Math.sin(angle) * spread), pearlMat);
+    const foot = along(angle, m.foot, 2.2);
+    const socket = along(angle, 15 * m.s, m.lowerC - 6 * m.s);
+    const knee = foot.clone().lerp(socket, 0.45);
+    knee.add(along(angle, 7 * m.s, 0));
+    const legEnd = bury(socket, along(angle, 12 * m.s, m.lowerC), m.legR);
+    tube(g, [foot, knee, legEnd], m.legR, concrete, 'leg', angle);
+
+    const pod = foot.clone().lerp(legEnd, 0.42);
+    tag(add(g, new THREE.SphereGeometry(6.2 * m.s, 16, 12).translate(pod.x, pod.y, pod.z), pearlMat), 'pod', angle);
+
+    const emerge = along(angle, 15 * m.s, m.lowerC + 8 * m.s);
+    const arrive = along(angle, 10 * m.s, m.upperC);
+    const shaftEnd = bury(arrive, along(angle, 8 * m.s, m.upperC + m.upperR), m.shaftR);
+    tube(g, [emerge, shaftEnd], m.shaftR, concrete, 'shaft', angle);
   }
-  for (const t of [0.12, 0.72, 0.84]) {
-    const y = t * upperY;
-    const spread = spreadAt(t);
-    const ring = angles.map((angle) => new THREE.Vector3(Math.cos(angle) * spread, y, Math.sin(angle) * spread));
-    for (let i = 0; i < ring.length; i++) {
-      const a = ring[i];
-      const b = ring[(i + 1) % ring.length];
-      add(g, new THREE.TubeGeometry(new THREE.LineCurve3(a, b), 1, 0.65, 5, false), steel);
-    }
+
+  // Five 12 m spheres and the rings that tie the three columns together.
+  const beads = [0.28, 0.28, 0.28, 0.62, 0.62];
+  beads.forEach((t, i) => {
+    const angle = angles[i % 3] + (i >= 3 ? 0.22 : 0);
+    const y = m.lowerC + m.lowerR + (m.upperC - m.upperR - (m.lowerC + m.lowerR)) * t;
+    const radial = (15 - 5 * t) * m.s;
+    tag(add(g, new THREE.SphereGeometry(6 * m.s, 16, 12).translate(Math.cos(angle) * radial, y, Math.sin(angle) * radial), pearlMat), 'bead', angle);
+  });
+  for (const t of [0.22, 0.42, 0.62, 0.82]) {
+    const y = m.lowerC + m.lowerR + (m.upperC - m.upperR - (m.lowerC + m.lowerR)) * t;
+    const radial = (16 - 6 * t) * m.s;
+    const ring = angles.map((angle) => along(angle, radial, y));
+    for (let i = 0; i < ring.length; i++) tube(g, [ring[i], ring[(i + 1) % ring.length]], 1.15 * m.s, concrete, 'brace');
   }
-  const lowerR = h * 0.054;
-  const upperR = h * 0.046;
-  add(g, sphere(lowerR, lowerY, pearlMat).geo, pearlMat);
-  add(g, new THREE.TorusGeometry(lowerR + 0.6, 0.7, 8, 32).rotateX(Math.PI / 2).translate(0, lowerY, 0), pearlBand);
-  add(g, sphere(upperR, upperY, pearlMat).geo, pearlMat);
-  add(g, new THREE.TorusGeometry(upperR + 0.5, 0.55, 8, 28).rotateX(Math.PI / 2).translate(0, upperY + upperR * 0.35, 0), pearlBand);
-  const capsuleY = upperY + upperR + h * 0.055;
-  add(g, sphere(h * 0.016, capsuleY, pearlMat).geo, pearlMat);
-  const mastH = h - (capsuleY + h * 0.02);
-  const spire = new THREE.CylinderGeometry(0.28, 1.15, mastH, 8);
-  spire.translate(0, capsuleY + h * 0.02 + mastH / 2, 0);
-  add(g, spire, steel);
-  add(g, new THREE.SphereGeometry(1.15, 10, 8).translate(0, h * 0.995, 0), beaconMat);
-  add(g, new THREE.CylinderGeometry(14, 20, 5.5, 18).translate(0, 2.6, 0), dark);
+  for (const t of [0.28, 0.62]) {
+    const y = 4 + (m.lowerC - m.lowerR) * t;
+    const radial = m.foot * (1 - t * 0.72);
+    const ring = angles.map((angle) => along(angle, radial, y));
+    for (let i = 0; i < ring.length; i++) tube(g, [ring[i], ring[(i + 1) % ring.length]], 1.3 * m.s, concrete, 'brace');
+  }
+
+  tag(add(g, sphere(m.lowerR, m.lowerC, pearlMat).geo, pearlMat), 'lower-sphere');
+  add(g, new THREE.TorusGeometry(m.lowerR + 0.8, 0.9 * m.s, 8, 36).rotateX(Math.PI / 2).translate(0, m.lowerC, 0), pearlBand);
+  tag(add(g, sphere(m.upperR, m.upperC, pearlMat).geo, pearlMat), 'upper-sphere');
+  add(g, new THREE.TorusGeometry(m.upperR + 0.7, 0.75 * m.s, 8, 32).rotateX(Math.PI / 2).translate(0, m.upperC + m.upperR * 0.25, 0), pearlBand);
+
+  tube(g, [along(0, 0, m.upperC + m.upperR * 0.35), along(0, 0, m.capsuleC + m.capsuleR * 0.4)], 2.4 * m.s, concrete, 'mast');
+  tag(add(g, sphere(m.capsuleR, m.capsuleC, pearlMat).geo, pearlMat), 'capsule');
+  const antennaH = h - (m.capsuleC + m.capsuleR);
+  const antenna = new THREE.CylinderGeometry(0.22 * m.s, 1.15 * m.s, antennaH, 8);
+  antenna.translate(0, m.capsuleC + m.capsuleR + antennaH / 2, 0);
+  tag(add(g, antenna, steel), 'antenna');
+  add(g, new THREE.SphereGeometry(1.1 * m.s, 10, 8).translate(0, h * 0.998, 0), beaconMat);
+  add(g, new THREE.CylinderGeometry(16 * m.s, 22 * m.s, 5 * m.s, 18).translate(0, 2.4 * m.s, 0), dark);
   return g;
 }
 
@@ -155,134 +207,295 @@ function capRing(group, ring, mat) {
   add(group, geo, mat);
 }
 
+const slotMat = new THREE.MeshStandardMaterial({ color: 0x4e5964, metalness: 0.28, roughness: 0.62 });
+slotMat.side = THREE.DoubleSide;
+const ribMat = new THREE.MeshStandardMaterial({ color: 0xe7eef3, metalness: 0.48, roughness: 0.3 });
+ribMat.side = THREE.DoubleSide;
+
+// Gensler: equilateral triangle with tangential corner arcs, one notched vertex,
+// 120° linear twist, wide lower third, about 55% narrower at the crown.
+function shanghaiRing(segs, radius, twist, y) {
+  const pts = [];
+  for (let s = 0; s < segs; s++) {
+    const a = (s / segs) * Math.PI * 2;
+    let k = 0.76 + 0.24 * Math.cos(3 * a);
+    const raw = a > Math.PI ? a - Math.PI * 2 : a;
+    const notch = Math.exp(-((raw / 0.22) ** 2));
+    k *= 1 - 0.32 * notch;
+    const ang = a + twist;
+    pts.push(new THREE.Vector3(Math.cos(ang) * radius * k, y, Math.sin(ang) * radius * k));
+  }
+  return pts;
+}
+
+function quadsMesh(group, quads, mat) {
+  if (!quads.length) return;
+  const geo = new THREE.BufferGeometry();
+  const pos = [];
+  const idx = [];
+  for (let i = 0; i < quads.length; i += 4) {
+    const base = pos.length / 3;
+    for (let k = 0; k < 4; k++) pos.push(quads[i + k].x, quads[i + k].y, quads[i + k].z);
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  add(group, geo, mat);
+}
+
 function shanghai(h) {
   const g = new THREE.Group();
-  const segs = 42;
-  const steps = 34;
+  const segs = 72;
+  const steps = 70;
+  const yScale = 0.985;
   let prev = null;
-  let prevIn = null;
-  let top = null;
+  const glass = [];
+  const slot = [];
+  const rib = [];
+  const kindOf = (i) => {
+    const a = ((i + 0.5) / segs) * Math.PI * 2;
+    const raw = a > Math.PI ? a - Math.PI * 2 : a;
+    if (Math.abs(raw) < 0.24) return slot;
+    for (const v of [(2 * Math.PI) / 3, (4 * Math.PI) / 3]) {
+      let d = Math.abs(a - v);
+      d = Math.min(d, Math.PI * 2 - d);
+      if (d < 0.09) return rib;
+    }
+    return glass;
+  };
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
-    const y = (t ** 0.96) * h * 0.93;
+    const u = Math.min(t, 0.9) / 0.9;
+    const body = 1 - 0.55 * (u ** 1.35);
+    const dome = t <= 0.9 ? 1 : Math.cos(((t - 0.9) / 0.1) * Math.PI / 2);
+    const y = t * h * yScale;
     const twist = t * (120 * Math.PI / 180);
-    const radius = 34 * (1 - 0.46 * t);
-    const ring = ringPoints(segs, radius, twist, y, true);
-    const inner = ringPoints(segs, radius * 0.82, twist, y, true);
-    if (prev) shellBetween(g, prev, ring, glassBlue);
-    if (prevIn) shellBetween(g, prevIn, inner, dark);
+    const ring = shanghaiRing(segs, 34 * body * (0.58 + 0.42 * dome), twist, y);
+    if (prev) {
+      for (let s = 0; s < segs; s++) {
+        const s2 = (s + 1) % segs;
+        kindOf(s).push(prev[s], prev[s2], ring[s2], ring[s]);
+      }
+    }
     prev = ring;
-    prevIn = inner;
-    top = ring;
   }
-  if (prev) capRing(g, prev, dark);
-  const crownY = h * 0.93;
-  const crown = ringPoints(segs, 8, 120 * Math.PI / 180, crownY + h * 0.03, true);
-  if (top) shellBetween(g, top, crown, glassSilver);
-  const mast = new THREE.CylinderGeometry(0.45, 1.6, h * 0.045, 8);
-  mast.translate(0, h * 0.98, 0);
-  add(g, mast, steel);
-  add(g, new THREE.SphereGeometry(0.7, 8, 6).translate(0, h, 0), beaconMat);
+  quadsMesh(g, glass, glassBlue);
+  quadsMesh(g, slot, slotMat);
+  quadsMesh(g, rib, ribMat);
+  if (prev) capRing(g, prev, glassBlue);
+  add(g, new THREE.SphereGeometry(1.15, 10, 8).translate(0, h * 0.992, 0), beaconMat);
   return g;
+}
+
+// KPF: 58 m square prism. Two arcs, starting about a third of the way up, bevel
+// opposite corners until the plan is a narrow rectangle — a single sharp edge.
+// The aperture is the trapezoid that replaced the 46 m circle, about 50 m wide
+// at the 94th-floor deck (423 m) and narrowing toward the 100th (474 m).
+function swfcSection(t) {
+  const u = Math.max(0, (t - 0.30) / 0.70);
+  const arc = u ** 0.72;
+  const w = 58 * (1 - 0.16 * (arc ** 1.05));
+  const d = Math.max(1.2, 58 * (1 - 0.979 * (arc ** 0.52)));
+  const chamfer = Math.min(w * 0.07, d * 0.42) * Math.min(1, arc * 1.5);
+  return { w, d, chamfer };
+}
+
+function swfcRing(t, y) {
+  const { w, d, chamfer } = swfcSection(t);
+  const hw = w / 2;
+  const hd = d / 2;
+  const c = Math.min(chamfer, hw * 0.18, hd * 0.8);
+  return [
+    [-hw + c, hd], [hw - c, hd], [hw, hd - c], [hw, -hd + c],
+    [hw - c, -hd], [-hw + c, -hd], [-hw, -hd + c], [-hw, hd - c],
+  ].map(([x, z]) => new THREE.Vector3(x, y, z));
 }
 
 function swfc(h) {
   const g = new THREE.Group();
-  const steps = 28;
-  const hole0 = 0.67;
-  const hole1 = 0.91;
-  const grids = [];
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const y = t * h * 0.98;
-    const w = 54 * (1 - 0.34 * t);
-    const d = 40 * (1 - 0.28 * t);
-    grids.push({ y, w, d, t });
-  }
-  const face = (i, side) => {
-    const a = grids[i];
-    const b = grids[i + 1];
-    const open = a.t >= hole0 && b.t <= hole1;
-    if (side === 'f' || side === 'b') {
-      const z0 = side === 'f' ? a.d / 2 : -a.d / 2;
-      const z1 = side === 'f' ? b.d / 2 : -b.d / 2;
-      const u = (a.t - hole0) / (hole1 - hole0);
-      const jamb = open ? 0.38 - 0.14 * u : 1;
-      const xs = open ? [[-a.w / 2, -a.w * jamb], [a.w * jamb, a.w / 2]] : [[-a.w / 2, a.w / 2]];
-      const xs1 = open ? [[-b.w / 2, -b.w * jamb], [b.w * jamb, b.w / 2]] : [[-b.w / 2, b.w / 2]];
-      xs.forEach((span, k) => {
-        const s1 = xs1[k];
-        const quad = [
-          new THREE.Vector3(span[0], a.y, z0), new THREE.Vector3(span[1], a.y, z0),
-          new THREE.Vector3(s1[1], b.y, z1), new THREE.Vector3(s1[0], b.y, z1),
-        ];
-        if (side === 'b') quad.reverse();
-        shellBetween(g, [quad[0], quad[1]], [quad[3], quad[2]], glassBlue, false);
-      });
-    } else {
-      const x0 = side === 'r' ? a.w / 2 : -a.w / 2;
-      const x1 = side === 'r' ? b.w / 2 : -b.w / 2;
-      const ringA = [new THREE.Vector3(x0, a.y, -a.d / 2), new THREE.Vector3(x0, a.y, a.d / 2)];
-      const ringB = [new THREE.Vector3(x1, b.y, -b.d / 2), new THREE.Vector3(x1, b.y, b.d / 2)];
-      if (side === 'l') { ringA.reverse(); ringB.reverse(); }
-      shellBetween(g, ringA, ringB, glassBlue, false);
-    }
+  const hole0 = 418 / 492;
+  const hole1 = 470 / 492;
+  const yOf = (t) => t * h * 0.992;
+  const openHalf = (t) => {
+    const u = Math.min(1, Math.max(0, (t - hole0) / (hole1 - hole0)));
+    return 22.5 * (1 - 0.5 * u);
   };
-  for (let i = 0; i < steps; i++) for (const side of ['f', 'b', 'l', 'r']) face(i, side);
-  // A dark rim so the opening still reads when the sky shows through it.
-  for (const zSign of [1, -1]) {
-    const y0 = hole0 * h * 0.98;
-    const y1 = hole1 * h * 0.98;
-    const mid = (hole0 + hole1) / 2;
-    const w = 54 * (1 - 0.34 * mid);
-    const depth = 40 * (1 - 0.28 * hole0);
-    const z = zSign * (depth / 2 + 0.6);
-    const opening = w * 0.62;
-    const thick = 3.4;
-    for (const x of [-1, 1]) {
-      const jambBox = new THREE.BoxGeometry(thick, y1 - y0 + thick, 2.2);
-      jambBox.translate(x * (opening / 2 + thick / 2), (y0 + y1) / 2, z);
-      add(g, jambBox, dark);
+  const ts = [0, hole0, hole1, 1];
+  for (let i = 1; i < 42; i++) ts.push(i / 42);
+  for (let i = 1; i < 10; i++) ts.push(hole0 + (hole1 - hole0) * i / 10);
+  ts.sort((a, b) => a - b);
+  const samples = [];
+  for (const t of ts) {
+    if (!samples.length || t - samples[samples.length - 1] > 1e-4) samples.push(t);
+  }
+  const glass = [];
+  const frame = [];
+  const push = (list, a, b, c, d) => list.push(a, b, c, d);
+  const wall = (list, a0, a1, b0, b1) => push(list, a0, a1, b1, b0);
+  for (let i = 0; i < samples.length - 1; i++) {
+    const t0 = samples[i];
+    const t1 = samples[i + 1];
+    const ringA = swfcRing(t0, yOf(t0));
+    const ringB = swfcRing(t1, yOf(t1));
+    for (const edge of [1, 2, 3, 5, 6, 7]) {
+      const e2 = (edge + 1) % 8;
+      wall(glass, ringA[edge], ringA[e2], ringB[edge], ringB[e2]);
     }
-    for (const y of [y0, y1]) {
-      const bar = new THREE.BoxGeometry(opening, thick, 2.2);
-      bar.translate(0, y, z);
-      add(g, bar, dark);
+    const open = t0 >= hole0 - 1e-6 && t1 <= hole1 + 1e-6;
+    for (const face of [0, 4]) {
+      const a0 = ringA[face];
+      const a1 = ringA[(face + 1) % 8];
+      const b0 = ringB[face];
+      const b1 = ringB[(face + 1) % 8];
+      if (!open) {
+        wall(glass, a0, a1, b0, b1);
+        continue;
+      }
+      const jamb = (p0, p1, q0, q1, x0, x1, u0, u1) => {
+        const at = (p, q, x) => new THREE.Vector3(x, p.y, p.z + (q.z - p.z) * 0);
+        wall(glass, at(p0, p1, x0), at(p0, p1, x1), at(q0, q1, u0), at(q0, q1, u1));
+      };
+      const loA = Math.min(a0.x, a1.x);
+      const hiA = Math.max(a0.x, a1.x);
+      const loB = Math.min(b0.x, b1.x);
+      const hiB = Math.max(b0.x, b1.x);
+      const inLoA = Math.max(loA, -openHalf(t0));
+      const inHiA = Math.min(hiA, openHalf(t0));
+      const inLoB = Math.max(loB, -openHalf(t1));
+      const inHiB = Math.min(hiB, openHalf(t1));
+      if (inLoA >= inHiA - 0.2) {
+        wall(glass, a0, a1, b0, b1);
+        continue;
+      }
+      if (inLoA - loA > 0.15) jamb(a0, a1, b0, b1, loA, inLoA, loB, inLoB);
+      if (hiA - inHiA > 0.15) jamb(a0, a1, b0, b1, inHiA, hiA, inHiB, hiB);
     }
   }
-  add(g, new THREE.CylinderGeometry(0.6, 2.2, h * 0.025, 8).translate(0, h * 0.99, 0), steel);
+  const sillY = yOf(hole0);
+  const headY = yOf(hole1);
+  const sill = swfcSection(hole0);
+  const head = swfcSection(hole1);
+  const hz = (sec) => sec.d / 2;
+  const rim = (y, half, hd) => {
+    const p = (x, z) => new THREE.Vector3(x, y, z);
+    push(frame, p(-half, hd), p(half, hd), p(half, -hd), p(-half, -hd));
+  };
+  rim(sillY, openHalf(hole0), hz(sill));
+  rim(headY, openHalf(hole1), hz(head));
+  for (let i = 0; i < 10; i++) {
+    const t0 = hole0 + (hole1 - hole0) * i / 10;
+    const t1 = hole0 + (hole1 - hole0) * (i + 1) / 10;
+    const d0 = swfcSection(t0).d / 2;
+    const d1 = swfcSection(t1).d / 2;
+    const y0 = yOf(t0);
+    const y1 = yOf(t1);
+    for (const sign of [-1, 1]) {
+      const x0 = sign * openHalf(t0);
+      const x1 = sign * openHalf(t1);
+      const p = (x, y, z) => new THREE.Vector3(x, y, z);
+      wall(frame, p(x0, y0, d0), p(x0, y0, -d0), p(x1, y1, d1), p(x1, y1, -d1));
+    }
+  }
+  quadsMesh(g, glass, glassBlue);
+  const frameMat = steel.clone();
+  frameMat.side = THREE.DoubleSide;
+  quadsMesh(g, frame, frameMat);
+  const crown = swfcRing(1, yOf(1));
+  const cap = new THREE.BufferGeometry();
+  const capPos = [0, crown[0].y, 0];
+  for (const p of crown) capPos.push(p.x, p.y, p.z);
+  const capIdx = [];
+  for (let i = 0; i < crown.length; i++) capIdx.push(0, i + 1, ((i + 1) % crown.length) + 1);
+  cap.setAttribute('position', new THREE.Float32BufferAttribute(capPos, 3));
+  cap.setIndex(capIdx);
+  cap.computeVertexNormals();
+  add(g, cap, frameMat);
   return g;
+}
+
+let jinGrid = null;
+function jinmaoMaterial() {
+  if (jinGrid) return jinGrid;
+  jinGrid = new THREE.MeshStandardMaterial({ color: 0xd7dee6, metalness: 0.62, roughness: 0.28 });
+  jinGrid.onBeforeCompile = (shader) => {
+    shader.uniforms.uNight = cityUniforms.uNight;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vGrid;\nvarying vec3 vLm;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGrid = uv;\nvLm = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec2 vGrid;\nvarying vec3 vLm;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        float fu = fract(vGrid.x * 9.0);
+        float fv = fract(vLm.y / 4.2);
+        float edge = min(min(fu, 1.0 - fu), min(fv, 1.0 - fv));
+        float frame = 1.0 - smoothstep(0.07, 0.16, edge);
+        vec3 metal = vec3(0.78, 0.81, 0.84);
+        vec3 glass = vec3(0.38, 0.50, 0.60);
+        diffuseColor.rgb = mix(glass, metal, frame);
+        float pane = 1.0 - frame;
+        float row = floor(vLm.y / 4.2);
+        float col = floor(vGrid.x * 9.0);
+        float on = step(0.62, fract(sin(row * 12.1 + col * 7.7) * 43758.5));
+        totalEmissiveRadiance += vec3(1.0, 0.84, 0.58) * pane * on * uNight * 0.85;
+      `);
+  };
+  jinGrid.customProgramCacheKey = () => 'lm-jin-grid';
+  return jinGrid;
+}
+
+function shellGrid(group, a, b, mat) {
+  const geo = new THREE.BufferGeometry();
+  const pos = [];
+  const uv = [];
+  const idx = [];
+  const n = a.length;
+  for (let i = 0; i < n; i++) {
+    const i2 = (i + 1) % n;
+    const base = pos.length / 3;
+    for (const p of [a[i], a[i2], b[i2], b[i]]) pos.push(p.x, p.y, p.z);
+    uv.push(0, 0, 1, 0, 1, 1, 0, 1);
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  add(group, geo, mat);
 }
 
 function jinmao(h) {
   const g = new THREE.Group();
-  const tiers = 13;
-  const heights = [];
-  let sum = 0;
-  for (let i = 0; i < tiers; i++) {
-    const tierH = 16 * 0.92 ** i;
-    heights.push(tierH);
-    sum += tierH;
-  }
-  const scale = (h * 0.86) / sum;
+  const s = h / 420.5;
+  // SOM: 88 floors in 16 segments. Each office segment drops by 1/8 of the
+  // 16-story base (2 floors) until the 8-story hotel; the crown then steps
+  // down to level 88. Roof 385.5 m, spire 35 m, on the 420.5 m tower.
+  const floor = (385.5 * s) / 88;
+  const segments = [16, 14, 12, 10, 8, 6, 4, 5, 4, 3, 2, 2, 1, 1];
   let y = 0;
-  let radius = 27;
-  for (let i = 0; i < tiers; i++) {
-    const tierH = heights[i] * scale;
-    const next = radius * (0.9 - 0.035 * (i / tiers));
-    const lower = ringPoints(8, radius, Math.PI / 8, y, false);
-    const upper = ringPoints(8, radius * 0.985, Math.PI / 8, y + tierH * 0.7, false);
-    const cap = ringPoints(8, next, Math.PI / 8, y + tierH, false);
-    shellBetween(g, lower, upper, i % 2 ? glassSilver : steel);
-    shellBetween(g, upper, cap, dark);
+  let radius = 32 * s;
+  const grid = jinmaoMaterial();
+  const twist = Math.PI / 8;
+  segments.forEach((stories, i) => {
+    const tierH = stories * floor;
+    const next = radius * (i < 7 ? 0.88 : 0.78);
+    const lower = ringPoints(8, radius, twist, y, false);
+    const neck = ringPoints(8, radius, twist, y + tierH * 0.84, false);
+    const lip = ringPoints(8, radius * 1.045, twist, y + tierH * 0.92, false);
+    const shelf = ringPoints(8, next, twist, y + tierH, false);
+    shellGrid(g, lower, neck, grid);
+    shellBetween(g, neck, lip, steel);
+    shellBetween(g, lip, shelf, steel);
     if (i === 0) capRing(g, lower, dark);
     y += tierH;
     radius = next;
-  }
-  const spire = new THREE.CylinderGeometry(0.4, 3.2, h - y, 8);
-  spire.translate(0, y + (h - y) / 2, 0);
+  });
+  const spireH = Math.max(8 * s, h - y);
+  const spire = new THREE.CylinderGeometry(0.28 * s, Math.max(radius * 0.92, 0.7), spireH, 8);
+  spire.rotateY(-twist);
+  spire.translate(0, y + spireH / 2, 0);
   add(g, spire, steel);
-  add(g, new THREE.SphereGeometry(0.7, 8, 6).translate(0, h, 0), beaconMat);
+  add(g, new THREE.SphereGeometry(0.55 * s, 8, 6).translate(0, h, 0), beaconMat);
   return g;
 }
 
