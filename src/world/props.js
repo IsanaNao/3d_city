@@ -18,16 +18,17 @@ function colorize(geo, hex) {
 let treeGeo = null;
 export function treeGeometry() {
   if (treeGeo) return treeGeo;
-  const trunk = new THREE.CylinderGeometry(0.16, 0.24, 2.1, 5);
-  trunk.translate(0, 1.05, 0);
-  colorize(trunk, 0x6b4a32);
-  const crown = new THREE.ConeGeometry(1.55, 2.8, 7);
-  crown.translate(0, 3.15, 0);
-  colorize(crown, 0x3d7a45);
-  const cap = new THREE.ConeGeometry(1.05, 1.7, 6);
-  cap.translate(0, 4.35, 0);
-  colorize(cap, 0x4e8d52);
-  treeGeo = mergeGeometries([trunk, crown, cap]);
+  // a plane tree: a bare trunk and a broad round crown in two lumps
+  const trunk = new THREE.CylinderGeometry(0.16, 0.24, 2.6, 5);
+  trunk.translate(0, 1.3, 0);
+  colorize(trunk, 0x5a4636);
+  const crown = new THREE.IcosahedronGeometry(1.75, 1);
+  crown.scale(1, 0.82, 1).translate(0, 3.7, 0);
+  colorize(crown, 0x3f6b33);
+  const cap = new THREE.IcosahedronGeometry(1.15, 1);
+  cap.translate(0.45, 4.6, -0.3);
+  colorize(cap, 0x4d7c3c);
+  treeGeo = mergeGeometries([trunk.toNonIndexed(), crown, cap]);
   treeGeo.userData.sharedGeo = true;
   return treeGeo;
 }

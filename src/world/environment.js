@@ -10,11 +10,11 @@ const MOON = { strength: 0.32, color: new THREE.Color(0x9fb4e0) };
 const GLOW = { strength: 0.5, sky: new THREE.Color(0xe6eaf4), ground: new THREE.Color(0x8a8172) };
 const MOON_DIR = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(50), THREE.MathUtils.degToRad(205));
 // Optical depth of one air mass, per channel: Rayleigh plus a little aerosol.
-const TAU = [0.115, 0.205, 0.43];
+const TAU = [0.07, 0.13, 0.28];
 
 const SKY = {
-  zenith: new THREE.Color().setRGB(0.17, 0.33, 0.62),
-  horizon: new THREE.Color().setRGB(0.68, 0.76, 0.85),
+  zenith: new THREE.Color().setRGB(0.045, 0.14, 0.5),
+  horizon: new THREE.Color().setRGB(0.58, 0.65, 0.72),
   setZenith: new THREE.Color().setRGB(0.09, 0.12, 0.26),
   setHorizon: new THREE.Color().setRGB(1.05, 0.5, 0.24),
   nightZenith: new THREE.Color().setRGB(0.004, 0.006, 0.016),
@@ -120,6 +120,7 @@ export class Environment {
     cityUniforms.uHorizon.value.copy(horizon);
     cityUniforms.uSunDir.value.copy(sun);
     cityUniforms.uSunGlint.value.copy(this.sunColor).multiplyScalar(SUN * 0.9 * (sunUp ? 1 : 0));
+    cityUniforms.uWarm.value = this.warmth * (1 - this.dark * 0.7);
     cityUniforms.uNight.value = this.night;
     cityUniforms.uDark.value = this.dark;
     cityUniforms.uDay.value = this.daylight;
@@ -128,7 +129,7 @@ export class Environment {
 
     const light = 0.3 * lum(this.sun.color) * this.sun.intensity * Math.max(this.sunDir.y, 0.05)
       + 1.8 * lum(this.sky.color) + 1.3 * this.dark ** 3;
-    this.exposure = THREE.MathUtils.clamp(EXPOSURE.target / Math.max(light, 1e-3), EXPOSURE.least, EXPOSURE.most);
+    this.exposure = THREE.MathUtils.clamp(EXPOSURE.target / Math.max(light, 1e-3), EXPOSURE.least, EXPOSURE.most) * (1 + 0.4 * this.dark);
     this.bloom = BLOOM.day + (BLOOM.night - BLOOM.day) * this.dark;
     this.balance.set(1, 1, 1).lerp(DAYLIGHT, this.daylight);
 

@@ -11,8 +11,9 @@ export const cityUniforms = {
   uHorizon: { value: new THREE.Color(0.68, 0.76, 0.85) },
   // Sky colours are display values; this brings them into scene radiance.
   uSkyGain: { value: 1 },
+  uWarm: { value: 0 },
   uCloudCover: { value: 0 },
-  uNightBlue: { value: 0.45 },
+  uNightBlue: { value: 0.35 },
   uLampOn: { value: 0 },
   uLampMap: { value: null },
   uLampRect: { value: new THREE.Vector4(0, 0, 1, 0) },
@@ -239,7 +240,7 @@ const FACADE_MAIN = /* glsl */`
     // some towers are lit in one colour throughout: blue, gold, a few cyan or violet
     {
       float pickA = fract(sf * 31.7), hu = fract(sf * 47.3);
-      float accent = tall * step(0.7 - 0.45 * uNightBlue, pickA) * uNight;
+      float accent = tall * step(0.82 - 0.3 * uNightBlue, pickA) * uNight;
       vec3 accentCol = hu < 0.42 ? vec3(0.12, 0.38, 1.0) : hu < 0.76 ? vec3(1.0, 0.72, 0.16) : hu < 0.89 ? vec3(0.1, 0.85, 1.0) : vec3(0.75, 0.3, 1.0);
       gEmissive = mix(gEmissive, accentCol * dot(gEmissive, vec3(0.9)), accent * 0.8);
     }
@@ -315,7 +316,7 @@ export function createGroundMaterial() {
           // grass and trees: the yellower, greyer green of real turf
           float green = smoothstep(0.03, 0.12, c.g - max(c.r, c.b));
           float turf = dot(c, vec3(0.3, 0.59, 0.11));
-          c = mix(c, mix(vec3(turf), c, 0.62) * vec3(1.12, 1.0, 0.8), green);
+          c = mix(c, mix(vec3(turf), c, 0.6) * vec3(1.22, 1.12, 0.72) * 1.3, green);
           c *= (0.93 + 0.14 * blotch) * (0.95 + 0.1 * grain);
           diffuseColor.rgb = c;
         }`)
@@ -508,6 +509,7 @@ export function createSkyMaterial({ sunDisc = 1, ground = false } = {}) {
       uniform float uGround;
       uniform float uSkyGain;
       uniform float uCloudCover;
+      uniform float uWarm;
       varying vec3 vDir;
       ${NOISE}
       float fbm(vec2 p) {
@@ -519,7 +521,7 @@ export function createSkyMaterial({ sunDisc = 1, ground = false } = {}) {
         vec3 d = normalize(vDir);
         float h = max(d.y, 0.0);
         float sd = max(dot(d, normalize(uSunDir)), 0.0);
-        vec3 col = mix(uHorizon, uSky, pow(h, 0.5));
+        vec3 col = mix(uHorizon, uSky, pow(h, mix(0.5, 0.2, uWarm)));
         float sunUp = smoothstep(-0.08, 0.02, uSunDir.y);
         col += mix(vec3(1.0, 0.82, 0.6), uHorizon, 0.4) * (pow(sd, 12.0) * 0.18 + pow(sd, 4.0) * 0.12 * (1.0 - uDay)) * sunUp;
         col += vec3(1.0, 0.82, 0.6) * pow(sd, 180.0) * 0.5 * sunUp;
