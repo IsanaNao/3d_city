@@ -24,7 +24,7 @@ const trafficBox = document.querySelector('#traffic');
 const trainsBox = document.querySelector('#trains');
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -35,7 +35,7 @@ stage.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xd7e8f4, 500, 4200);
-const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.8, 14000);
+const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 1.5, 14000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
@@ -48,9 +48,9 @@ controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
 
 const sun = new THREE.DirectionalLight(0xfff2dd, 2.4);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(4096, 4096);
 sun.shadow.camera.near = 10;
-sun.shadow.camera.far = 2200;
+sun.shadow.camera.far = 2600;
 sun.shadow.bias = -0.00018;
 sun.shadow.normalBias = 0.04;
 scene.add(sun);
@@ -125,8 +125,8 @@ function applySun() {
   hemi.intensity = 0.12 + 0.32 * sky.day;
   hemi.color.copy(cityUniforms.uSky.value);
   scene.fog.color.copy(cityUniforms.uHorizon.value);
-  scene.fog.near = 280 + 700 * sky.day;
-  scene.fog.far = 1600 + 2800 * sky.day;
+  scene.fog.near = 900 + 80 * sky.day;
+  scene.fog.far = 4800 - 400 * sky.day;
   renderer.toneMappingExposure = 0.62 + 0.55 * sky.day;
   if (streamer.headMat) streamer.headMat.emissiveIntensity = sky.night * 2.2;
   if (streamer.poolMat) streamer.poolMat.opacity = sky.night * 0.45;
@@ -135,9 +135,11 @@ function applySun() {
   if (trainMesh) trainMesh.windows.material.emissiveIntensity = sky.night * 0.7;
   clockEl.textContent = formatHour(hour);
   const span = sun.shadow.camera;
-  const size = 520;
-  span.left = -size; span.right = size; span.top = size; span.bottom = -size;
-  span.updateProjectionMatrix();
+  const size = Math.min(900, Math.max(180, camera.position.distanceTo(target) * 0.75));
+  if (Math.abs(span.right - size) > 8) {
+    span.left = -size; span.right = size; span.top = size; span.bottom = -size;
+    span.updateProjectionMatrix();
+  }
 }
 
 function moveTarget(dt) {
@@ -238,7 +240,13 @@ async function boot() {
   })));
   const wanted = params.get('view');
   const initial = presets.find((item) => item.id === wanted) || presets[0] || city.manifest.view;
-  if (initial?.position) flyTo(initial.position, initial.target);
+  const triple = (key) => {
+    const v = (params.get(key) || '').split(',').map(Number);
+    return v.length === 3 && v.every(Number.isFinite) ? v : null;
+  };
+  const cam = triple('cam');
+  if (cam) flyTo(cam, triple('look') || initial.target);
+  else if (initial?.position) flyTo(initial.position, initial.target);
   for (const preset of presets) {
     const button = document.createElement('button');
     button.type = 'button';

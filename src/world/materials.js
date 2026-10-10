@@ -9,60 +9,91 @@ export const cityUniforms = {
   uHorizon: { value: new THREE.Color('#d7e8f4') },
 };
 
+// Windows are laid out per wall: vWall.x is metres along the wall and vWall.y
+// its length, so every wall holds a whole number of columns and corners are
+// never cut through a window. Edges are anti-aliased with screen derivatives,
+// and when a window shrinks below a couple of pixels the grid fades to its
+// average brightness instead of aliasing into speckle.
 const FACADE = /* glsl */`
   vec3 wn = normalize(vWn);
   float hgt = max(vTop - vBase, 0.5);
   float hh = vWorld.y - vBase;
-  float kind = vKind;
-  if (wn.y > 0.62) {
-    diffuseColor.rgb *= vec3(0.62, 0.60, 0.57);
+  float kind = floor(vKind + 0.5);
+  // Interpolated per-building constants drift by a few ulps across a
+  // triangle; the hash would turn that drift into per-pixel noise.
+  float seed = floor(vSeed + 0.5);
+  bool isRoof = vWall.y < 0.0;
+  if (isRoof) {
+    if (wn.y > 0.62) diffuseColor.rgb *= vec3(0.62, 0.60, 0.57);
   } else if (hh > 0.15 && hh < hgt - 0.12) {
     float floorH = 3.35;
     float pitch = 3.9;
-    float winW = 0.48;
-    float winH = 0.55;
+    float winW = 0.5;
+    float winH = 0.56;
     float glassMix = 0.22;
-    vec3 litCol = vec3(1.0, 0.72, 0.36);
-    if (kind < 0.5) { floorH = 3.4; pitch = 4.5; winW = 0.4; winH = 0.46; }
-    else if (kind < 1.5) { floorH = 3.02; pitch = 3.15; winW = 0.52; winH = 0.6; litCol = vec3(1.0, 0.66, 0.32); }
-    else if (kind < 2.5) { floorH = 3.9; pitch = 3.5; winW = 0.64; winH = 0.72; glassMix = 0.48; litCol = vec3(0.78, 0.88, 1.0); }
-    else if (kind < 3.5) { floorH = 3.6; pitch = 4.15; winW = 0.56; winH = 0.6; litCol = vec3(1.0, 0.78, 0.42); }
-    else if (kind < 4.5) { floorH = 5.2; pitch = 8.0; winW = 0.3; winH = 0.38; litCol = vec3(1.0, 0.84, 0.55); }
-    else if (kind < 5.5) { floorH = 4.2; pitch = 2.2; winW = 0.84; winH = 0.88; glassMix = 0.75; litCol = vec3(0.7, 0.86, 1.0); }
-    else { floorH = 3.8; pitch = 2.6; winW = 0.36; winH = 0.64; litCol = vec3(1.0, 0.6, 0.28); }
+    float curtain = 0.0;
+    vec3 warm = vec3(1.0, 0.68, 0.36);
+    vec3 cool = vec3(1.0, 0.86, 0.66);
+    if (kind < 0.5) { floorH = 3.4; pitch = 4.2; winW = 0.42; winH = 0.48; }
+    else if (kind < 1.5) { floorH = 3.02; pitch = 3.2; winW = 0.5; winH = 0.58; warm = vec3(1.0, 0.62, 0.3); }
+    else if (kind < 2.5) { floorH = 3.9; pitch = 3.0; winW = 0.7; winH = 0.68; glassMix = 0.48; cool = vec3(0.82, 0.9, 1.0); }
+    else if (kind < 3.5) { floorH = 3.6; pitch = 3.8; winW = 0.58; winH = 0.6; }
+    else if (kind < 4.5) { floorH = 5.2; pitch = 6.5; winW = 0.32; winH = 0.36; }
+    else if (kind < 5.5) { floorH = 4.2; pitch = 1.8; winW = 0.9; winH = 0.84; glassMix = 0.75; curtain = 1.0; cool = vec3(0.8, 0.9, 1.0); }
+    else { floorH = 3.9; pitch = 2.9; winW = 0.38; winH = 0.62; warm = vec3(1.0, 0.6, 0.28); }
+    if (vWall.z > 0.5) { floorH = 3.9; pitch = 1.6; winW = 0.92; winH = 0.84; glassMix = 0.72; curtain = 1.0; }
 
-    bool shop = false;
-    if (((kind > 2.5 && kind < 3.5) || (kind > 5.5 && hgt < 60.0)) && hh > 0.65 && hh < 4.2) shop = true;
+    bool shop = ((kind > 2.5 && kind < 3.5) || (kind > 5.5 && hgt < 60.0)) && hh > 0.65 && hh < 4.2;
+    float cols = max(1.0, floor(vWall.y / pitch + 0.5));
+    float cellW = max(vWall.y, 0.5) / cols;
+    vec2 cell = vec2(vWall.x / cellW, hh / floorH);
+    vec2 fw = max(fwidth(cell), vec2(1e-4));
+    vec2 id = floor(cell);
+    vec2 f = fract(cell);
+    float lod = smoothstep(0.22, 0.55, max(fw.x, fw.y));
+
     if (shop) {
-      float stripe = step(0.8, fract(vWorld.x * 0.09 + vWorld.z * 0.07 + vSeed * 0.01));
-      vec3 sign = mix(vec3(0.55, 0.1, 0.12), vec3(0.08, 0.2, 0.38), step(0.5, fract(vSeed * 0.013)));
+      float u = vWall.x * 0.11 + seed * 0.01;
+      float stripe = smoothstep(0.78, 0.8, fract(u)) * (1.0 - smoothstep(0.98, 1.0, fract(u)));
+      stripe = mix(stripe, 0.2, smoothstep(0.3, 0.8, fwidth(u)));
+      vec3 sign = mix(vec3(0.55, 0.1, 0.12), vec3(0.08, 0.2, 0.38), step(0.5, fract(seed * 0.013)));
       sign = mix(sign, vec3(0.95, 0.9, 0.78), 0.55 + stripe * 0.45);
       diffuseColor.rgb = sign;
-      totalEmissiveRadiance += sign * uNight * 1.05;
+      totalEmissiveRadiance += sign * uNight * 0.85;
     } else {
-      float along = abs(wn.x) > abs(wn.z) ? vWorld.z : vWorld.x;
-      along += vSeed * 0.37;
-      float colId = floor(along / pitch);
-      float fx = fract(along / pitch);
-      float fy = fract(hh / floorH);
-      float mx = (1.0 - winW) * 0.5;
-      float my = (1.0 - winH) * 0.5;
-      if (fx > mx && fx < 1.0 - mx && fy > my && fy < 1.0 - my) {
-        float row = floor(hh / floorH);
-        float rnd = hash12(vec2(colId + vSeed, row * 1.7));
-        float flick = step(0.08, fract(rnd * 9.0 + uTime * 0.035));
-        float lit = step(0.4, rnd) * flick * uNight;
-        vec3 glass = mix(vec3(0.035, 0.05, 0.07), uSky, glassMix * 0.65);
-        diffuseColor.rgb = mix(glass, litCol, lit);
-        totalEmissiveRadiance += litCol * lit * 1.45;
-      } else if (fy < 0.055) {
-        diffuseColor.rgb *= 0.8;
-      }
-    }
-    if (kind > 4.5 && kind < 5.5) {
+      vec2 halfSize = vec2(winW, winH) * 0.5;
+      vec2 inside = clamp((halfSize - abs(f - 0.5)) / fw + 0.5, 0.0, 1.0);
+      float mask = inside.x * inside.y;
+      float coverage = winW * winH;
+      mask = mix(mask, coverage, lod);
+
+      float rnd = hash12(id + vec2(seed * 7.13, seed * 3.71));
+      float tone = hash12(id.yx * 1.31 + seed);
+      float floorMood = hash12(vec2(floor(id.y / 2.0) + seed * 0.37, seed * 1.91));
+      float share = uNight * (curtain > 0.5 ? 0.36 : 0.44) * (0.35 + 1.3 * floorMood);
+      float on = step(rnd, share) * step(0.06, fract(rnd * 13.0 + uTime * 0.02));
+      on = mix(on, share, lod);
+      vec3 litCol = mix(warm, cool, step(0.62, tone));
+      litCol *= 0.7 + 0.45 * fract(rnd * 31.7);
+      float ceiling = mix(0.82 + 0.3 * smoothstep(0.2, 0.5 + halfSize.y, f.y), 1.0, lod);
+
       vec3 viewDir = normalize(-vViewPosition);
-      float fres = pow(1.0 - max(dot(normalize(normal), viewDir), 0.0), 2.6);
-      diffuseColor.rgb = mix(diffuseColor.rgb, uSky, fres * 0.62);
+      float fres = pow(1.0 - max(dot(normalize(normal), viewDir), 0.0), 3.0);
+      vec3 glassDay = mix(vec3(0.05, 0.07, 0.09), uSky, glassMix * 0.6 + fres * 0.35);
+      vec3 glassNight = vec3(0.025, 0.03, 0.04);
+      vec3 pane = mix(glassDay, glassNight, uNight);
+
+      float slab = 1.0 - clamp((abs(f.y - 0.04) - 0.04) / fw.y + 0.5, 0.0, 1.0);
+      slab = mix(slab, 0.08, lod);
+      vec3 wall = diffuseColor.rgb * (1.0 - 0.22 * slab);
+      if (curtain > 0.5) {
+        wall = mix(diffuseColor.rgb * 0.55, pane, 0.55);
+        wall = mix(wall, wall * 0.6, slab);
+      }
+
+      vec3 lit = litCol * on;
+      diffuseColor.rgb = mix(wall, mix(pane, lit * 0.35, on), mask);
+      totalEmissiveRadiance += lit * mask * ceiling * 1.05;
     }
   }
 `;
@@ -75,13 +106,16 @@ function patchFacade(shader) {
       attribute float aBase;
       attribute float aTop;
       attribute float aKind;
+      attribute vec3 aWall;
       varying float vSeed;
       varying float vBase;
       varying float vTop;
       varying float vKind;
+      varying vec3 vWall;
       varying vec3 vWorld;
       varying vec3 vWn;`)
     .replace('#include <begin_vertex>', `#include <begin_vertex>
+      vWall = aWall;
       vSeed = aSeed;
       vBase = aBase;
       vTop = aTop;
@@ -98,6 +132,7 @@ function patchFacade(shader) {
       varying float vBase;
       varying float vTop;
       varying float vKind;
+      varying vec3 vWall;
       varying vec3 vWorld;
       varying vec3 vWn;
       float hash12(vec2 p) {
@@ -112,7 +147,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshLambertMaterial({ vertexColors: true });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-1';
+  material.customProgramCacheKey = () => 'sh-facade-2';
   return material;
 }
 
