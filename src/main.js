@@ -1,11 +1,15 @@
 import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { skyColors, sunVector } from './shared/sun.js';
+import { sunVector } from './shared/sun.js';
 import { createSim, prepareGraph, stepSim, carPose } from './sim/traffic.js';
 import { createTrains, prepareLines, stepTrains, trainPoses } from './sim/trains.js';
 import { yawFromHeading } from './sim/path.js';
-import { cityUniforms, createSkyMaterial, makeCircleTexture, makeSignAtlas } from './world/materials.js';
+import { cityUniforms, createSkyMaterial, makeSignAtlas } from './world/materials.js';
+import { Environment, installSkyLight } from './world/environment.js';
+import { createPost } from './world/post.js';
+import { LampLight } from './world/lamplight.js';
+import { WaterMirror, WATER_LAYER } from './world/mirror.js';
 import { createStreamer, loadCity } from './world/streamer.js';
 import { signMaterial } from './world/props.js';
 import { createCarFleet, createTrainMesh, setVehicleMatrix } from './world/vehicles.js';
@@ -23,19 +27,18 @@ const inspect = document.querySelector('#inspect');
 const trafficBox = document.querySelector('#traffic');
 const trainsBox = document.querySelector('#trains');
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+installSkyLight();
+const renderer = new THREE.WebGLRenderer({ antialias: false, stencil: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 stage.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xd7e8f4, 500, 4200);
 const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 1.5, 14000);
+camera.layers.enable(WATER_LAYER);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
@@ -46,23 +49,25 @@ controls.screenSpacePanning = false;
 controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
 controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
 
-const sun = new THREE.DirectionalLight(0xfff2dd, 2.4);
-sun.castShadow = true;
-sun.shadow.mapSize.set(4096, 4096);
-sun.shadow.camera.near = 10;
-sun.shadow.camera.far = 2600;
-sun.shadow.bias = -0.00018;
-sun.shadow.normalBias = 0.04;
-scene.add(sun);
-scene.add(sun.target);
-const ambient = new THREE.AmbientLight(0xfff6ea, 0.4);
-const hemi = new THREE.HemisphereLight(0x8ec6ee, 0x3a332c, 0.35);
-scene.add(ambient, hemi);
+const env = new Environment(scene, renderer);
+const post = createPost(renderer, scene, camera, { ao: params.get('ao') !== '0' });
+const lampLight = new LampLight(renderer);
+const mirror = new WaterMirror(renderer);
+mirror.enabled = params.get('mirror') !== '0';
+if (params.has('clouds')) cityUniforms.uCloudCover.value = Number(params.get('clouds')) || 0;
 
 const sky = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 18), createSkyMaterial());
 sky.frustumCulled = false;
 sky.renderOrder = -1;
 scene.add(sky);
+// Beyond the area: plain ground in the grey of unbuilt land, out to the horizon haze.
+const beyond = new THREE.Mesh(
+  new THREE.CircleGeometry(30000, 64).rotateX(-Math.PI / 2),
+  new THREE.MeshStandardMaterial({ color: 0x8a8a86, roughness: 0.95 }),
+);
+beyond.receiveShadow = true;
+scene.add(beyond);
+let waterLevel = 0;
 
 const keys = new Set();
 const signAtlas = makeSignAtlas();
@@ -108,38 +113,16 @@ function shanghaiNow() {
 
 function applySun() {
   const sunPos = sunVector(hour, dayOfYear, 31.23);
-  const sky = skyColors(sunPos.altitude);
-  cityUniforms.uNight.value = sky.night;
-  cityUniforms.uDay.value = sky.day;
-  cityUniforms.uSunDir.value.set(sunPos.x, Math.max(sunPos.y, -0.2), sunPos.z);
-  cityUniforms.uSky.value.setRGB(sky.zenith[0], sky.zenith[1], sky.zenith[2]);
-  cityUniforms.uHorizon.value.setRGB(sky.horizon[0], sky.horizon[1], sky.horizon[2]);
-  const target = controls.target;
-  const lift = sunPos.y > 0 ? sunPos : { x: -sunPos.x, y: 0.35, z: -sunPos.z };
-  sun.position.set(target.x + lift.x * 900, target.y + lift.y * 900, target.z + lift.z * 900);
-  sun.target.position.copy(target);
-  sun.intensity = sunPos.y > 0 ? 0.15 + 2.5 * sky.day : 0.12;
-  sun.color.setRGB(sky.sun[0], sky.sun[1], sky.sun[2]);
-  ambient.intensity = 0.1 + 0.38 * sky.day;
-  ambient.color.set(sky.night > 0.6 ? 0x1a2744 : 0xfff6ea);
-  hemi.intensity = 0.12 + 0.32 * sky.day;
-  hemi.color.copy(cityUniforms.uSky.value);
-  scene.fog.color.copy(cityUniforms.uHorizon.value);
-  scene.fog.near = 900 + 80 * sky.day;
-  scene.fog.far = 4800 - 400 * sky.day;
-  renderer.toneMappingExposure = 0.62 + 0.55 * sky.day;
-  if (streamer.headMat) streamer.headMat.emissiveIntensity = sky.night * 2.2;
-  if (streamer.poolMat) streamer.poolMat.opacity = sky.night * 0.45;
-  signsMat.emissiveIntensity = 0.15 + sky.night * 0.9;
-  if (cars) cars.lampMat.emissiveIntensity = 0.05 + sky.night * 1.6;
-  if (trainMesh) trainMesh.windows.material.emissiveIntensity = sky.night * 0.7;
+  env.setSun(new THREE.Vector3(sunPos.x, sunPos.y, sunPos.z));
+  env.follow(controls.target, camera);
+  cityUniforms.uSkyGain.value = 1 / env.exposure;
+  post.apply(env, controls.target.y);
+  const night = env.night;
+  if (streamer.headMat) streamer.headMat.emissiveIntensity = night * 4;
+  signsMat.emissiveIntensity = 0.15 + night * 0.9;
+  if (cars) cars.lampMat.emissiveIntensity = 0.05 + night * 5;
+  if (trainMesh) trainMesh.windows.material.emissiveIntensity = night * 1.2;
   clockEl.textContent = formatHour(hour);
-  const span = sun.shadow.camera;
-  const size = Math.min(900, Math.max(180, camera.position.distanceTo(target) * 0.75));
-  if (Math.abs(span.right - size) > 8) {
-    span.left = -size; span.right = size; span.top = size; span.bottom = -size;
-    span.updateProjectionMatrix();
-  }
 }
 
 function moveTarget(dt) {
@@ -198,7 +181,7 @@ async function boot() {
     gate.hidden = false;
     statsEl.textContent = '尚未编译城市数据';
     applySun();
-    renderer.setAnimationLoop(() => renderer.render(scene, camera));
+    renderer.setAnimationLoop(() => post.render());
     return;
   }
   const areaId = params.get('area') || index.areas[0].id;
@@ -206,8 +189,9 @@ async function boot() {
   subtitle.textContent = city.manifest.name;
   document.title = `${city.manifest.name} · 上海三维`;
   credit.innerHTML = `${city.manifest.attribution.osm}<br>${city.manifest.attribution.dem}<br>做法来自 <a href="https://github.com/jeantimex/tokyo">jeantimex/tokyo</a>`;
-  streamer.poolMat.map = makeCircleTexture();
   await streamer.start(city, signAtlas);
+  waterLevel = city.manifest.waterLevel ?? streamer.heightAt(0, 0);
+  beyond.position.y = Math.min(waterLevel, city.terrain.heights.reduce((a, b) => Math.min(a, b), Infinity)) - 1.5;
 
   const graph = prepareGraph(city.roads);
   const count = Math.min(180, Math.max(12, Math.round(graph.edges.reduce((s, e) => s + e.length, 0) / 45)));
@@ -282,6 +266,7 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  post.setSize(window.innerWidth, window.innerHeight);
 });
 renderer.domElement.addEventListener('pointerdown', (event) => { press = [event.clientX, event.clientY]; });
 renderer.domElement.addEventListener('pointerup', (event) => {
@@ -298,7 +283,7 @@ renderer.domElement.addEventListener('pointerup', (event) => {
   else inspect.hidden = true;
 });
 
-const clock = new THREE.Clock();
+const clock = new THREE.Timer();
 let streamTimer = 0;
 applySun();
 boot().catch((error) => {
@@ -308,6 +293,7 @@ boot().catch((error) => {
 });
 
 renderer.setAnimationLoop(() => {
+  clock.update();
   const dt = Math.min(0.05, clock.getDelta());
   cityUniforms.uTime.value += dt;
   controls.update();
@@ -351,9 +337,13 @@ renderer.setAnimationLoop(() => {
       trainMesh.mesh.instanceMatrix.needsUpdate = true;
       trainMesh.windows.instanceMatrix.needsUpdate = true;
     }
-    const phase = cityUniforms.uNight.value < 0.35 ? '白天' : cityUniforms.uNight.value < 0.75 ? '黄昏' : '夜晚';
+    const phase = env.night < 0.35 ? '白天' : env.dark < 0.75 ? '黄昏' : '夜晚';
     statsEl.textContent = `${phase} · 街区 ${streamer.loadedCount} / ${streamer.total} · 车辆 ${sim ? sim.cars.length : 0} · 列车 ${trainList.length}`;
   }
   applySun();
-  renderer.render(scene, camera);
+  lampLight.update(controls.target, camera.position, env.night);
+  mirror.update(scene, camera, running && streamer.hasWater ? waterLevel : null);
+  post.render(dt);
 });
+
+window.__app = { scene, camera, controls, renderer, env, post, streamer, lampLight, mirror, cityUniforms };

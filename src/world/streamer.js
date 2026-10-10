@@ -5,7 +5,9 @@ import { buildBuildingGeometry, buildLandGeometry } from '../shared/meshbuild.js
 import { decodeTerrain, sampleGrid } from '../shared/terrain.js';
 import { decodeTile } from '../shared/tileformat.js';
 import { KIND_NAME } from '../shared/kinds.js';
-import { createBuildingMaterial, createRoadMaterial, createWaterMaterial } from './materials.js';
+import { createBuildingMaterial, createGroundMaterial, createRoadMaterial, createWaterMaterial } from './materials.js';
+import { lampPools, lampScene } from './lamplight.js';
+import { WATER_LAYER } from './mirror.js';
 import {
   instanceProps, lampGeometries, lampHeadMaterial, signMesh, staticPropMesh, treeGeometry,
 } from './props.js';
@@ -55,10 +57,10 @@ function terrainGeometry(grid) {
       pos[i * 3] = x;
       pos[i * 3 + 1] = y;
       pos[i * 3 + 2] = z;
-      const shade = 0.86 + 0.14 * Math.sin(x * 0.04) * Math.cos(z * 0.035);
-      col[i * 3] = 0.48 * shade;
+      const shade = 0.96 + 0.04 * Math.sin(x * 0.04) * Math.cos(z * 0.035);
+      col[i * 3] = 0.5 * shade;
       col[i * 3 + 1] = 0.5 * shade;
-      col[i * 3 + 2] = 0.44 * shade;
+      col[i * 3 + 2] = 0.48 * shade;
     }
   }
   const idx = [];
@@ -98,17 +100,11 @@ export function createStreamer({ scene, getView }) {
   const buildingMat = createBuildingMaterial();
   const roadMat = createRoadMaterial();
   const waterMat = createWaterMaterial();
-  const terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  const treeMat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  const poleMat = new THREE.MeshLambertMaterial({ color: 0x3c4148 });
+  const groundMat = createGroundMaterial();
+  const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x3c4148, roughness: 0.5, metalness: 0.5 });
   const headMat = lampHeadMaterial();
-  const poolMat = new THREE.MeshBasicMaterial({
-    color: 0xffc98a,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    opacity: 0,
-  });
+  let waterCount = 0;
   const loaded = new Map();
   const loading = new Set();
   const pickables = [];
@@ -160,7 +156,7 @@ export function createStreamer({ scene, getView }) {
       setAttr(geo, 'position', landGeo.position, 3);
       setAttr(geo, 'normal', landGeo.normal, 3);
       setAttr(geo, 'color', landGeo.color, 3);
-      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+      const mesh = new THREE.Mesh(geo, groundMat);
       mesh.receiveShadow = true;
       group.add(mesh);
     }
@@ -170,8 +166,9 @@ export function createStreamer({ scene, getView }) {
       setAttr(geo, 'position', waterGeo.position, 3);
       setAttr(geo, 'normal', waterGeo.normal, 3);
       const mesh = new THREE.Mesh(geo, waterMat);
-      mesh.renderOrder = 2;
+      mesh.layers.set(WATER_LAYER);
       group.add(mesh);
+      group.userData.water = true;
     }
     const roads = roadGeometry(tile.roads);
     if (roads) {
@@ -190,22 +187,7 @@ export function createStreamer({ scene, getView }) {
     const heads = instanceProps(PROP.LAMP, lamps, lampsGeo.head, headMat);
     if (poles) group.add(poles);
     if (heads) group.add(heads);
-    if (lamps.length) {
-      const poolGeo = new THREE.PlaneGeometry(1, 1);
-      poolGeo.rotateX(-Math.PI / 2);
-      const pools = new THREE.InstancedMesh(poolGeo, poolMat, lamps.length);
-      pools.userData.sharedGeo = true;
-      pools.renderOrder = 3;
-      pools.frustumCulled = false;
-      const dummy = new THREE.Object3D();
-      lamps.forEach((lamp, i) => {
-        dummy.position.set(lamp.x, lamp.y + 0.25, lamp.z);
-        dummy.scale.set(16, 16, 16);
-        dummy.updateMatrix();
-        pools.setMatrixAt(i, dummy.matrix);
-      });
-      group.add(pools);
-    }
+    group.userData.pools = lampPools(lamps);
     const sign = signMesh(signs, signAtlas.current);
     if (sign) group.add(sign);
     const blocksMesh = staticPropMesh(blocks);
@@ -224,6 +206,8 @@ export function createStreamer({ scene, getView }) {
       const group = meshTile(tile);
       group.userData.key = key;
       scene.add(group);
+      if (group.userData.pools) lampScene.add(group.userData.pools);
+      if (group.userData.water) waterCount += 1;
       loaded.set(key, group);
     } catch (error) {
       console.warn(error);
@@ -236,6 +220,11 @@ export function createStreamer({ scene, getView }) {
     const group = loaded.get(key);
     if (!group) return;
     scene.remove(group);
+    if (group.userData.pools) {
+      lampScene.remove(group.userData.pools);
+      group.userData.pools.dispose();
+    }
+    if (group.userData.water) waterCount -= 1;
     group.traverse((obj) => {
       if (obj.userData?.buildings) {
         const i = pickables.indexOf(obj);
@@ -251,7 +240,7 @@ export function createStreamer({ scene, getView }) {
     roadMat,
     waterMat,
     headMat,
-    poolMat,
+    get hasWater() { return waterCount > 0; },
     get loadedCount() { return loaded.size; },
     get total() { return known.size; },
     pickables,
@@ -262,7 +251,7 @@ export function createStreamer({ scene, getView }) {
       known = new Set(city.manifest.tiles);
       signAtlas.current = atlas;
       const geo = terrainGeometry(grid);
-      terrainMesh = new THREE.Mesh(geo, terrainMat);
+      terrainMesh = new THREE.Mesh(geo, groundMat);
       terrainMesh.receiveShadow = true;
       scene.add(terrainMesh);
       this.update();

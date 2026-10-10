@@ -49,6 +49,7 @@ function boxAt(w, h, d, y) {
   return geo;
 }
 
+let propMaterial = null;
 export function staticPropMesh(props) {
   const geos = [];
   for (const prop of props) {
@@ -64,7 +65,8 @@ export function staticPropMesh(props) {
   }
   if (!geos.length) return null;
   const merged = mergeGeometries(geos);
-  const mesh = new THREE.Mesh(merged, new THREE.MeshLambertMaterial({ color: 0xb7b1a8 }));
+  propMaterial ??= new THREE.MeshStandardMaterial({ color: 0x9c978f, roughness: 0.8, metalness: 0.1 });
+  const mesh = new THREE.Mesh(merged, propMaterial);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
@@ -143,7 +145,7 @@ export function signMesh(props, atlas) {
 }
 
 export function lampHeadMaterial() {
-  return new THREE.MeshLambertMaterial({
+  return new THREE.MeshStandardMaterial({
     color: 0xfff1cc,
     emissive: new THREE.Color('#ffd28a'),
     emissiveIntensity: 0,

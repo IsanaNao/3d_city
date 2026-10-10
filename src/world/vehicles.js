@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { beamGeometry, beamMaterial, lampScene } from './lamplight.js';
 
 function paint(geo, hex) {
   const color = new THREE.Color(hex);
@@ -28,19 +29,19 @@ const PAINTS = [0xf4f4f2, 0x23272c, 0x8e969e, 0xb4232a, 0x1d4f8c, 0xd6a31c, 0x1e
 
 export function createCarFleet(count) {
   const geo = carGeometry();
-  const bodyMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.45 });
   const body = new THREE.InstancedMesh(geo, bodyMat, count);
   body.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   const glassGeo = new THREE.BoxGeometry(1.7, 0.38, 1.35).translate(-0.15, 1.08, 0);
-  const glass = new THREE.InstancedMesh(glassGeo, new THREE.MeshLambertMaterial({
-    color: 0x1c3344, transparent: true, opacity: 0.85,
+  const glass = new THREE.InstancedMesh(glassGeo, new THREE.MeshStandardMaterial({
+    color: 0x0c1218, roughness: 0.08, metalness: 0.9,
   }), count);
   glass.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   const lampGeo = new THREE.BoxGeometry(0.12, 0.12, 0.22);
   const left = lampGeo.clone().translate(2.08, 0.58, 0.55);
   const right = lampGeo.clone().translate(2.08, 0.58, -0.55);
   const lampsGeo = mergeGeometries([left, right]);
-  const lampMat = new THREE.MeshLambertMaterial({
+  const lampMat = new THREE.MeshStandardMaterial({
     color: 0xfff6df,
     emissive: new THREE.Color('#ffe1a8'),
     emissiveIntensity: 0,
@@ -53,11 +54,16 @@ export function createCarFleet(count) {
     body.setColorAt(i, color);
   }
   body.instanceColor.needsUpdate = true;
+  const beams = new THREE.InstancedMesh(beamGeometry(4.2), beamMaterial, count);
+  beams.instanceMatrix = body.instanceMatrix;
+  beams.frustumCulled = false;
+  beams.updateMatrixWorld(true);
+  lampScene.add(beams);
   body.castShadow = false;
   body.frustumCulled = false;
   glass.frustumCulled = false;
   lamps.frustumCulled = false;
-  return { body, glass, lamps, lampMat, dummy: new THREE.Object3D(), count };
+  return { body, glass, lamps, lampMat, beams, dummy: new THREE.Object3D(), count };
 }
 
 export function setVehicleMatrix(mesh, index, dummy, x, y, z, dx, dz) {
@@ -74,13 +80,15 @@ export function createTrainMesh(count) {
   paint(body, 0xffffff);
   paint(band, 0x1a1a1a);
   const geo = mergeGeometries([body, band]);
-  const mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }), count);
+  const mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.3 }), count);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.frustumCulled = false;
   const windows = new THREE.InstancedMesh(
     new THREE.BoxGeometry(12.5, 0.7, 2.76).translate(0, 2.55, 0),
-    new THREE.MeshLambertMaterial({
-      color: 0xd7e7f4,
+    new THREE.MeshStandardMaterial({
+      color: 0x2a3440,
+      roughness: 0.15,
+      metalness: 0.6,
       emissive: new THREE.Color('#f4e2b8'),
       emissiveIntensity: 0,
     }),
