@@ -9,13 +9,72 @@ import { cityUniforms } from './materials.js';
 
 const steel = new THREE.MeshStandardMaterial({ color: 0xd5d9de, metalness: 0.72, roughness: 0.34 });
 const dark = new THREE.MeshStandardMaterial({ color: 0x3a4148, metalness: 0.45, roughness: 0.5 });
+// Pink-red glass. The night grid is drawn in the shader from each panel's UV,
+// so the sphere reads as panes by day and as dots and bands after dark.
 const pearlMat = new THREE.MeshStandardMaterial({
-  color: 0xf3b4c6, metalness: 0.28, roughness: 0.22,
-  emissive: new THREE.Color(0xff4f86), emissiveIntensity: 0,
+  color: 0xc4374e, metalness: 0.74, roughness: 0.16,
+  emissive: new THREE.Color(0xff2040), emissiveIntensity: 0,
 });
+pearlMat.onBeforeCompile = (shader) => {
+  shader.uniforms.uNight = cityUniforms.uNight;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nattribute float aLat;\nvarying vec2 vPane;\nvarying float vLat;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPane = uv;\nvLat = aLat;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec2 vPane;\nvarying float vLat;')
+    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      float edge = min(min(vPane.x, 1.0 - vPane.x), min(vPane.y, 1.0 - vPane.y));
+      float glass = smoothstep(0.045, 0.13, edge);
+      diffuseColor.rgb = mix(vec3(0.78, 0.80, 0.82), diffuseColor.rgb, glass);
+      float belt = max(
+        smoothstep(0.45, 0.48, vLat) * (1.0 - smoothstep(0.52, 0.55, vLat)),
+        max(
+          smoothstep(0.28, 0.31, vLat) * (1.0 - smoothstep(0.35, 0.38, vLat)),
+          smoothstep(0.62, 0.65, vLat) * (1.0 - smoothstep(0.69, 0.72, vLat))
+        )
+      );
+      vec2 cell = abs(fract(vPane * vec2(2.0, 3.0)) - 0.5);
+      float dotCore = smoothstep(0.42, 0.16, max(cell.x, cell.y));
+      vec3 cellCol = mix(vec3(1.0, 0.10, 0.22), vec3(1.0, 0.64, 0.74), belt);
+      totalEmissiveRadiance += cellCol * glass * dotCore * uNight * (3.6 + belt * 2.6);
+      totalEmissiveRadiance += vec3(1.0, 0.86, 0.72) * belt * uNight * 0.7;
+    `);
+};
+pearlMat.customProgramCacheKey = () => 'lm-pearl-grid';
 const pearlBand = new THREE.MeshStandardMaterial({
-  color: 0xffe7c2, metalness: 0.1, roughness: 0.4,
-  emissive: new THREE.Color(0xfff1cf), emissiveIntensity: 0,
+  color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
+  emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
+});
+const columnMat = new THREE.MeshStandardMaterial({
+  color: 0xd9d3c8, metalness: 0.42, roughness: 0.38,
+  emissive: new THREE.Color(0xff8a28), emissiveIntensity: 0,
+});
+columnMat.onBeforeCompile = (shader) => {
+  shader.uniforms.uNight = cityUniforms.uNight;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec2 vColUv;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvColUv = uv;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec2 vColUv;')
+    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      float band = smoothstep(0.58, 0.78, fract(vColUv.y * 14.0));
+      vec3 warm = mix(vec3(1.0, 0.55, 0.1), vec3(1.0, 0.14, 0.05), band);
+      totalEmissiveRadiance += warm * uNight * (1.7 + band * 1.8);
+    `);
+};
+columnMat.customProgramCacheKey = () => 'lm-pearl-column';
+const legMat = new THREE.MeshStandardMaterial({
+  color: 0xcfc8bc, metalness: 0.38, roughness: 0.42,
+  emissive: new THREE.Color(0xff1c18), emissiveIntensity: 0,
+});
+const shanghaiCrownMat = new THREE.MeshStandardMaterial({
+  color: 0x9eb4c6, metalness: 0.62, roughness: 0.16,
+  emissive: new THREE.Color(0x3aa0ff), emissiveIntensity: 0,
+});
+const swfcEdgeMat = new THREE.MeshStandardMaterial({
+  color: 0xe7eef3, metalness: 0.55, roughness: 0.28,
+  emissive: new THREE.Color(0xe8fbff), emissiveIntensity: 0,
+  side: THREE.DoubleSide,
 });
 const beaconMat = new THREE.MeshStandardMaterial({
   color: 0xff3030, emissive: new THREE.Color(0xff2020), emissiveIntensity: 0.4,
@@ -66,10 +125,50 @@ function tag(mesh, part, angle) {
   return mesh;
 }
 
-function sphere(r, y, mat) {
-  const geo = new THREE.SphereGeometry(r, 28, 20);
-  geo.translate(0, y, 0);
-  return { geo, mat };
+// A sphere of separate glass panels, with a gap around the equator for the
+// observation belt. Each panel's UV is 0..1 so the night shader can light the pane.
+function paneledSphere(group, radius, centerY, latN, lonN, mat, part, equatorGap = 0) {
+  const pos = [];
+  const uv = [];
+  const lat = [];
+  const idx = [];
+  const inset = 0.14;
+  for (let i = 0; i < latN; i++) {
+    const v = (i + 0.5) / latN;
+    if (equatorGap > 0 && Math.abs(v - 0.5) < equatorGap) continue;
+    for (let j = 0; j < lonN; j++) {
+      const lat0 = Math.PI * (i + inset) / latN;
+      const lat1 = Math.PI * (i + 1 - inset) / latN;
+      const lon0 = Math.PI * 2 * (j + inset) / lonN;
+      const lon1 = Math.PI * 2 * (j + 1 - inset) / lonN;
+      const base = pos.length / 3;
+      const corners = [[lat0, lon0, 0, 0], [lat0, lon1, 1, 0], [lat1, lon1, 1, 1], [lat1, lon0, 0, 1]];
+      for (const [la, lo, u, vv] of corners) {
+        const sx = Math.sin(la) * Math.cos(lo);
+        const sy = Math.cos(la);
+        const sz = Math.sin(la) * Math.sin(lo);
+        pos.push(sx * radius, centerY + sy * radius, sz * radius);
+        uv.push(u, vv);
+        lat.push(v);
+      }
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('aLat', new THREE.Float32BufferAttribute(lat, 1));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return tag(add(group, geo, mat), part);
+}
+
+function sphereRing(group, radius, centerY, dy, tube) {
+  const ringR = Math.sqrt(Math.max(0.4, radius * radius - dy * dy));
+  const geo = new THREE.TorusGeometry(ringR + tube * 0.25, tube, 6, 42);
+  geo.rotateX(Math.PI / 2);
+  geo.translate(0, centerY + dy, 0);
+  add(group, geo, pearlBand);
 }
 
 const concrete = new THREE.MeshStandardMaterial({ color: 0xc3ccd4, metalness: 0.35, roughness: 0.48 });
@@ -119,15 +218,16 @@ function pearl(h) {
     const knee = foot.clone().lerp(socket, 0.45);
     knee.add(along(angle, 7 * m.s, 0));
     const legEnd = bury(socket, along(angle, 12 * m.s, m.lowerC), m.legR);
-    tube(g, [foot, knee, legEnd], m.legR, concrete, 'leg', angle);
+    tube(g, [foot, knee, legEnd], m.legR, legMat, 'leg', angle);
 
     const pod = foot.clone().lerp(legEnd, 0.42);
-    tag(add(g, new THREE.SphereGeometry(6.2 * m.s, 16, 12).translate(pod.x, pod.y, pod.z), pearlMat), 'pod', angle);
+    const podMesh = paneledSphere(g, 6.2 * m.s, 0, 8, 12, pearlMat, 'pod', 0);
+    podMesh.position.set(pod.x, pod.y, pod.z);
 
     const emerge = along(angle, 15 * m.s, m.lowerC + 8 * m.s);
     const arrive = along(angle, 10 * m.s, m.upperC);
     const shaftEnd = bury(arrive, along(angle, 8 * m.s, m.upperC + m.upperR), m.shaftR);
-    tube(g, [emerge, shaftEnd], m.shaftR, concrete, 'shaft', angle);
+    tube(g, [emerge, shaftEnd], m.shaftR, columnMat, 'shaft', angle);
   }
 
   // Five 12 m spheres and the rings that tie the three columns together.
@@ -136,32 +236,39 @@ function pearl(h) {
     const angle = angles[i % 3] + (i >= 3 ? 0.22 : 0);
     const y = m.lowerC + m.lowerR + (m.upperC - m.upperR - (m.lowerC + m.lowerR)) * t;
     const radial = (15 - 5 * t) * m.s;
-    tag(add(g, new THREE.SphereGeometry(6 * m.s, 16, 12).translate(Math.cos(angle) * radial, y, Math.sin(angle) * radial), pearlMat), 'bead', angle);
+    const bead = paneledSphere(g, 6 * m.s, 0, 6, 10, pearlMat, 'bead', 0);
+    bead.position.set(Math.cos(angle) * radial, y, Math.sin(angle) * radial);
+    bead.userData.angle = angle;
   });
   for (const t of [0.22, 0.42, 0.62, 0.82]) {
     const y = m.lowerC + m.lowerR + (m.upperC - m.upperR - (m.lowerC + m.lowerR)) * t;
     const radial = (16 - 6 * t) * m.s;
     const ring = angles.map((angle) => along(angle, radial, y));
-    for (let i = 0; i < ring.length; i++) tube(g, [ring[i], ring[(i + 1) % ring.length]], 1.15 * m.s, concrete, 'brace');
+    for (let i = 0; i < ring.length; i++) tube(g, [ring[i], ring[(i + 1) % ring.length]], 1.15 * m.s, columnMat, 'brace');
   }
   for (const t of [0.28, 0.62]) {
     const y = 4 + (m.lowerC - m.lowerR) * t;
     const radial = m.foot * (1 - t * 0.72);
     const ring = angles.map((angle) => along(angle, radial, y));
-    for (let i = 0; i < ring.length; i++) tube(g, [ring[i], ring[(i + 1) % ring.length]], 1.3 * m.s, concrete, 'brace');
+    for (let i = 0; i < ring.length; i++) tube(g, [ring[i], ring[(i + 1) % ring.length]], 1.3 * m.s, columnMat, 'brace');
   }
 
-  tag(add(g, sphere(m.lowerR, m.lowerC, pearlMat).geo, pearlMat), 'lower-sphere');
-  add(g, new THREE.TorusGeometry(m.lowerR + 0.8, 0.9 * m.s, 8, 36).rotateX(Math.PI / 2).translate(0, m.lowerC, 0), pearlBand);
-  tag(add(g, sphere(m.upperR, m.upperC, pearlMat).geo, pearlMat), 'upper-sphere');
-  add(g, new THREE.TorusGeometry(m.upperR + 0.7, 0.75 * m.s, 8, 32).rotateX(Math.PI / 2).translate(0, m.upperC + m.upperR * 0.25, 0), pearlBand);
+  paneledSphere(g, m.lowerR, m.lowerC, 18, 36, pearlMat, 'lower-sphere', 0.034);
+  sphereRing(g, m.lowerR, m.lowerC, 0, 1.8 * m.s);
+  sphereRing(g, m.lowerR, m.lowerC, m.lowerR * 0.42, 0.48 * m.s);
+  sphereRing(g, m.lowerR, m.lowerC, -m.lowerR * 0.42, 0.48 * m.s);
+  paneledSphere(g, m.upperR, m.upperC, 16, 32, pearlMat, 'upper-sphere', 0.034);
+  sphereRing(g, m.upperR, m.upperC, 0, 1.55 * m.s);
+  sphereRing(g, m.upperR, m.upperC, m.upperR * 0.4, 0.42 * m.s);
+  sphereRing(g, m.upperR, m.upperC, -m.upperR * 0.4, 0.42 * m.s);
 
-  tube(g, [along(0, 0, m.upperC + m.upperR * 0.35), along(0, 0, m.capsuleC + m.capsuleR * 0.4)], 2.4 * m.s, concrete, 'mast');
-  tag(add(g, sphere(m.capsuleR, m.capsuleC, pearlMat).geo, pearlMat), 'capsule');
+  tube(g, [along(0, 0, m.upperC + m.upperR * 0.35), along(0, 0, m.capsuleC + m.capsuleR * 0.4)], 2.4 * m.s, columnMat, 'mast');
+  paneledSphere(g, m.capsuleR, m.capsuleC, 8, 16, pearlMat, 'capsule', 0.05);
+  sphereRing(g, m.capsuleR, m.capsuleC, 0, 0.55 * m.s);
   const antennaH = h - (m.capsuleC + m.capsuleR);
   const antenna = new THREE.CylinderGeometry(0.22 * m.s, 1.15 * m.s, antennaH, 8);
   antenna.translate(0, m.capsuleC + m.capsuleR + antennaH / 2, 0);
-  tag(add(g, antenna, steel), 'antenna');
+  tag(add(g, antenna, columnMat), 'antenna');
   add(g, new THREE.SphereGeometry(1.1 * m.s, 10, 8).translate(0, h * 0.998, 0), beaconMat);
   pearlPlinth(g, m, angles);
   return g;
@@ -346,6 +453,7 @@ function shanghai(h) {
   const yScale = 0.985;
   let prev = null;
   const glass = [];
+  const crown = [];
   const slot = [];
   const rib = [];
   const kindOf = (i) => {
@@ -368,17 +476,20 @@ function shanghai(h) {
     const twist = t * (120 * Math.PI / 180);
     const ring = shanghaiRing(segs, 34 * body * (0.58 + 0.42 * dome), twist, y);
     if (prev) {
+      const dest = t > 0.9 ? crown : null;
       for (let s = 0; s < segs; s++) {
         const s2 = (s + 1) % segs;
-        kindOf(s).push(prev[s], prev[s2], ring[s2], ring[s]);
+        const bucket = dest || kindOf(s);
+        bucket.push(prev[s], prev[s2], ring[s2], ring[s]);
       }
     }
     prev = ring;
   }
   quadsMesh(g, glass, glassBlue);
+  quadsMesh(g, crown, shanghaiCrownMat);
   quadsMesh(g, slot, slotMat);
   quadsMesh(g, rib, ribMat);
-  if (prev) capRing(g, prev, glassBlue);
+  if (prev) capRing(g, prev, shanghaiCrownMat);
   add(g, new THREE.SphereGeometry(1.15, 10, 8).translate(0, h * 0.992, 0), beaconMat);
   return g;
 }
@@ -493,9 +604,7 @@ function swfc(h) {
     }
   }
   quadsMesh(g, glass, glassBlue);
-  const frameMat = steel.clone();
-  frameMat.side = THREE.DoubleSide;
-  quadsMesh(g, frame, frameMat);
+  quadsMesh(g, frame, swfcEdgeMat);
   const crown = swfcRing(1, yOf(1));
   const cap = new THREE.BufferGeometry();
   const capPos = [0, crown[0].y, 0];
@@ -505,7 +614,7 @@ function swfc(h) {
   cap.setAttribute('position', new THREE.Float32BufferAttribute(capPos, 3));
   cap.setIndex(capIdx);
   cap.computeVertexNormals();
-  add(g, cap, frameMat);
+  add(g, cap, swfcEdgeMat);
   return g;
 }
 
@@ -532,7 +641,10 @@ function jinmaoMaterial() {
         float row = floor(vLm.y / 4.2);
         float col = floor(vGrid.x * 9.0);
         float on = step(0.62, fract(sin(row * 12.1 + col * 7.7) * 43758.5));
+        totalEmissiveRadiance += vec3(1.0, 0.78, 0.42) * uNight * 0.16;
         totalEmissiveRadiance += vec3(1.0, 0.84, 0.58) * pane * on * uNight * 0.85;
+        float crown = smoothstep(250.0, 360.0, vLm.y);
+        totalEmissiveRadiance += vec3(1.0, 0.68, 0.16) * crown * uNight * (1.1 + frame * 1.6);
       `);
   };
   jinGrid.customProgramCacheKey = () => 'lm-jin-grid';
@@ -594,28 +706,81 @@ function jinmao(h) {
   return g;
 }
 
+const bundStone = new THREE.MeshStandardMaterial({
+  color: 0xe6d3b0, roughness: 0.78, metalness: 0.02,
+  emissive: new THREE.Color(0xffc98a), emissiveIntensity: 0,
+});
+const copperRoof = new THREE.MeshStandardMaterial({
+  color: 0x2f8f62, roughness: 0.45, metalness: 0.35,
+  emissive: new THREE.Color(0x146b40), emissiveIntensity: 0,
+});
+
 function customs(h) {
   const g = new THREE.Group();
-  const baseH = h * 0.55;
-  add(g, new THREE.BoxGeometry(46, baseH, 22).translate(0, baseH / 2, 0), stoneMat());
-  const tower = new THREE.BoxGeometry(11, h - baseH, 11);
-  tower.translate(0, baseH + (h - baseH) / 2, 0);
-  add(g, tower, stoneMat());
-  const face = new THREE.CircleGeometry(2.1, 20);
-  face.translate(0, h * 0.78, 5.55);
-  add(g, face, clockMat);
-  const roof = new THREE.ConeGeometry(8, 7, 4);
+  const baseH = h * 0.42;
+  add(g, new THREE.BoxGeometry(48, baseH, 26).translate(0, baseH / 2, 0), bundStone);
+  const towerH = h - baseH;
+  const tower = new THREE.BoxGeometry(12, towerH, 12);
+  tower.translate(0, baseH + towerH / 2, 0);
+  add(g, tower, bundStone);
+  for (const [x, y, z, rx] of [[0, h * 0.78, 6.15, 0], [0, h * 0.78, -6.15, Math.PI], [6.15, h * 0.78, 0, Math.PI / 2], [-6.15, h * 0.78, 0, -Math.PI / 2]]) {
+    const face = new THREE.CircleGeometry(2.15, 24);
+    face.rotateY(rx);
+    face.translate(x, y, z);
+    add(g, face, clockMat);
+  }
+  const roof = new THREE.ConeGeometry(8.5, 8, 4);
   roof.rotateY(Math.PI / 4);
-  roof.translate(0, h + 2.5, 0);
+  roof.translate(0, h + 3, 0);
   add(g, roof, dark);
   return g;
 }
 
-function stoneMat() {
-  return new THREE.MeshStandardMaterial({ color: 0xe4d2b0, roughness: 0.78, metalness: 0.02 });
+// Bund 12: a wide neoclassical block and a dome, just south of the customs tower.
+function hsbc(h) {
+  const g = new THREE.Group();
+  const wall = h * 0.72;
+  add(g, new THREE.BoxGeometry(62, wall, 36).translate(0, wall / 2, 0), bundStone);
+  for (let i = -3; i <= 3; i++) {
+    const col = new THREE.CylinderGeometry(0.7, 0.8, wall * 0.55, 8);
+    col.translate(i * 6.2, wall * 0.28, 18.4);
+    add(g, col, bundStone);
+  }
+  const drum = new THREE.CylinderGeometry(9, 10, 6, 20);
+  drum.translate(0, wall + 3, 4);
+  add(g, drum, bundStone);
+  const dome = new THREE.SphereGeometry(10.5, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2);
+  dome.translate(0, wall + 6, 4);
+  add(g, dome, bundStone);
+  return g;
 }
 
-const BUILDERS = { pearl, shanghai, swfc, jinmao, customs, magnolia };
+// Sassoon House: a stone slab under a green copper pyramid.
+function peace(h) {
+  const g = new THREE.Group();
+  const wall = h * 0.78;
+  add(g, new THREE.BoxGeometry(34, wall, 28).translate(0, wall / 2, 0), bundStone);
+  const roof = new THREE.CylinderGeometry(0.6, 18, h - wall, 4);
+  roof.rotateY(Math.PI / 4);
+  roof.translate(0, wall + (h - wall) / 2, 0);
+  add(g, roof, copperRoof);
+  return g;
+}
+
+// Art deco shaft with a Chinese roof, beside the Peace Hotel.
+function boc(h) {
+  const g = new THREE.Group();
+  add(g, new THREE.BoxGeometry(36, h * 0.55, 24).translate(0, h * 0.275, 0), bundStone);
+  add(g, new THREE.BoxGeometry(28, h * 0.28, 20).translate(0, h * 0.69, 0), bundStone);
+  add(g, new THREE.BoxGeometry(18, h * 0.12, 14).translate(0, h * 0.86, 0), bundStone);
+  const roof = new THREE.CylinderGeometry(2, 12, h * 0.1, 4);
+  roof.rotateY(Math.PI / 4);
+  roof.translate(0, h * 0.95, 0);
+  add(g, roof, copperRoof);
+  return g;
+}
+
+const BUILDERS = { pearl, shanghai, swfc, jinmao, customs, magnolia, hsbc, peace, boc };
 
 export const landmarkNight = { pearlMat, pearlBand, beaconMat, clockMat };
 
@@ -629,7 +794,8 @@ export function createLandmarks(list) {
     model.position.set(item.x, item.y, item.z);
     // SWFC's footprint is nearly square, so the longest edge does not say which
     // face holds the aperture. The opening faces the river, southwest.
-    model.rotation.y = item.id === 'swfc' ? -Math.PI / 4 : (item.yaw || 0);
+    const faceRiver = item.id === 'customs' || item.id === 'hsbc' || item.id === 'peace' || item.id === 'boc';
+    model.rotation.y = item.id === 'swfc' ? -Math.PI / 4 : faceRiver ? Math.PI / 2 : (item.yaw || 0);
     model.userData.landmark = item;
     group.add(model);
   }
@@ -637,8 +803,14 @@ export function createLandmarks(list) {
 }
 
 export function syncLandmarkNight(night) {
-  pearlMat.emissiveIntensity = night * 2.4;
-  pearlBand.emissiveIntensity = 0.15 + night * 1.6;
+  pearlMat.emissiveIntensity = night * 0.15;
+  pearlBand.emissiveIntensity = 0.05 + night * 2.4;
+  columnMat.emissiveIntensity = night * 0.9;
+  legMat.emissiveIntensity = night * 3.1;
+  shanghaiCrownMat.emissiveIntensity = night * 2.8;
+  swfcEdgeMat.emissiveIntensity = night * 2.2;
+  bundStone.emissiveIntensity = night * 0.22;
+  copperRoof.emissiveIntensity = night * 0.35;
   beaconMat.emissiveIntensity = 0.35 + night * 2;
   clockMat.emissiveIntensity = night * 0.8;
 }

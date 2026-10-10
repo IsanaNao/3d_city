@@ -154,7 +154,7 @@ test('a tiny city compiles into decodable chunks', () => {
   });
   const square = (x0, z0, x1, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1], [x0, z0]];
   const elements = [
-    way(1, { building: 'office', name: '江海关', height: '40' }, square(-40, -20, -10, 16)),
+    way(1, { building: 'office', name: '沿江办公楼', height: '40' }, square(-40, -20, -10, 16)),
     way(2, { building: 'yes', name: '上海中心大厦' }, square(80, -25, 110, 10)),
     way(3, { highway: 'primary', lanes: '4', oneway: 'yes' }, [[-120, 30], [120, 30]]),
     way(4, { highway: 'secondary', oneway: 'no' }, [[0, -80], [0, 90]]),
@@ -186,6 +186,7 @@ test('a tiny city compiles into decodable chunks', () => {
   assert.equal(city.rails.lines.length, 1);
   assert.equal(city.rails.lines[0].tunnel, true);
   assert.ok(city.manifest.waterLevel != null);
+  assert.ok(Array.isArray(city.manifest.bridges));
   const tile = city.tiles.values().next().value;
   const bytes = encodeTileSafe(tile);
   assert.ok(bytes.length > 32);

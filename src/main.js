@@ -11,6 +11,7 @@ import { createPost } from './world/post.js';
 import { LampLight } from './world/lamplight.js';
 import { WaterMirror, WATER_LAYER } from './world/mirror.js';
 import { createStreamer, loadCity } from './world/streamer.js';
+import { syncBridgeNight } from './world/bridges.js';
 import { syncLandmarkNight } from './world/landmarks.js';
 import { loadPhotoTextures } from './world/textures.js';
 import { signMaterial } from './world/props.js';
@@ -39,7 +40,7 @@ renderer.shadowMap.type = THREE.PCFShadowMap;
 stage.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 1.5, 14000);
+const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 1.5, 22000);
 camera.layers.enable(WATER_LAYER);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -128,6 +129,7 @@ function applySun() {
   const night = env.night;
   if (streamer.headMat) streamer.headMat.emissiveIntensity = night * 4;
   syncLandmarkNight(night);
+  syncBridgeNight(night);
   signsMat.emissiveIntensity = 0.15 + night * 0.9;
   if (cars) cars.lampMat.emissiveIntensity = 0.05 + night * 5;
   if (trainMesh) trainMesh.windows.material.emissiveIntensity = night * 1.2;

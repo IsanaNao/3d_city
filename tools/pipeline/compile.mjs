@@ -3,6 +3,7 @@ import path from 'node:path';
 import { TILE, boundsFromBbox, makeProjection, tileKey, tileRect } from '../../src/shared/geo.js';
 import { LAND, PROP, ROAD } from '../../src/shared/kinds.js';
 import { findLandmarks, hiddenByLandmark } from '../../src/shared/landmarks.js';
+import { collectBridges } from './bridges.mjs';
 import { mulberry32 } from '../../src/shared/rng.js';
 import { decodeTerrain, encodeTerrain, sampleGrid } from '../../src/shared/terrain.js';
 import { encodeTile } from '../../src/shared/tileformat.js';
@@ -642,7 +643,24 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
   };
   const waterLevel = carveWater(carved, parsed.land.filter((f) => f.kind === LAND.WATER));
   const landmarks = findLandmarks(parsed.footprints || parsed.buildings);
+  // The Bund HSBC block is a cluster of unnamed parts. Drop a dome on the
+  // published site, just south of the customs house, when OSM has no name.
+  if (!landmarks.some((lm) => lm.id === 'hsbc')) {
+    const [x, z] = proj.project(121.48495, 31.23835);
+    if (x >= areaRect.minX && x <= areaRect.maxX && z >= areaRect.minZ && z <= areaRect.maxZ) {
+      landmarks.push({
+        id: 'hsbc',
+        name: '汇丰银行大楼',
+        x, z,
+        y: sampleHeight(x, z),
+        h: 52,
+        yaw: Math.PI / 2,
+        radius: 46,
+      });
+    }
+  }
   const keptBuildings = parsed.buildings.filter((building) => !hiddenByLandmark(building, landmarks));
+  const bridges = collectBridges(elements, proj, sampleHeight);
   const props = placeProps(keptBuildings, draped, parsed.land, sampleHeight, parsed.signals);
 
   const buckets = createBuckets();
@@ -781,6 +799,9 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
     view: area.view || { position: presets[0].position, target: presets[0].target },
     presets,
     landmarks: landmarks.map(({ id, name, x, z, y, h, yaw }) => ({ id, name, x, z, y, h, yaw })),
+    bridges: bridges.map(({ id, name, kind, style, towerH, mainSpan, points }) => ({
+      id, name, kind, style, towerH, mainSpan, points,
+    })),
     generatedAt: new Date().toISOString(),
     attribution: {
       osm: '© OpenStreetMap contributors (ODbL)',

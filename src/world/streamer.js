@@ -8,6 +8,7 @@ import { KIND_NAME } from '../shared/kinds.js';
 import { createBuildingMaterial, createGroundMaterial, createRoadMaterial, createWaterMaterial } from './materials.js';
 import { lampPools, lampScene } from './lamplight.js';
 import { WATER_LAYER } from './mirror.js';
+import { createBridges, syncBridgeNight } from './bridges.js';
 import { createLandmarks, syncLandmarkNight } from './landmarks.js';
 import {
   instanceProps, lampGeometries, lampHeadMaterial, signMesh, signalGeometry, staticPropMesh, treeGeometry, treeGeometryFar,
@@ -280,11 +281,17 @@ export function createStreamer({ scene, getView }) {
         scene.add(models);
         this.landmarks = models;
       }
+      if (city.manifest.bridges?.length) {
+        scene.add(createBridges(city.manifest.bridges));
+      }
     },
-    syncNight(night) { syncLandmarkNight(night); },
+    syncNight(night) {
+      syncLandmarkNight(night);
+      syncBridgeNight(night);
+    },
     update() {
       const { target, camera } = getView();
-      const reach = Math.min(1100, Math.max(420, camera.position.distanceTo(target) * 0.8));
+      const reach = Math.min(1500, Math.max(420, camera.position.distanceTo(target) * 0.85));
       const want = new Set();
       const cover = (x, z, radius) => {
         const [tx, tz] = tileOf(x, z);

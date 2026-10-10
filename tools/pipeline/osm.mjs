@@ -114,6 +114,22 @@ export function carriageWidth(tags, highway) {
   return WIDTH[highway] || 6.5;
 }
 
+// Nanpu's stacked spiral and the Yangpu crossing sit far above a normal viaduct.
+export function deckLift(tags, points, bridge, lv) {
+  if (!bridge) return 0;
+  const name = tags.name || '';
+  if (/南浦大桥/.test(name)) return lv >= 3 ? 34 : lv === 2 ? 22 : 12;
+  if (/内环高架路/.test(name) && points.length >= 2) {
+    let len = 0;
+    for (let i = 1; i < points.length; i++) {
+      len += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
+    }
+    const mid = points[points.length >> 1];
+    if (len > 700 && len < 860 && mid[0] > 3600 && mid[0] < 4500 && mid[1] < -1900 && mid[1] > -2500) return 36;
+  }
+  return 5.2 + Math.max(0, lv - 1) * 3.4;
+}
+
 export function laneCount(width) {
   return Math.max(1, Math.min(8, Math.round((width - 0.5) / 3.35)));
 }
@@ -157,6 +173,27 @@ function nearestDist(p, roads) {
     }
   }
   return Math.sqrt(best);
+}
+
+// The Yangpu span sits about 36 m up. The inner-ring ways that meet it are the
+// approaches: slope them from the span down to a normal viaduct, instead of a cliff.
+export function gradeYangpuApproaches(roads) {
+  const spans = roads.filter((road) => road.bridge && road.lift >= 30 && /内环高架路/.test(road.name || ''));
+  if (!spans.length) return;
+  const joints = [];
+  for (const span of spans) joints.push(span.points[0], span.points[span.points.length - 1]);
+  const near = (p) => joints.some((j) => Math.hypot(j[0] - p[0], j[1] - p[1]) < 45);
+  for (const road of roads) {
+    if (!road.bridge || road.ramp || road.lift >= 30) continue;
+    if (!/内环高架路/.test(road.name || '')) continue;
+    const start = near(road.points[0]);
+    const end = near(road.points[road.points.length - 1]);
+    if (!start && !end) continue;
+    road.ramp = true;
+    road.liftHigh = 36;
+    road.liftLow = road.lift || 5.2;
+    road.highAtStart = start && !end ? true : end && !start ? false : start;
+  }
 }
 
 function gradeRamps(roads) {
@@ -356,7 +393,7 @@ export function parseCity(elements, proj, sampleHeight) {
         const layer = Number(tags.layer);
         const bridge = tags.bridge === 'yes' || tags.bridge === 'viaduct' || tags.bridge === 'cantilever' || layer > 0;
         const lv = Number.isFinite(layer) && layer > 0 ? layer : 1;
-        const lift = bridge ? 5.2 + (lv - 1) * 3.4 : 0;
+        const lift = deckLift(tags, ordered, bridge, lv);
         const width = carriageWidth(tags, highway);
         roads.push({
           id: el.id,
@@ -371,6 +408,7 @@ export function parseCity(elements, proj, sampleHeight) {
           speed: parseSpeed(tags, SPEED[highway] || 8),
           lift,
           sidewalk: sidewalkWidthFor(highway, bridge, tags.name || ''),
+          name: tags.name || '',
         });
       } else if ((highway === 'footway' || highway === 'path' || highway === 'pedestrian' || highway === 'steps') && (tags.bridge === 'yes' || Number(tags.layer) > 0)) {
         const layer = Number(tags.layer);
@@ -457,6 +495,7 @@ export function parseCity(elements, proj, sampleHeight) {
   }
 
   gradeRamps(roads);
+  gradeYangpuApproaches(roads);
 
   return {
     buildings: suppressOutlines(buildings),

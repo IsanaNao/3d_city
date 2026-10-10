@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 import { findLandmarks, hiddenByLandmark } from '../../src/shared/landmarks.js';
-import { carriageWidth, laneCount, sidewalkWidthFor } from '../pipeline/osm.mjs';
+import { createBridges } from '../../src/world/bridges.js';
+import { carriageWidth, deckLift, gradeYangpuApproaches, laneCount, sidewalkWidthFor } from '../pipeline/osm.mjs';
+import { collectBridges } from '../pipeline/bridges.mjs';
 import { createLandmarks } from '../../src/world/landmarks.js';
 
 test('lane width follows OSM lanes and sidewalks skip bridges', () => {
@@ -221,4 +223,104 @@ test('parametric towers stand their full height', () => {
     const height = box.max.y - box.min.y;
     assert.ok(height > model.userData.landmark.h * 0.9, model.userData.landmark.id);
   }
+});
+
+test('pearl spheres are a faceted glass grid, not a solid ball', () => {
+  const model = createLandmarks([{ id: 'pearl', x: 0, z: 0, y: 0, h: 468, yaw: 0 }]).children[0];
+  let panels = 0;
+  model.traverse((obj) => {
+    if (obj.userData?.part !== 'lower-sphere') return;
+    const pos = obj.geometry.getAttribute('position');
+    const lat = obj.geometry.getAttribute('aLat');
+    assert.ok(pos.count > 1500, `lower sphere has ${pos.count} vertices`);
+    assert.equal(lat.count, pos.count);
+    panels += 1;
+  });
+  assert.equal(panels, 1);
+  let rings = 0;
+  model.traverse((obj) => {
+    if (obj.geometry?.type === 'TorusGeometry') rings += 1;
+  });
+  assert.ok(rings >= 7, `observation rings ${rings}`);
+});
+
+test('bund historic row builds a clock tower, a dome and a copper roof', () => {
+  const customs = createLandmarks([{ id: 'customs', x: 0, z: 0, y: 0, h: 79, yaw: 0 }]).children[0];
+  const hsbc = createLandmarks([{ id: 'hsbc', x: 0, z: 0, y: 0, h: 52, yaw: 0 }]).children[0];
+  const peace = createLandmarks([{ id: 'peace', x: 0, z: 0, y: 0, h: 77, yaw: 0 }]).children[0];
+  const boc = createLandmarks([{ id: 'boc', x: 0, z: 0, y: 0, h: 68, yaw: 0 }]).children[0];
+  for (const model of [customs, hsbc, peace, boc]) {
+    const box = new THREE.Box3().setFromObject(model);
+    assert.ok(box.max.y > 45, model.userData.landmark.id);
+  }
+  const dome = new THREE.Box3().setFromObject(hsbc);
+  assert.ok(dome.max.y > 50, 'the HSBC dome rises above the block');
+  const marks = findLandmarks([
+    {
+      name: '上海海关', area: 900, topY: 30, baseY: 4,
+      centroid: [0, 0], rings: [[[-20, -10], [20, -10], [20, 10], [-20, 10]]],
+    },
+    {
+      name: '汇丰银行大楼', area: 4000, topY: 250, baseY: 4,
+      centroid: [400, 0], rings: [[[380, -20], [420, -20], [420, 20], [380, 20]]],
+    },
+    {
+      name: '和平饭店南楼', area: 500, topY: 40, baseY: 4,
+      centroid: [80, 0], rings: [[[70, -10], [90, -10], [90, 10]]],
+    },
+  ]);
+  assert.deepEqual(marks.map((m) => m.id), ['customs']);
+});
+
+test('named crossings become a truss and two cable-stayed bridges', () => {
+  assert.equal(deckLift({ name: '南浦大桥' }, [[0, 0], [10, 0]], true, 3), 34);
+  assert.equal(deckLift({ name: '南浦大桥' }, [[0, 0], [10, 0]], true, 1), 12);
+  const span = Array.from({ length: 20 }, (_, i) => [3700 + i * 40, -2200]);
+  const inland = Array.from({ length: 20 }, (_, i) => [3000 + i * 40, 0]);
+  assert.equal(deckLift({ name: '内环高架路' }, span, true, 1), 36);
+  assert.ok(deckLift({ name: '内环高架路' }, inland, true, 1) < 20);
+  assert.ok(deckLift({ name: '延安高架路' }, span, true, 2) < 20);
+
+  const proj = { project: (lon, lat) => [lon * 100000, -lat * 100000] };
+  const line = (id, name, lon0, lon1, lat) => ({
+    type: 'way',
+    id,
+    tags: { highway: 'trunk', bridge: 'yes', name },
+    geometry: [
+      { lon: lon0, lat },
+      { lon: (lon0 + lon1) / 2, lat: lat + 0.0004 },
+      { lon: lon1, lat },
+    ],
+  });
+  const found = collectBridges([
+    line(1, '外白渡桥', 0, 0.001, 0),
+    line(2, '南浦大桥', 0, 0.008, 0.01),
+    line(3, '内环高架路', 0.039, 0.047, 0.022),
+    line(4, '延安高架路', 0, 0.01, 0.03),
+  ], proj, () => 2);
+  assert.deepEqual(found.map((b) => b.id), ['waibaidu', 'nanpu', 'yangpu']);
+  assert.equal(found[0].kind, 'truss');
+  assert.equal(found[1].style, 'h');
+  assert.equal(found[2].style, 'y');
+  assert.equal(found[2].name, '杨浦大桥');
+  const approaches = [
+    { name: '内环高架路', bridge: true, lift: 36, points: [[3806, -2323], [4378, -1795]] },
+    { name: '内环高架路', bridge: true, lift: 5.2, points: [[3821, -2321], [3246, -3155]] },
+    { name: '延安高架路', bridge: true, lift: 8, points: [[3806, -2323], [3000, -2300]] },
+  ];
+  gradeYangpuApproaches(approaches);
+  assert.equal(approaches[1].ramp, true);
+  assert.equal(approaches[1].liftHigh, 36);
+  assert.equal(approaches[1].highAtStart, true);
+  assert.notEqual(approaches[2].ramp, true);
+
+  const group = createBridges([
+    { id: 'waibaidu', kind: 'truss', points: [[0, 6, 0], [40, 6, 0], [90, 6, 10]] },
+    { id: 'nanpu', kind: 'cable', style: 'h', towerH: 40, mainSpan: 80, points: [[0, 12, 0], [200, 14, 20]] },
+  ]);
+  assert.equal(group.children.length, 2);
+  assert.equal(group.children[0].userData.bridge, 'waibaidu');
+  assert.ok(group.children[0].children.length > 8);
+  assert.equal(group.children[1].userData.towers, 2);
+  assert.ok(group.children[1].children.length > 8);
 });

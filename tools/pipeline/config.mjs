@@ -8,16 +8,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 export const AREAS = {
   bund: {
     name: '外滩 · 陆家嘴',
-    description: '黄浦江两岸：外滩、北外滩白玉兰广场与陆家嘴天际线',
-    // Origin stays at the old centre so growing the box does not slide the city.
-    // North reaches White Magnolia Plaza (白玉兰广场, 31.251°N). West reaches the
-    // east end of Yan'an Elevated Road (延安高架路) and its Bund approach ramps.
+    description: '黄浦江两岸：外白渡桥至南浦大桥与杨浦大桥，外滩万国建筑与陆家嘴天际线',
+    // Origin stays put so growing the box does not slide existing landmarks.
+    // North: White Magnolia and, if the fetch reaches it, Yangpu Bridge.
+    // South: Nanpu Bridge and its Puxi spiral. West: the Bund historic row
+    // and the Yan'an viaduct. East: the Pudong bank through Lujiazui.
     origin: [121.4978, 31.239],
     bbox: {
-      south: 31.2328,
-      west: 121.4765,
-      north: 31.2538,
-      east: 121.5088,
+      south: 31.1985,
+      west: 121.4685,
+      north: 31.2665,
+      east: 121.5565,
     },
     terrainStep: 8,
   },

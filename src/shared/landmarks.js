@@ -8,7 +8,10 @@ export const LANDMARK_SPECS = [
   { id: 'shanghai', test: /上海中心大厦|shanghai tower/i, h: 632, minH: 250, radius: 42 },
   { id: 'swfc', test: /环球金融中心|world financial center/i, h: 492, minH: 200, radius: 40 },
   { id: 'jinmao', test: /金茂大厦|jin mao tower/i, h: 421, minH: 200, radius: 40 },
-  { id: 'customs', test: /江海关|外滩海关|customs house/i, h: 79, minH: 55, radius: 26 },
+  { id: 'customs', test: /(?<!浦东)上海海关|江海关|外滩海关|customs house/i, h: 79, minH: 10, maxH: 120, radius: 28 },
+  { id: 'hsbc', test: /外滩汇丰/i, h: 52, minH: 12, maxH: 80, radius: 46 },
+  { id: 'peace', test: /和平饭店(?!南)|fairmont peace hotel/i, h: 77, minH: 12, maxH: 120, radius: 30 },
+  { id: 'boc', test: /中国银行大楼/i, h: 68, minH: 15, maxH: 120, radius: 32 },
   { id: 'magnolia', test: /白玉兰|sinar\s*mas|white magnolia|金光中心/i, h: 319.5, minH: 180, radius: 40 },
 ];
 
@@ -47,7 +50,12 @@ function edgeYaw(ring) {
 export function findLandmarks(buildings) {
   const out = [];
   for (const spec of LANDMARK_SPECS) {
-    const parts = buildings.filter((b) => spec.test.test(b.name || '') && b.topY - b.baseY >= spec.minH);
+    const parts = buildings.filter((b) => {
+    const height = b.topY - b.baseY;
+    if (!spec.test.test(b.name || '') || height < spec.minH) return false;
+    if (spec.maxH && height > spec.maxH) return false;
+    return true;
+  });
     if (!parts.length) continue;
     parts.sort((a, b) => b.area - a.area);
     const main = parts[0];
