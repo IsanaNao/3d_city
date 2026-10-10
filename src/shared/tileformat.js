@@ -7,7 +7,8 @@ import { BinWriter, binReader } from './bin.js';
 // u32 nBuildings | u32 nLand | u32 nRoadVerts | u32 nRoadIdx | u32 nProps
 //
 // building:
-//   u8 kind | u8 storeys | u16 flags | f32 baseY | f32 topY | u32 color
+//   u8 kind | u8 storeys | u16 flags | f32 baseY | f32 topY
+//   u8 roofShape | u8 reserved | f32 roofHeight | u32 color
 //   u16 nameBytes | utf8 name
 //   u16 nRings
 //   ring: u16 n | n bytes of edge flags | n * (f32 x, f32 z)
@@ -23,7 +24,7 @@ import { BinWriter, binReader } from './bin.js';
 //   f32 x y z rot scale extra
 
 export const MAGIC = 0x31474853; // 'SHG1'
-export const VERSION = 1;
+export const VERSION = 2;
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -80,6 +81,9 @@ export function encodeTile({ tx, tz, buildings = [], land = [], roads = null, pr
     w.u16(b.flags || 0);
     w.f32(b.baseY || 0);
     w.f32(b.topY || 0);
+    w.u8(b.roofShape || 0);
+    w.u8(0);
+    w.f32(b.roofHeight || 0);
     w.u32((b.color ?? 0xcccccc) >>> 0);
     const name = textEncoder.encode(b.name || '');
     w.u16(name.length);
@@ -130,13 +134,16 @@ export function decodeTile(input) {
     const flags = r.u16();
     const baseY = r.f32();
     const topY = r.f32();
+    const roofShape = r.u8();
+    r.u8();
+    const roofHeight = r.f32();
     const color = r.u32();
     const nameBytes = r.bytes(r.u16());
     const name = textDecoder.decode(nameBytes);
     const rings = [];
     const nRings = r.u16();
     for (let k = 0; k < nRings; k++) rings.push(readRing(r, true));
-    buildings.push({ kind, storeys, flags, baseY, topY, color, name, rings });
+    buildings.push({ kind, storeys, flags, baseY, topY, roofShape, roofHeight, color, name, rings });
   }
   const land = [];
   for (let i = 0; i < nL; i++) {

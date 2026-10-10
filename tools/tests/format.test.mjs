@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TILE, makeProjection, tileOf } from '../../src/shared/geo.js';
-import { KIND } from '../../src/shared/kinds.js';
+import { KIND, ROOF } from '../../src/shared/kinds.js';
 import { buildBuildingGeometry } from '../../src/shared/meshbuild.js';
 import { classifyKind, defaultHeight, resolveVertical } from '../../src/shared/heights.js';
 import { daylight, nightFactor, sunVector } from '../../src/shared/sun.js';
@@ -40,6 +40,8 @@ test('tile binary round trip keeps Chinese names and boundary flags', () => {
       flags: 0,
       baseY: 4.5,
       topY: 28,
+      roofShape: ROOF.DOME,
+      roofHeight: 6.5,
       color: 0xe7d3b4,
       name: '外滩',
       rings: [{ points: [[0, 0], [12, 0], [12, 8], [0, 8]], flags: [0, 0, 0, 1] }],
@@ -55,6 +57,8 @@ test('tile binary round trip keeps Chinese names and boundary flags', () => {
   assert.equal(tile.tx, -1);
   assert.equal(tile.tz, 2);
   assert.equal(tile.buildings[0].name, '外滩');
+  assert.equal(tile.buildings[0].roofShape, ROOF.DOME);
+  assert.equal(tile.buildings[0].roofHeight, 6.5);
   assert.equal(tile.buildings[0].rings[0].flags[3], 1);
   assert.equal(tile.buildings[0].rings[0].points.length, 8);
   assert.equal(tile.land[0].kind, 2);
@@ -118,4 +122,67 @@ test('noon in June is high, midnight is night, dusk turns lights on early', () =
   const duskAlt = 3 * Math.PI / 180;
   assert.ok(nightFactor(duskAlt) > 0.35);
   assert.ok(daylight(duskAlt) > 0.05);
+});
+
+function box(x0, z0, x1, z1) {
+  return [{ points: [[x0, z1], [x1, z1], [x1, z0], [x0, z0]], flags: [0, 0, 0, 0] }];
+}
+
+function part(rings, baseY, topY, extra = {}) {
+  return { kind: KIND.OFFICE, storeys: 10, flags: 0, baseY, topY, color: 0xcccccc, name: '', rings, ...extra };
+}
+
+function wallArea(geo, test) {
+  let area = 0;
+  for (let i = 0; i < geo.position.length; i += 9) {
+    if (geo.wall[(i / 3) * 3 + 1] < 0) continue;
+    const ax = geo.position[i]; const ay = geo.position[i + 1]; const az = geo.position[i + 2];
+    const bx = geo.position[i + 3]; const by = geo.position[i + 4]; const bz = geo.position[i + 5];
+    const cx = geo.position[i + 6]; const cy = geo.position[i + 7]; const cz = geo.position[i + 8];
+    if (!test((ax + bx + cx) / 3, (ay + by + cy) / 3, (az + bz + cz) / 3)) continue;
+    const ux = bx - ax; const uy = by - ay; const uz = bz - az;
+    const vx = cx - ax; const vy = cy - ay; const vz = cz - az;
+    area += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+  }
+  return area;
+}
+
+test('stacked building parts draw a shared facade once instead of z-fighting', () => {
+  const low = part(box(0, 0, 20, 10), 0, 30);
+  const high = part(box(0, 0, 20, 10), 0, 90);
+  const geo = buildBuildingGeometry([low, high]);
+  const south = wallArea(geo, (x, y, z) => z > 9.9);
+  assert.ok(Math.abs(south - 20 * 90) < 0.5, `south facade area ${south}`);
+});
+
+test('neighbouring parts hide the wall they share up to the lower roof', () => {
+  const west = part(box(0, 0, 10, 10), 0, 20);
+  const east = part(box(10, 0, 20, 10), 0, 50);
+  const geo = buildBuildingGeometry([west, east]);
+  const shared = wallArea(geo, (x) => Math.abs(x - 10) < 0.01);
+  assert.ok(Math.abs(shared - 10 * 30) < 0.5, `shared wall area ${shared}`);
+});
+
+test('a dome roof rises to the tagged height and windows know their wall length', () => {
+  const ring = [];
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    ring.push([Math.cos(a) * 10, -Math.sin(a) * 10]);
+  }
+  const geo = buildBuildingGeometry([part([{ points: ring, flags: new Uint8Array(24) }], 0, 40, {
+    roofShape: ROOF.DOME, roofHeight: 8,
+  })]);
+  let top = 0;
+  for (let i = 1; i < geo.position.length; i += 3) top = Math.max(top, geo.position[i]);
+  assert.ok(Math.abs(top - 40) < 1e-3);
+  const len = 2 * 10 * Math.sin(Math.PI / 24);
+  let wallVerts = 0;
+  for (let i = 0; i < geo.wall.length; i += 3) {
+    if (geo.wall[i + 1] < 0) continue;
+    wallVerts += 1;
+    assert.ok(Math.abs(geo.wall[i + 1] - len) < 1e-3);
+  }
+  assert.ok(wallVerts > 0);
+  const n0 = [geo.normal[0], geo.normal[2]];
+  assert.ok(Math.abs(Math.hypot(n0[0], n0[1]) - 1) < 1e-3);
 });

@@ -1,5 +1,5 @@
-import { BFLAG, KIND, LAND, ROAD } from '../../src/shared/kinds.js';
-import { classifyKind, resolveVertical, wallColor } from '../../src/shared/heights.js';
+import { BFLAG, KIND, LAND, ROAD, ROOF } from '../../src/shared/kinds.js';
+import { classifyKind, parseMetres, resolveVertical, wallColor } from '../../src/shared/heights.js';
 import { hashString } from '../../src/shared/rng.js';
 import {
   bufferOpen, centroid, cleanRing, ensureWinding, pointInPoly, polygonArea,
@@ -120,6 +120,27 @@ function landKind(tags) {
   return null;
 }
 
+const ROOF_SHAPES = {
+  dome: ROOF.DOME, round: ROOF.DOME, half_dome: ROOF.DOME,
+  pyramidal: ROOF.PYRAMID, hipped: ROOF.PYRAMID, cone: ROOF.PYRAMID,
+  onion: ROOF.ONION,
+};
+
+function roofOf(tags, area, wallHeight) {
+  const shape = ROOF_SHAPES[String(tags['roof:shape'] || '').toLowerCase()] ?? ROOF.FLAT;
+  if (shape === ROOF.FLAT) return { roofShape: ROOF.FLAT, roofHeight: 0 };
+  const radius = Math.sqrt(area / Math.PI);
+  const fallback = shape === ROOF.PYRAMID ? radius * 0.55 : radius * (shape === ROOF.ONION ? 1.3 : 0.8);
+  const tagged = parseMetres(tags['roof:height']);
+  const roofHeight = Math.min(tagged ?? fallback, wallHeight * 0.8, 60);
+  return roofHeight > 0.8 ? { roofShape: shape, roofHeight } : { roofShape: ROOF.FLAT, roofHeight: 0 };
+}
+
+function isGlass(tags) {
+  const material = String(tags['building:material'] || tags['building:facade:material'] || '').toLowerCase();
+  return material === 'glass' || material === 'mirror';
+}
+
 function makeBuilding(outer, holes, tags, sampleHeight, seq) {
   const cleaned = cleanRing(outer);
   if (cleaned.length < 3) return null;
@@ -134,13 +155,16 @@ function makeBuilding(outer, holes, tags, sampleHeight, seq) {
   if (!Number.isFinite(ground)) return null;
   const kind = classifyKind(tags, vertical.top);
   const id = seq.value++;
+  let flags = vertical.minHeight > 0.6 ? BFLAG.FLOATING : 0;
+  if (isGlass(tags)) flags |= BFLAG.GLASS;
   return {
     id,
     part: Boolean(tags['building:part'] && tags['building:part'] !== 'no'),
     kind,
     name: tags.name || tags['name:zh'] || '',
     storeys: vertical.storeys,
-    flags: vertical.minHeight > 0.6 ? BFLAG.FLOATING : 0,
+    flags,
+    ...roofOf(tags, area, vertical.top - vertical.minHeight),
     baseY: ground + vertical.minHeight,
     topY: ground + vertical.top,
     minHeight: vertical.minHeight,

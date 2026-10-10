@@ -44,6 +44,14 @@ export const ROAD = {
 
 export const BFLAG = {
   FLOATING: 1,
+  GLASS: 2,
+};
+
+export const ROOF = {
+  FLAT: 0,
+  DOME: 1,
+  PYRAMID: 2,
+  ONION: 3,
 };
 
 export const KIND_NAME = {

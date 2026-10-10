@@ -15,7 +15,7 @@ export const AREAS = {
       north: 31.2452,
       east: 121.5088,
     },
-    terrainStep: 16,
+    terrainStep: 8,
   },
 };
 

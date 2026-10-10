@@ -315,7 +315,7 @@ function placeProps(buildings, roads, land, sampleHeight) {
     const height = building.topY - building.baseY;
     const outer = building.rings[0];
     const rng = mulberry32(building.id * 97 + 3);
-    if (height > 14 && building.area > 50) {
+    if (height > 14 && building.area > 50 && !building.roofShape) {
       const c = building.centroid || centroid(outer);
       if (height > 220) {
         props.push({ kind: PROP.PENTHOUSE, variant: 1, x: c[0], y: building.topY, z: c[1], rot: 0, scale: 7, extra: 14 });
@@ -479,7 +479,23 @@ function cameraPresets(buildings, bounds) {
   ];
 }
 
-export function compileDataset({ area, elements, grid, demSource = '' }) {
+export function refineGrid(grid, step) {
+  if (!step || step >= grid.step) return grid;
+  const width = (grid.cols - 1) * grid.step;
+  const depth = (grid.rows - 1) * grid.step;
+  const cols = Math.floor(width / step) + 1;
+  const rows = Math.floor(depth / step) + 1;
+  const heights = new Float32Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      heights[r * cols + c] = sampleGrid(grid, grid.originX + c * step, grid.originZ + r * step);
+    }
+  }
+  return { ...grid, step, cols, rows, heights };
+}
+
+export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }) {
+  const grid = refineGrid(rawGrid, area.terrainStep);
   const proj = makeProjection(area.origin[0], area.origin[1]);
   const bounds = boundsFromBbox(proj, area.bbox);
   const areaRect = { minX: bounds.minX, maxX: bounds.maxX, minZ: bounds.minZ, maxZ: bounds.maxZ };

@@ -144,6 +144,7 @@ export function createStreamer({ scene, getView }) {
       setAttr(geo, 'aTop', built.top, 1);
       setAttr(geo, 'aKind', built.kind, 1);
       setAttr(geo, 'aId', built.id, 1);
+      setAttr(geo, 'aWall', built.wall, 3);
       const mesh = new THREE.Mesh(geo, buildingMat);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
