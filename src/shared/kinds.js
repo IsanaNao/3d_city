@@ -27,6 +27,7 @@ export const PROP = {
   PENTHOUSE: 4,
   SIGN: 5,
   PIER: 6,
+  LIGHT: 7,
 };
 
 export const ROAD = {

@@ -8,8 +8,9 @@ import { KIND_NAME } from '../shared/kinds.js';
 import { createBuildingMaterial, createGroundMaterial, createRoadMaterial, createWaterMaterial } from './materials.js';
 import { lampPools, lampScene } from './lamplight.js';
 import { WATER_LAYER } from './mirror.js';
+import { createLandmarks, syncLandmarkNight } from './landmarks.js';
 import {
-  instanceProps, lampGeometries, lampHeadMaterial, signMesh, staticPropMesh, treeGeometry,
+  instanceProps, lampGeometries, lampHeadMaterial, signMesh, signalGeometry, staticPropMesh, treeGeometry, treeGeometryFar,
 } from './props.js';
 import { PROP } from '../shared/kinds.js';
 
@@ -101,7 +102,8 @@ export function createStreamer({ scene, getView }) {
   const roadMat = createRoadMaterial();
   const waterMat = createWaterMaterial();
   const groundMat = createGroundMaterial();
-  const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+  const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86 });
+  const signalMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.25 });
   const poleMat = new THREE.MeshStandardMaterial({ color: 0x3c4148, roughness: 0.5, metalness: 0.5 });
   const headMat = lampHeadMaterial();
   let waterCount = 0;
@@ -177,11 +179,29 @@ export function createStreamer({ scene, getView }) {
       group.add(mesh);
     }
     const trees = tile.props.filter((p) => p.kind === PROP.TREE);
+    const lights = tile.props.filter((p) => p.kind === PROP.LIGHT);
     const lamps = tile.props.filter((p) => p.kind === PROP.LAMP);
     const signs = tile.props.filter((p) => p.kind === PROP.SIGN);
     const blocks = tile.props.filter((p) => p.kind === PROP.AC || p.kind === PROP.TANK || p.kind === PROP.PENTHOUSE || p.kind === PROP.PIER);
     const tree = instanceProps(PROP.TREE, trees, treeGeometry(), treeMat);
+    const treeFar = instanceProps(PROP.TREE, trees, treeGeometryFar(), treeMat);
     if (tree) group.add(tree);
+    if (treeFar) {
+      treeFar.castShadow = false;
+      treeFar.visible = false;
+      group.add(treeFar);
+    }
+    if (tree) {
+      group.userData.treeLod = {
+        near: tree,
+        far: treeFar,
+        cx: (tile.tx + 0.5) * TILE,
+        cz: (tile.tz + 0.5) * TILE,
+      };
+    }
+    const signalGeo = signalGeometry();
+    const signals = signalGeo ? instanceProps(PROP.LIGHT, lights, signalGeo, signalMat) : null;
+    if (signals) group.add(signals);
     const lampsGeo = lampGeometries();
     const poles = instanceProps(PROP.LAMP, lamps, lampsGeo.pole, poleMat);
     const heads = instanceProps(PROP.LAMP, lamps, lampsGeo.head, headMat);
@@ -255,7 +275,13 @@ export function createStreamer({ scene, getView }) {
       terrainMesh.receiveShadow = true;
       scene.add(terrainMesh);
       this.update();
+      if (city.manifest.landmarks?.length) {
+        const models = createLandmarks(city.manifest.landmarks);
+        scene.add(models);
+        this.landmarks = models;
+      }
     },
+    syncNight(night) { syncLandmarkNight(night); },
     update() {
       const { target, camera } = getView();
       const reach = Math.min(1100, Math.max(420, camera.position.distanceTo(target) * 0.8));
@@ -272,6 +298,14 @@ export function createStreamer({ scene, getView }) {
       };
       cover(target.x, target.z, reach);
       cover(camera.position.x, camera.position.z, reach * 0.65);
+      for (const group of loaded.values()) {
+        const lod = group.userData.treeLod;
+        if (!lod?.near) continue;
+        const dist = Math.hypot(camera.position.x - lod.cx, camera.position.z - lod.cz);
+        const far = dist > 170;
+        lod.near.visible = !far;
+        if (lod.far) lod.far.visible = far;
+      }
       for (const key of loaded.keys()) if (!want.has(key)) unload(key);
       for (const key of want) loadTile(key);
     },

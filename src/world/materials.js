@@ -458,10 +458,21 @@ const ROAD = /* glsl */`
   float grain = vnoise(vWorld.xz * 1.3) * 0.6 + vnoise(vWorld.xz * 0.21) * 0.4;
   vec3 col = vec3(0.075, 0.077, 0.08) * (0.85 + 0.3 * grain);
   if (cls < 0.5) col *= 0.9;
-  if (vFlags > 0.5 && vFlags < 1.5) col *= 0.6;
   float rough = 0.86 - 0.1 * grain;
+  bool under = vFlags > 0.5 && vFlags < 1.5;
+  bool tunnel = vFlags > 1.5 && vFlags < 2.5;
+  bool curb = vFlags > 2.5 && vFlags < 3.5;
+  float lanes = vFlags > 9.5 ? clamp(floor(vFlags + 0.5) - 10.0, 1.0, 8.0) : 2.0;
   vec2 ruv = vec2(vWorld.x, -vWorld.z);
-  if (uPhotoOn > 0.5 && cls < 7.5) {
+  if (curb) {
+    col = vec3(0.42, 0.41, 0.39);
+    rough = 0.72;
+    gNs = 0.0;
+  } else if (under) {
+    col *= 0.45;
+    gNs = 0.0;
+  }
+  if (uPhotoOn > 0.5 && cls < 7.5 && !curb && !under) {
     int ai = int(G_ASPHALT);
     gUv = ruv * uGroundScale[ai];
     vec3 det = texture(uGroundAlb, vec3(gUv, G_ASPHALT)).rgb / uGroundMean[ai];
@@ -469,7 +480,7 @@ const ROAD = /* glsl */`
     gNt = readNormal(uGroundNor, gUv, G_ASPHALT);
     gNs = 0.7;
   }
-  if (cls > 7.5 && cls < 8.5 && uPhotoOn > 0.5) {
+  if (cls > 7.5 && cls < 8.5 && !curb && uPhotoOn > 0.5) {
     int pi = int(G_PAVERS);
     gUv = ruv * uGroundScale[pi];
     vec3 det = texture(uGroundAlb, vec3(gUv, G_PAVERS)).rgb / uGroundMean[pi];
@@ -477,7 +488,7 @@ const ROAD = /* glsl */`
     gNt = readNormal(uGroundNor, gUv, G_PAVERS);
     gNs = 1.0;
     rough = 0.88;
-  } else if (cls > 7.5 && cls < 8.5) {
+  } else if (cls > 7.5 && cls < 8.5 && !curb) {
     // pavement: pale concrete slabs in running bond, fading out when smaller than a pixel
     vec2 q = vec2(along, across * 2.0) / vec2(0.6, 0.3);
     q.x += 0.5 * mod(floor(q.y), 2.0);
@@ -489,8 +500,10 @@ const ROAD = /* glsl */`
     col = mix(col, col * 0.55, joint);
     rough = 0.88;
   } else if (cls > 6.5 && cls < 7.5) {
-    float stripe = step(0.48, fract(along * 0.62));
-    col = mix(col, vec3(0.62, 0.62, 0.6), stripe);
+    float stripe = step(0.38, fract(along * 1.35));
+    col = mix(vec3(0.09, 0.09, 0.095), vec3(0.72, 0.72, 0.68), stripe);
+    rough = 0.7;
+    gNs = 0.0;
   } else if (cls > 8.5 && cls < 9.5) {
     col = vec3(0.07, 0.07, 0.075);
     float sleeper = step(0.62, fract(along * 0.85));
@@ -498,15 +511,28 @@ const ROAD = /* glsl */`
     float rail = 1.0 - smoothstep(0.015, 0.045, abs(abs(across) - 0.62));
     col = mix(col, vec3(0.5, 0.51, 0.53), rail);
     rough = mix(rough, 0.3, rail);
-    if (vFlags > 1.5) totalEmissiveRadiance += vec3(0.25, 0.55, 0.85) * uNight * 0.45;
-  } else if (vFlags < 0.5) {
-    float edgeLine = 1.0 - smoothstep(0.0, 0.035, abs(abs(across) - 0.9));
-    float dash = step(0.45, fract(along / 9.0));
-    float center = (1.0 - smoothstep(0.0, 0.03, abs(across))) * dash;
-    if (cls > 4.5) center *= 0.25;
-    float paint = clamp(edgeLine + center, 0.0, 1.0) * 0.9;
-    col = mix(col, vec3(0.62, 0.62, 0.58) * (0.85 + 0.2 * grain), paint);
-    gNs *= 1.0 - 0.6 * paint;
+    if (tunnel) totalEmissiveRadiance += vec3(0.25, 0.55, 0.85) * uNight * 0.45;
+  } else if (!under && !curb && cls < 6.5) {
+    float edgeLine = 1.0 - smoothstep(0.0, 0.018, abs(abs(across) - 0.94));
+    float paint = edgeLine;
+    vec3 paintCol = vec3(0.75, 0.75, 0.7);
+    for (int i = 1; i < 8; i++) {
+      if (float(i) >= lanes) break;
+      float boundary = float(i) / lanes * 2.0 - 1.0;
+      bool center = abs(float(i) - lanes * 0.5) < 0.51 && mod(lanes, 2.0) < 0.1;
+      float line = 1.0 - smoothstep(0.0, center ? 0.01 : 0.012, abs(across - boundary));
+      if (center) line = max(
+        1.0 - smoothstep(0.0, 0.008, abs(across - (boundary - 0.02))),
+        1.0 - smoothstep(0.0, 0.008, abs(across - (boundary + 0.02)))
+      );
+      float dash = center || cls < 1.5 ? 1.0 : step(0.42, fract(along / 7.5));
+      if (cls > 3.5 && !center) dash *= 0.0;
+      if (center && cls > 3.5) dash = step(0.48, fract(along / 6.0));
+      paint = max(paint, line * dash);
+      if (center && cls < 2.5) paintCol = mix(paintCol, vec3(0.72, 0.62, 0.18), line * dash);
+    }
+    col = mix(col, paintCol * (0.9 + 0.15 * grain), clamp(paint, 0.0, 1.0) * 0.92);
+    gNs *= 1.0 - 0.55 * clamp(paint, 0.0, 1.0);
   }
   diffuseColor.rgb = col;
   roughnessFactor = rough;
@@ -545,7 +571,7 @@ export function createRoadMaterial() {
       .replace('#include <normal_fragment_maps>', PHOTO_NORMAL)
       .replace('#include <lights_fragment_end>', LAMP_READ);
   };
-  material.customProgramCacheKey = () => 'sh-road-3';
+  material.customProgramCacheKey = () => 'sh-road-4';
   material.polygonOffset = true;
   material.polygonOffsetFactor = -1;
   material.polygonOffsetUnits = -1;

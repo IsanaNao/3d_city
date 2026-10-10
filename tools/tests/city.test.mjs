@@ -144,7 +144,8 @@ test('a tiny city compiles into decodable chunks', () => {
     terrainStep: 40,
   };
   const city = compileDataset({ area, elements, grid, demSource: 'flat test' });
-  assert.ok(city.manifest.counts.buildings >= 2);
+  assert.ok(city.manifest.counts.buildings >= 1);
+  assert.ok(city.manifest.landmarks.some((item) => item.id === 'shanghai' && item.h >= 600));
   assert.ok(city.manifest.counts.tiles >= 1);
   assert.ok(city.roads.edges.some((edge) => edge.points.length >= 6));
   const east = city.roads.edges.find((edge) => edge.points[0] < -50 && edge.points[3] > edge.points[0]);

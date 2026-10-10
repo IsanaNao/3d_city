@@ -94,6 +94,26 @@ function relationPolys(el, proj) {
   }));
 }
 
+export function carriageWidth(tags, highway) {
+  const tagged = parseMetres(tags.width);
+  if (tagged > 3 && tagged < 48) return tagged;
+  const lanes = Number.parseFloat(tags.lanes);
+  if (lanes >= 1 && lanes <= 10) return lanes * 3.35 + 0.5;
+  return WIDTH[highway] || 6.5;
+}
+
+export function laneCount(width) {
+  return Math.max(1, Math.min(8, Math.round((width - 0.5) / 3.35)));
+}
+
+export function sidewalkWidthFor(highway, bridge) {
+  if (bridge) return 0;
+  if (String(highway).includes('motorway') || highway === 'trunk' || highway === 'trunk_link') return 0;
+  if (highway === 'service' || highway === 'living_street') return 2.4;
+  if (highway === 'primary' || highway === 'secondary' || highway === 'primary_link') return 4.4;
+  return 3.5;
+}
+
 function parseSpeed(tags, fallback) {
   if (!tags.maxspeed) return fallback;
   const raw = String(tags.maxspeed);
@@ -255,9 +275,6 @@ export function parseCity(elements, proj, sampleHeight) {
       if (!line || line.points.length < 2) continue;
       const points = line.closed ? [...line.points, line.points[0].slice()] : line.points;
       if (DRIVE.test(highway) && tags.tunnel !== 'yes' && tags.tunnel !== 'culvert') {
-        const lanes = Number.parseFloat(tags.lanes);
-        let width = WIDTH[highway] || 6;
-        if (lanes > 0) width = Math.max(width, lanes * 3.2);
         let oneway = tags.oneway === 'yes' || tags.oneway === '1' || tags.junction === 'roundabout';
         if ((highway === 'motorway' || highway === 'motorway_link') && tags.oneway !== 'no') oneway = true;
         let ordered = points;
@@ -265,8 +282,11 @@ export function parseCity(elements, proj, sampleHeight) {
           ordered = points.slice().reverse();
           oneway = true;
         }
-        const bridge = tags.bridge === 'yes' || tags.bridge === 'viaduct' || Number(tags.layer) > 0;
-        const lift = bridge ? 6.5 + Math.max(0, (Number(tags.layer) || 1) - 1) * 3.5 : 0;
+        const layer = Number(tags.layer);
+        const bridge = tags.bridge === 'yes' || tags.bridge === 'viaduct' || tags.bridge === 'cantilever' || layer > 0;
+        const lv = Number.isFinite(layer) && layer > 0 ? layer : 1;
+        const lift = bridge ? 4.6 + lv * 3.8 : 0;
+        const width = carriageWidth(tags, highway);
         roads.push({
           id: el.id,
           points: ordered,
@@ -274,10 +294,28 @@ export function parseCity(elements, proj, sampleHeight) {
           oneway,
           bridge,
           width,
+          lanes: laneCount(width),
           cls: CLASS[highway] ?? ROAD.RESIDENTIAL,
           speed: parseSpeed(tags, SPEED[highway] || 8),
           lift,
-          sidewalk: !bridge && !highway.includes('motorway') && highway !== 'trunk',
+          sidewalk: sidewalkWidthFor(highway, bridge),
+        });
+      } else if ((highway === 'footway' || highway === 'path' || highway === 'pedestrian') && (tags.bridge === 'yes' || Number(tags.layer) > 0) && !line.closed) {
+        const layer = Number(tags.layer);
+        const lv = Number.isFinite(layer) && layer > 0 ? layer : 1;
+        roads.push({
+          id: el.id,
+          points,
+          drive: false,
+          oneway: true,
+          bridge: true,
+          width: 3.4,
+          lanes: 1,
+          cls: ROAD.SIDEWALK,
+          speed: 0,
+          lift: 4.2 + lv * 2.4,
+          sidewalk: 0,
+          ribbon: true,
         });
       } else if (highway === 'pedestrian' || highway === 'footway' && (tags.name || tags.footway === 'sidewalk' || tags.area === 'yes')) {
         if (line.closed && line.points.length >= 3) {
@@ -320,6 +358,9 @@ export function parseCity(elements, proj, sampleHeight) {
 
   return {
     buildings: suppressOutlines(buildings),
+    // Named outlines are dropped once their parts cover them, and the parts
+    // usually carry no name. Landmark matching needs the outlines.
+    footprints: buildings,
     land,
     roads,
     rails,

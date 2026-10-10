@@ -11,6 +11,7 @@ import { createPost } from './world/post.js';
 import { LampLight } from './world/lamplight.js';
 import { WaterMirror, WATER_LAYER } from './world/mirror.js';
 import { createStreamer, loadCity } from './world/streamer.js';
+import { syncLandmarkNight } from './world/landmarks.js';
 import { loadPhotoTextures } from './world/textures.js';
 import { signMaterial } from './world/props.js';
 import { createCarFleet, createTrainMesh, setVehicleMatrix } from './world/vehicles.js';
@@ -126,6 +127,7 @@ function applySun() {
   post.apply(env, controls.target.y);
   const night = env.night;
   if (streamer.headMat) streamer.headMat.emissiveIntensity = night * 4;
+  syncLandmarkNight(night);
   signsMat.emissiveIntensity = 0.15 + night * 0.9;
   if (cars) cars.lampMat.emissiveIntensity = 0.05 + night * 5;
   if (trainMesh) trainMesh.windows.material.emissiveIntensity = night * 1.2;

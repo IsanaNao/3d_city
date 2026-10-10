@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { TILE, boundsFromBbox, makeProjection, tileKey, tileRect } from '../../src/shared/geo.js';
 import { LAND, PROP, ROAD } from '../../src/shared/kinds.js';
+import { findLandmarks, hiddenByLandmark } from '../../src/shared/landmarks.js';
 import { mulberry32 } from '../../src/shared/rng.js';
 import { decodeTerrain, encodeTerrain, sampleGrid } from '../../src/shared/terrain.js';
 import { encodeTile } from '../../src/shared/tileformat.js';
@@ -104,7 +105,7 @@ function appendStrip(buckets, points, ys, half, cls, flags, areaRect) {
   }
 }
 
-function appendSkirt(buckets, points, ys, half, drop, areaRect) {
+function appendSkirt(buckets, points, ys, half, drop, areaRect, cls = ROAD.MOTORWAY, flags = 1) {
   const { left, right } = offsetSides(points, half);
   const sides = [left, right];
   for (const side of sides) {
@@ -114,10 +115,10 @@ function appendSkirt(buckets, points, ys, half, drop, areaRect) {
       const y0 = ys[Math.min(i, ys.length - 1)];
       const y1 = ys[Math.min(i + 1, ys.length - 1)];
       const quad3 = [
-        { x: side[i][0], y: y0, z: side[i][1], across: 1, along, cls: ROAD.MOTORWAY, flags: 1 },
-        { x: side[i + 1][0], y: y1, z: side[i + 1][1], across: 1, along: along + segLen, cls: ROAD.MOTORWAY, flags: 1 },
-        { x: side[i + 1][0], y: y1 - drop, z: side[i + 1][1], across: 1, along: along + segLen, cls: ROAD.MOTORWAY, flags: 1 },
-        { x: side[i][0], y: y0 - drop, z: side[i][1], across: 1, along, cls: ROAD.MOTORWAY, flags: 1 },
+        { x: side[i][0], y: y0, z: side[i][1], across: 1, along, cls, flags },
+        { x: side[i + 1][0], y: y1, z: side[i + 1][1], across: 1, along: along + segLen, cls, flags },
+        { x: side[i + 1][0], y: y1 - drop, z: side[i + 1][1], across: 1, along: along + segLen, cls, flags },
+        { x: side[i][0], y: y0 - drop, z: side[i][1], across: 1, along, cls, flags },
       ];
       const flat = quad3.map((p) => [p.x, p.z]);
       for (const [tx, tz] of tilesOverlapping(ringBBox(flat))) {
@@ -235,17 +236,36 @@ function stitchLines(items) {
   return lines;
 }
 
-function placeProps(buildings, roads, land, sampleHeight) {
+function junctionPoints(roads) {
+  const count = new Map();
+  const at = new Map();
+  for (const road of roads) {
+    if (!road.drive) continue;
+    for (const end of [road.points[0], road.points.at(-1)]) {
+      const key = `${Math.round(end[0] / 3)}|${Math.round(end[1] / 3)}`;
+      count.set(key, (count.get(key) || 0) + 1);
+      at.set(key, end);
+    }
+  }
+  return [...count.entries()].filter(([, n]) => n >= 2).map(([key]) => at.get(key));
+}
+
+function placeProps(buildings, roads, land, sampleHeight, signals = []) {
   const props = [];
   let trees = 0;
   let lamps = 0;
   const waters = land.filter((f) => f.kind === LAND.WATER).map((f) => f.rings[0]);
   const blocked = (x, z) => waters.some((ring) => pointInPoly(x, z, ring));
+  const junctions = junctionPoints(roads);
+  const nearJunction = (x, z, rad) => junctions.some((j) => (j[0] - x) ** 2 + (j[1] - z) ** 2 < rad * rad);
 
   for (const road of roads) {
     if (!road.drive || road.cls === ROAD.LINK && road.bridge) continue;
-    const step = road.cls === ROAD.RESIDENTIAL || road.cls === ROAD.SERVICE ? 26 : 34;
-    let dist = step * 0.5;
+    const treeStep = road.cls === ROAD.RESIDENTIAL || road.cls === ROAD.SERVICE ? 8 : 12;
+    let walked = 0;
+    let nextTree = treeStep * 0.45;
+    let nextLamp = 8;
+    let nextPier = 12;
     for (let i = 1; i < road.points.length; i++) {
       const a = road.points[i - 1];
       const b = road.points[i];
@@ -255,38 +275,85 @@ function placeProps(buildings, roads, land, sampleHeight) {
       const dz = (b[1] - a[1]) / len;
       const rx = -dz;
       const rz = dx;
-      while (dist < len) {
-        const x = a[0] + dx * dist;
-        const z = a[1] + dz * dist;
-        const y = sampleHeight(x, z) + (road.lift || 0);
-        const side = road.width * 0.5 + 1.1;
-        if (!road.bridge && road.cls !== ROAD.MOTORWAY && trees < 2800) {
-          for (const s of [-1, 1]) {
-            const tx = x + rx * side * s;
-            const tz = z + rz * side * s;
-            if (!blocked(tx, tz)) {
-              props.push({ kind: PROP.TREE, variant: (trees + i) % 3, x: tx, y, z: tz, rot: (i * 0.7) % 6.28, scale: 0.85 + (i % 5) * 0.08, extra: 1 });
-              trees += 1;
+      const at = (dist) => {
+        const t = dist - walked;
+        return [a[0] + dx * t, a[1] + dz * t];
+      };
+      if (!road.bridge && road.cls !== ROAD.MOTORWAY) {
+        while (nextTree < walked + len && trees < 5200) {
+          const [x, z] = at(nextTree);
+          const y = sampleHeight(x, z) + (road.lift || 0);
+          const side = road.width * 0.5 + Math.max(road.sidewalk || 2.8, 2.2) - 0.7;
+          if (!nearJunction(x, z, 9)) {
+            for (const s of [-1, 1]) {
+              const tx = x + rx * side * s;
+              const tz = z + rz * side * s;
+              if (!blocked(tx, tz)) {
+                props.push({
+                  kind: PROP.TREE, variant: trees % 3, x: tx, y, z: tz,
+                  rot: (trees * 0.7) % 6.28, scale: 0.82 + (trees % 5) * 0.07, extra: 1,
+                });
+                trees += 1;
+              }
             }
           }
+          nextTree += treeStep;
         }
-        if (!road.bridge && road.cls !== ROAD.SERVICE && lamps < 1600) {
-          for (const s of [-1, 1]) {
-            props.push({
-              kind: PROP.LAMP, variant: 0,
-              x: x + rx * (side - 0.4) * s, y, z: z + rz * (side - 0.4) * s,
-              rot: 0, scale: 1, extra: 8,
-            });
-            lamps += 1;
+        while (nextLamp < walked + len && lamps < 2200 && road.cls !== ROAD.SERVICE) {
+          const [x, z] = at(nextLamp);
+          const y = sampleHeight(x, z);
+          const side = road.width * 0.5 + Math.max(road.sidewalk || 0, 0.6) - 0.35;
+          if (!nearJunction(x, z, 7)) {
+            for (const s of [-1, 1]) {
+              props.push({
+                kind: PROP.LAMP, variant: 0,
+                x: x + rx * side * s, y, z: z + rz * side * s,
+                rot: Math.atan2(dx, dz), scale: 1, extra: 8,
+              });
+              lamps += 1;
+            }
           }
+          nextLamp += 30;
         }
-        if (road.bridge && road.lift > 3) {
-          props.push({ kind: PROP.PIER, variant: 0, x, y: sampleHeight(x, z), z, rot: Math.atan2(dx, dz), scale: 1.6, extra: road.lift });
-        }
-        dist += step;
       }
-      dist -= len;
+      if (road.bridge && road.lift > 3) {
+        while (nextPier < walked + len) {
+          const [x, z] = at(nextPier);
+          props.push({
+            kind: PROP.PIER, variant: 0, x, y: sampleHeight(x, z), z,
+            rot: Math.atan2(dx, dz), scale: 0.85, extra: road.lift,
+          });
+          nextPier += 22;
+        }
+      }
+      walked += len;
     }
+  }
+
+  for (const signal of signals) {
+    let rot = 0;
+    let best = 36 * 36;
+    for (const road of roads) {
+      if (!road.drive) continue;
+      for (let i = 1; i < road.points.length; i++) {
+        const a = road.points[i - 1];
+        const b = road.points[i];
+        const mx = (a[0] + b[0]) / 2;
+        const mz = (a[1] + b[1]) / 2;
+        const d = (mx - signal.x) ** 2 + (mz - signal.z) ** 2;
+        if (d < best) {
+          best = d;
+          rot = Math.atan2(b[0] - a[0], b[1] - a[1]);
+        }
+      }
+    }
+    const rx = -Math.cos(rot);
+    const rz = Math.sin(rot);
+    props.push({
+      kind: PROP.LIGHT, variant: 0,
+      x: signal.x + rx * 7, y: sampleHeight(signal.x, signal.z), z: signal.z + rz * 7,
+      rot, scale: 1, extra: 0,
+    });
   }
 
   for (const feature of land) {
@@ -297,14 +364,14 @@ function placeProps(buildings, roads, land, sampleHeight) {
     const box = ringBBox(ring);
     const spacing = area > 80000 ? 18 : 14;
     const rng = mulberry32(Math.round(box.minX * 10 + box.minZ));
-    for (let x = box.minX; x <= box.maxX && trees < 2800; x += spacing) {
-      for (let z = box.minZ; z <= box.maxZ && trees < 2800; z += spacing) {
+    for (let x = box.minX; x <= box.maxX && trees < 5600; x += spacing) {
+      for (let z = box.minZ; z <= box.maxZ && trees < 5600; z += spacing) {
         const jx = x + (rng() - 0.5) * spacing * 0.8;
         const jz = z + (rng() - 0.5) * spacing * 0.8;
         if (!pointInPoly(jx, jz, ring) || blocked(jx, jz)) continue;
         props.push({
           kind: PROP.TREE, variant: Math.floor(rng() * 3), x: jx, y: sampleHeight(jx, jz), z: jz,
-          rot: rng() * 6.28, scale: 0.75 + rng() * 0.7, extra: 1,
+          rot: rng() * 6.28, scale: 1.05 + rng() * 0.7, extra: 1,
         });
         trees += 1;
       }
@@ -536,10 +603,12 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
     heights: Float32Array.from(settled.heights),
   };
   const waterLevel = carveWater(carved, parsed.land.filter((f) => f.kind === LAND.WATER));
-  const props = placeProps(parsed.buildings, draped, parsed.land, sampleHeight);
+  const landmarks = findLandmarks(parsed.footprints || parsed.buildings);
+  const keptBuildings = parsed.buildings.filter((building) => !hiddenByLandmark(building, landmarks));
+  const props = placeProps(keptBuildings, draped, parsed.land, sampleHeight, parsed.signals);
 
   const buckets = createBuckets();
-  for (const building of parsed.buildings) {
+  for (const building of keptBuildings) {
     const clipped = clipPolygon(building.rings[0], areaRect);
     if (clipped.length < 3) continue;
     const rings = [ensureWinding(clipped, true), ...building.rings.slice(1)];
@@ -565,19 +634,53 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
       buckets.get(tx, tz).land.push({ kind: feature.kind, rings });
     }
   }
+  const junctions = junctionPoints(draped);
+  const awayFromJunction = (points, ys) => {
+    const near = (p) => junctions.some((j) => (j[0] - p[0]) ** 2 + (j[1] - p[1]) ** 2 < 12 * 12);
+    const parts = [];
+    let cp = [];
+    let cy = [];
+    for (let i = 0; i < points.length; i++) {
+      if (near(points[i])) {
+        if (cp.length >= 2) parts.push({ points: cp, y: cy });
+        cp = [];
+        cy = [];
+      } else {
+        cp.push(points[i]);
+        cy.push(ys[i]);
+      }
+    }
+    if (cp.length >= 2) parts.push({ points: cp, y: cy });
+    return parts;
+  };
   for (const road of draped) {
     if (road.ribbon) {
-      appendStrip(buckets, road.points, road.y.map((y) => y - 0.08), road.width / 2, ROAD.SIDEWALK, 0, areaRect);
+      const deck = road.y.map((y) => y + 0.08);
+      appendStrip(buckets, road.points, deck, road.width / 2, ROAD.SIDEWALK, road.bridge ? 10 + (road.lanes || 1) : 0, areaRect);
+      if (road.bridge) {
+        appendSkirt(buckets, road.points, deck, road.width / 2, -0.85, areaRect, ROAD.SIDEWALK, 3);
+        appendSkirt(buckets, road.points, road.y, road.width / 2, road.lift || 4, areaRect);
+      }
       continue;
     }
+    const lanes = road.lanes || 2;
+    appendStrip(buckets, road.points, road.y, road.width / 2, road.cls, 10 + lanes, areaRect);
     if (road.sidewalk) {
-      const half = road.width / 2 + 1.8;
-      appendStrip(buckets, road.points, road.y.map((y) => y - 0.1), half, ROAD.SIDEWALK, 0, areaRect);
+      const sw = road.sidewalk;
+      const offset = road.width / 2 + sw / 2;
+      const raised = road.y.map((y) => y + 0.16);
+      const { left, right } = offsetSides(road.points, offset);
+      for (const center of [left, right]) {
+        for (const part of awayFromJunction(center, raised)) {
+          appendStrip(buckets, part.points, part.y, sw / 2, ROAD.SIDEWALK, 0, areaRect);
+        }
+      }
+      appendSkirt(buckets, road.points, road.y, road.width / 2, -0.16, areaRect, ROAD.SIDEWALK, 3);
     }
-    appendStrip(buckets, road.points, road.y, road.width / 2, road.cls, 0, areaRect);
     if (road.bridge) {
-      appendStrip(buckets, road.points, road.y.map((y) => y - 1.15), road.width / 2, road.cls, 1, areaRect);
-      appendSkirt(buckets, road.points, road.y, road.width / 2, 1.15, areaRect);
+      appendStrip(buckets, road.points, road.y.map((y) => y - 1.05), road.width / 2, road.cls, 1, areaRect);
+      appendSkirt(buckets, road.points, road.y, road.width / 2, 1.05, areaRect);
+      appendSkirt(buckets, road.points, road.y, road.width / 2, -0.9, areaRect, ROAD.SIDEWALK, 3);
     }
   }
   for (const mark of graph.crosswalks) {
@@ -631,13 +734,15 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
     }),
     files: { roads: 'roads.json', rails: 'rails.json' },
     counts: {
-      buildings: parsed.buildings.length,
+      buildings: keptBuildings.length,
+      landmarks: landmarks.length,
       roads: graph.edges.length,
       rails: rails.length,
       tiles: tiles.size,
     },
     view: area.view || { position: presets[0].position, target: presets[0].target },
     presets,
+    landmarks: landmarks.map(({ id, name, x, z, y, h, yaw }) => ({ id, name, x, z, y, h, yaw })),
     generatedAt: new Date().toISOString(),
     attribution: {
       osm: '© OpenStreetMap contributors (ODbL)',

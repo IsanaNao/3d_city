@@ -22,8 +22,8 @@ function pointAlongFromEnd(points, ys, dist) {
 
 function crosswalk(points, ys, width) {
   if (polylineLength(points) < 16) return null;
-  const far = pointAlongFromEnd(points, ys, 11);
-  const near = pointAlongFromEnd(points, ys, 7);
+  const far = pointAlongFromEnd(points, ys, 14);
+  const near = pointAlongFromEnd(points, ys, 6);
   if (!far || !near) return null;
   return {
     points: [[far.x, far.z], [near.x, near.z]],
@@ -112,8 +112,10 @@ export function buildRoadGraph(roads, signals) {
       for (let i = 0; i < laneB.length; i++) flatB.push(laneB[i][0], backY[i] ?? backY.at(-1), laneB[i][1]);
       edges.push({ a: b, b: a, speed: piece.road.speed, cls: piece.road.cls, points: flatB });
     }
-    if (nodes[b]?.signal) {
-      const mark = crosswalk(piece.points, piece.y, piece.road.width);
+    const end = piece.points.at(-1);
+    const junction = isSplit(end) || nodes[b]?.signal;
+    if (junction && piece.road.cls !== ROAD.MOTORWAY && piece.road.cls !== ROAD.LINK) {
+      const mark = crosswalk(piece.points, piece.y, Math.min(piece.road.width, 16));
       if (mark) crosswalks.push(mark);
     }
   }
