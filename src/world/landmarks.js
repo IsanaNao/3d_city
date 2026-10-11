@@ -9,25 +9,50 @@ import { cityUniforms } from './materials.js';
 
 const steel = new THREE.MeshStandardMaterial({ color: 0xd5d9de, metalness: 0.72, roughness: 0.34 });
 const dark = new THREE.MeshStandardMaterial({ color: 0x3a4148, metalness: 0.45, roughness: 0.5 });
-// Pink-red glass. The sphere mesh is a closed shell. Mullions and the night
-// cells are painted from the panel UV, so nothing is cut out of the skin.
+// Rose-silver glass. The shell is closed; mullions and the night cells are paint.
+// Sky reflection is added here because the shared env-map term is disabled.
 const pearlMat = new THREE.MeshStandardMaterial({
-  color: 0xc4374e, metalness: 0.74, roughness: 0.16,
-  emissive: new THREE.Color(0xff2040), emissiveIntensity: 0,
+  color: 0xc9a3a8, metalness: 0.82, roughness: 0.14,
+  emissive: new THREE.Color(0xff3050), emissiveIntensity: 0,
   transparent: false, opacity: 1, depthWrite: true, side: THREE.FrontSide,
 });
 pearlMat.onBeforeCompile = (shader) => {
   shader.uniforms.uNight = cityUniforms.uNight;
+  shader.uniforms.uSky = cityUniforms.uSky;
+  shader.uniforms.uHorizon = cityUniforms.uHorizon;
+  shader.uniforms.uSkyGain = cityUniforms.uSkyGain;
+  shader.uniforms.uSunDir = cityUniforms.uSunDir;
+  shader.uniforms.uSunGlint = cityUniforms.uSunGlint;
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nattribute float aLat;\nattribute vec2 aGrid;\nvarying vec2 vPane;\nvarying float vLat;\nvarying vec2 vGrid;')
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPane = uv;\nvLat = aLat;\nvGrid = aGrid;');
+    .replace('#include <common>', '#include <common>\nattribute float aLat;\nattribute vec2 aGrid;\nvarying vec2 vPane;\nvarying float vLat;\nvarying vec2 vGrid;\nvarying vec3 vPearlN;\nvarying vec3 vPearlW;')
+    .replace('#include <begin_vertex>', `#include <begin_vertex>
+      vPane = uv;
+      vLat = aLat;
+      vGrid = aGrid;
+      vPearlN = normalize(mat3(modelMatrix) * objectNormal);
+      vPearlW = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec2 vPane;\nvarying float vLat;\nvarying vec2 vGrid;')
+    .replace('#include <common>', `#include <common>
+      uniform float uNight;
+      uniform float uSkyGain;
+      uniform vec3 uSky;
+      uniform vec3 uHorizon;
+      uniform vec3 uSunDir;
+      uniform vec3 uSunGlint;
+      varying vec2 vPane;
+      varying float vLat;
+      varying vec2 vGrid;
+      varying vec3 vPearlN;
+      varying vec3 vPearlW;`)
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-      vec2 pane = fract(vPane * vGrid);
+      vec2 pane = fract(vPane * max(vGrid, vec2(1.0)));
       float edge = min(min(pane.x, 1.0 - pane.x), min(pane.y, 1.0 - pane.y));
-      float glass = smoothstep(0.012, 0.04, edge);
-      diffuseColor.rgb = mix(vec3(0.78, 0.80, 0.82), diffuseColor.rgb, glass);
+      float glass = smoothstep(0.004, 0.016, edge);
+      float panelId = dot(floor(vPane * max(vGrid, vec2(1.0))), vec2(1.0, 17.0));
+      float vary = 0.93 + 0.09 * fract(sin(panelId * 12.9898) * 43758.5453);
+      vec3 rose = diffuseColor.rgb * vec3(1.05, 0.78, 0.8) * vary;
+      diffuseColor.rgb = mix(vec3(0.62, 0.64, 0.66), rose, glass);
+      roughnessFactor = mix(0.32, 0.1 + 0.06 * fract(panelId * 0.37), glass);
       float belt = max(
         smoothstep(0.45, 0.48, vLat) * (1.0 - smoothstep(0.52, 0.55, vLat)),
         max(
@@ -35,20 +60,30 @@ pearlMat.onBeforeCompile = (shader) => {
           smoothstep(0.62, 0.65, vLat) * (1.0 - smoothstep(0.69, 0.72, vLat))
         )
       );
-      vec2 cell = abs(fract(pane * vec2(2.0, 3.0)) - 0.5);
-      float dotCore = smoothstep(0.42, 0.16, max(cell.x, cell.y));
-      vec3 cellCol = mix(vec3(1.0, 0.10, 0.22), vec3(1.0, 0.64, 0.74), belt);
-      totalEmissiveRadiance += cellCol * glass * dotCore * uNight * (3.6 + belt * 2.6);
-      totalEmissiveRadiance += vec3(1.0, 0.86, 0.72) * belt * uNight * 0.7;
+      vec2 cell = abs(fract(pane) - 0.5);
+      float dotCore = smoothstep(0.46, 0.18, max(cell.x, cell.y));
+      vec3 cellCol = mix(vec3(1.0, 0.16, 0.28), vec3(1.0, 0.72, 0.78), belt);
+      totalEmissiveRadiance += cellCol * glass * dotCore * uNight * (2.8 + belt * 2.2);
+      totalEmissiveRadiance += vec3(1.0, 0.86, 0.72) * belt * uNight * 0.55;
+      vec3 N = normalize(vPearlN);
+      vec3 V = normalize(cameraPosition - vPearlW);
+      vec3 R = reflect(-V, N);
+      float up = pow(clamp(R.y * 0.5 + 0.5, 0.0, 1.0), 0.65);
+      vec3 skyCol = mix(uHorizon, uSky, up) * uSkyGain;
+      float fres = pow(1.0 - max(dot(V, N), 0.0), 2.4);
+      float day = 1.0 - uNight;
+      totalEmissiveRadiance += mix(skyCol, rose, 0.38) * glass * day * (0.22 + 0.95 * fres);
+      float sunSpec = pow(max(dot(R, normalize(uSunDir)), 0.0), 220.0);
+      totalEmissiveRadiance += uSunGlint * glass * day * sunSpec * 0.85;
     `);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-solid';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-rose';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
 });
 const columnMat = new THREE.MeshStandardMaterial({
-  color: 0xd9d3c8, metalness: 0.42, roughness: 0.38,
+  color: 0xe4e7ea, metalness: 0.18, roughness: 0.52,
   emissive: new THREE.Color(0xff8a28), emissiveIntensity: 0,
 });
 columnMat.onBeforeCompile = (shader) => {
@@ -66,7 +101,7 @@ columnMat.onBeforeCompile = (shader) => {
 };
 columnMat.customProgramCacheKey = () => 'lm-pearl-column';
 const legMat = new THREE.MeshStandardMaterial({
-  color: 0xcfc8bc, metalness: 0.38, roughness: 0.42,
+  color: 0xe0ddd6, metalness: 0.16, roughness: 0.58,
   emissive: new THREE.Color(0xff1c18), emissiveIntensity: 0,
 });
 const shanghaiCrownMat = new THREE.MeshStandardMaterial({
@@ -202,7 +237,7 @@ function pearl(h) {
     tube(g, [foot, knee, legEnd], m.legR, legMat, 'leg', angle);
 
     const pod = foot.clone().lerp(legEnd, 0.42);
-    const podMesh = paneledSphere(g, 6.2 * m.s, 0, 8, 12, pearlMat, 'pod');
+    const podMesh = paneledSphere(g, 6.2 * m.s, 0, 12, 20, pearlMat, 'pod');
     podMesh.position.set(pod.x, pod.y, pod.z);
 
     const emerge = along(angle, 15 * m.s, m.lowerC + 8 * m.s);
@@ -217,7 +252,7 @@ function pearl(h) {
     const angle = angles[i % 3] + (i >= 3 ? 0.22 : 0);
     const y = m.lowerC + m.lowerR + (m.upperC - m.upperR - (m.lowerC + m.lowerR)) * t;
     const radial = (15 - 5 * t) * m.s;
-    const bead = paneledSphere(g, 6 * m.s, 0, 6, 10, pearlMat, 'bead');
+    const bead = paneledSphere(g, 6 * m.s, 0, 10, 16, pearlMat, 'bead');
     bead.position.set(Math.cos(angle) * radial, y, Math.sin(angle) * radial);
     bead.userData.angle = angle;
   });
@@ -234,17 +269,17 @@ function pearl(h) {
     for (let i = 0; i < ring.length; i++) tube(g, [ring[i], ring[(i + 1) % ring.length]], 1.3 * m.s, columnMat, 'brace');
   }
 
-  paneledSphere(g, m.lowerR, m.lowerC, 18, 36, pearlMat, 'lower-sphere');
+  paneledSphere(g, m.lowerR, m.lowerC, 32, 64, pearlMat, 'lower-sphere');
   sphereRing(g, m.lowerR, m.lowerC, 0, 1.8 * m.s);
   sphereRing(g, m.lowerR, m.lowerC, m.lowerR * 0.42, 0.48 * m.s);
   sphereRing(g, m.lowerR, m.lowerC, -m.lowerR * 0.42, 0.48 * m.s);
-  paneledSphere(g, m.upperR, m.upperC, 16, 32, pearlMat, 'upper-sphere');
+  paneledSphere(g, m.upperR, m.upperC, 28, 56, pearlMat, 'upper-sphere');
   sphereRing(g, m.upperR, m.upperC, 0, 1.55 * m.s);
   sphereRing(g, m.upperR, m.upperC, m.upperR * 0.4, 0.42 * m.s);
   sphereRing(g, m.upperR, m.upperC, -m.upperR * 0.4, 0.42 * m.s);
 
   tube(g, [along(0, 0, m.upperC + m.upperR * 0.35), along(0, 0, m.capsuleC + m.capsuleR * 0.4)], 2.4 * m.s, columnMat, 'mast');
-  paneledSphere(g, m.capsuleR, m.capsuleC, 8, 16, pearlMat, 'capsule');
+  paneledSphere(g, m.capsuleR, m.capsuleC, 14, 24, pearlMat, 'capsule');
   sphereRing(g, m.capsuleR, m.capsuleC, 0, 0.55 * m.s);
   const antennaH = h - (m.capsuleC + m.capsuleR);
   const antenna = new THREE.CylinderGeometry(0.22 * m.s, 1.15 * m.s, antennaH, 8);
