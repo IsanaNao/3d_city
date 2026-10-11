@@ -153,13 +153,13 @@ test('swfc aperture is an inverted trapezoid under a flat roof', () => {
   const model = createLandmarks([{ id: 'swfc', x: 0, z: 0, y: 0, h, yaw: 0 }]).children[0];
   model.rotation.y = 0;
   model.updateMatrixWorld(true);
-  const through = new THREE.Raycaster(new THREE.Vector3(0, 450, 80), new THREE.Vector3(0, 0, -1));
+  const through = new THREE.Raycaster(new THREE.Vector3(0, 454, 80), new THREE.Vector3(0, 0, -1));
   assert.equal(through.intersectObject(model, true).length, 0, 'ray should pass through the aperture');
-  const narrow = new THREE.Raycaster(new THREE.Vector3(16, 438, 80), new THREE.Vector3(0, 0, -1));
+  const narrow = new THREE.Raycaster(new THREE.Vector3(16, 440, 80), new THREE.Vector3(0, 0, -1));
   assert.ok(narrow.intersectObject(model, true).length > 0, 'the bottom of the hole is the narrow end');
-  const wide = new THREE.Raycaster(new THREE.Vector3(18, 464, 80), new THREE.Vector3(0, 0, -1));
+  const wide = new THREE.Raycaster(new THREE.Vector3(18, 468, 80), new THREE.Vector3(0, 0, -1));
   assert.equal(wide.intersectObject(model, true).length, 0, 'the top of the hole is the wide end');
-  const bridge = new THREE.Raycaster(new THREE.Vector3(0, 478, 80), new THREE.Vector3(0, 0, -1));
+  const bridge = new THREE.Raycaster(new THREE.Vector3(0, 484, 80), new THREE.Vector3(0, 0, -1));
   assert.ok(bridge.intersectObject(model, true).length > 0, 'the bridge above the hole is solid');
   const solid = new THREE.Raycaster(new THREE.Vector3(0, 200, 80), new THREE.Vector3(0, 0, -1));
   assert.ok(solid.intersectObject(model, true).length > 0, 'mid-height face should be solid');

@@ -651,10 +651,10 @@ function swfcRing(t, y) {
 function swfc(h) {
   const g = new THREE.Group();
   const yOf = (t) => t * h * 0.992;
-  // Sill and head are horizontal. The bridge above them is about a third of
-  // the opening, glass with a thin silver soffit, not a second tower.
-  const hole0 = 430 / (h * 0.992);
-  const hole1 = 470 / (h * 0.992);
+  // Sill and head are horizontal. The glass bridge above them is about a
+  // third of the opening, with a thin silver soffit, not a second tower.
+  const hole0 = 432 / (h * 0.992);
+  const hole1 = 476 / (h * 0.992);
   const openHalf = (t) => {
     const u = Math.min(1, Math.max(0, (t - hole0) / (hole1 - hole0)));
     return 13.5 + (21.5 - 13.5) * u;
@@ -741,7 +741,7 @@ function swfc(h) {
   const sillBar = new THREE.BoxGeometry(openHalf(hole0) * 2, 2.2, sill.d * 0.96);
   sillBar.translate(0, sillY - 1.1, 0);
   tag(add(g, sillBar, swfcEdgeMat), 'swfc-sill');
-  const soffitH = 2.4;
+  const soffitH = 1.5;
   const soffit = new THREE.BoxGeometry(openHalf(hole1) * 2, soffitH, Math.max(14, head.d * 0.94));
   soffit.translate(0, headY + soffitH / 2, 0);
   tag(add(g, soffit, swfcEdgeMat), 'swfc-lintel');
