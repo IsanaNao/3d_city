@@ -28,6 +28,7 @@ export const PROP = {
   SIGN: 5,
   PIER: 6,
   LIGHT: 7,
+  CUPOLA: 8,
 };
 
 export const ROAD = {

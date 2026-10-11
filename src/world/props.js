@@ -123,6 +123,96 @@ function boxAt(w, h, d, y) {
   return geo;
 }
 
+let cupolaMat = null;
+function cupolaMaterial() {
+  if (cupolaMat) return cupolaMat;
+  cupolaMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.68,
+    metalness: 0.12,
+    vertexColors: true,
+  });
+  cupolaMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uNight = cityUniforms.uNight;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uNight;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        totalEmissiveRadiance += vec3(0.36, 0.2, 0.07) * uNight;`);
+  };
+  cupolaMat.customProgramCacheKey = () => 'sh-cupola-1';
+  return cupolaMat;
+}
+
+function cupolaParts(variant, scale, extra) {
+  const geos = [];
+  const stone = 0xd6c4ae;
+  const shade = 0xb5a28c;
+  const copper = 0x6d917c;
+  const push = (geo, hex) => {
+    colorize(geo, hex);
+    geos.push(flatGeo(geo));
+  };
+  if (variant === 1) {
+    const radius = scale * 0.42;
+    const drumH = extra * 0.42;
+    const drum = new THREE.CylinderGeometry(radius * 0.96, radius, drumH, 12);
+    drum.translate(0, drumH / 2, 0);
+    push(drum, stone);
+    const dome = new THREE.SphereGeometry(radius * 0.98, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    dome.translate(0, drumH * 0.92, 0);
+    push(dome, copper);
+    const finial = new THREE.CylinderGeometry(0.1, 0.16, extra * 0.2, 5);
+    finial.translate(0, drumH + radius * 0.72, 0);
+    push(finial, shade);
+    return geos;
+  }
+  const width = scale;
+  const depth = scale * 0.7;
+  const wallH = extra * 0.58;
+  const shaft = new THREE.BoxGeometry(width, wallH, depth);
+  shaft.translate(0, wallH / 2, 0);
+  push(shaft, stone);
+  const lip = new THREE.BoxGeometry(width * 1.14, 0.42, depth * 1.14);
+  lip.translate(0, wallH, 0);
+  push(lip, shade);
+  const roofH = extra * 0.5;
+  const pyramid = new THREE.ConeGeometry(Math.hypot(width, depth) * 0.5, roofH, 4);
+  pyramid.rotateY(Math.PI / 4);
+  pyramid.translate(0, wallH + roofH / 2, 0);
+  push(pyramid, shade);
+  return geos;
+}
+
+export function cupolaMesh(props) {
+  if (!props.length) return null;
+  const geos = [];
+  for (const prop of props) {
+    const variant = prop.variant || 0;
+    const scale = prop.scale || 8;
+    const extra = prop.extra || 6;
+    const groups = variant === 2
+      ? [
+          { parts: cupolaParts(0, scale * 0.62, extra * 0.85), offset: -scale * 0.95 },
+          { parts: cupolaParts(0, scale * 0.62, extra * 0.85), offset: scale * 0.95 },
+        ]
+      : [{ parts: cupolaParts(variant, scale, extra), offset: 0 }];
+    for (const group of groups) {
+      for (const geo of group.parts) {
+        geo.translate(group.offset, 0, 0);
+        geo.rotateY(prop.rot || 0);
+        geo.translate(prop.x, prop.y, prop.z);
+        geos.push(geo);
+      }
+    }
+  }
+  const merged = mergeGeometries(geos);
+  if (!merged) return null;
+  const mesh = new THREE.Mesh(merged, cupolaMaterial());
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
 let propMaterial = null;
 export function staticPropMesh(props) {
   const geos = [];

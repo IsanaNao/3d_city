@@ -12,7 +12,7 @@ import { createBridges, syncBridgeNight } from './bridges.js';
 import { createEmbankments, embankmentSegments } from './embankment.js';
 import { createLandmarks, syncLandmarkNight } from './landmarks.js';
 import {
-  instanceProps, lampGeometries, lampHeadMaterial, signMesh, signalGeometry, staticPropMesh, treeGeometry, treeGeometryFar,
+  cupolaMesh, instanceProps, lampGeometries, lampHeadMaterial, signMesh, signalGeometry, staticPropMesh, treeGeometry, treeGeometryFar,
 } from './props.js';
 import { PROP } from '../shared/kinds.js';
 
@@ -326,6 +326,7 @@ export function createStreamer({ scene, getView }) {
     const lamps = tile.props.filter((p) => p.kind === PROP.LAMP);
     const signs = tile.props.filter((p) => p.kind === PROP.SIGN);
     const blocks = tile.props.filter((p) => p.kind === PROP.AC || p.kind === PROP.TANK || p.kind === PROP.PENTHOUSE || p.kind === PROP.PIER);
+    const cupolas = tile.props.filter((p) => p.kind === PROP.CUPOLA);
     const tree = instanceProps(PROP.TREE, trees, treeGeometry(), treeMat);
     const treeFar = instanceProps(PROP.TREE, trees, treeGeometryFar(), treeMat);
     if (tree) group.add(tree);
@@ -355,6 +356,8 @@ export function createStreamer({ scene, getView }) {
     if (sign) group.add(sign);
     const blocksMesh = staticPropMesh(blocks);
     if (blocksMesh) group.add(blocksMesh);
+    const roofs = cupolaMesh(cupolas);
+    if (roofs) group.add(roofs);
     return group;
   }
 

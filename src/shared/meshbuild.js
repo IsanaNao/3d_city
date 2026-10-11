@@ -302,7 +302,10 @@ function addParapet(acc, ring, color, a) {
   const pts = pairsOf(ring);
   const flags = flagsOf(ring, pts.length);
   if (pts.length > 48) return;
-  const darker = color.map((c) => c * 0.78);
+  const historic = a.kind === KIND.HISTORIC;
+  const darker = color.map((c) => c * (historic ? 0.62 : 0.78));
+  const lip = historic ? 1.55 : 0.75;
+  const inset = historic ? 0.62 : 0.28;
   for (let i = 0; i < pts.length; i++) {
     if (flags[i]) continue;
     const a0 = pts[i];
@@ -313,12 +316,11 @@ function addParapet(acc, ring, color, a) {
     if (len < 2.5) continue;
     const nx = -dz / len;
     const nz = dx / len;
-    const inset = 0.28;
     addWall(
       acc,
       a0[0] - nx * inset, a0[1] - nz * inset,
       b0[0] - nx * inset, b0[1] - nz * inset,
-      a.top, a.top + 0.75,
+      a.top, a.top + lip,
       darker, a,
     );
   }

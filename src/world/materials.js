@@ -210,12 +210,15 @@ const FACADE_MAIN = /* glsl */`
     }
     // Bund ashlar: rusticated base, a cornice each floor, warm floodlight from the promenade.
     if (kind > 5.5) {
+      vec3 buff = vec3(0.58, 0.48, 0.38);
+      float grain = 0.9 + 0.14 * vnoise(st * vec2(0.42, 0.9) + seed);
+      wall = mix(wall, buff, 0.66) * grain;
       float course = smoothstep(0.78, 0.92, fract(v * 1.25));
       float podium = 1.0 - smoothstep(0.0, 6.0, v);
-      wall *= mix(1.0, 0.78, podium * (0.45 + 0.55 * course));
-      float corn = smoothstep(0.84, 0.93, fract(v / 4.4));
-      wall *= 1.0 - corn * 0.28;
-      wall += vec3(0.07, 0.055, 0.035) * corn;
+      wall *= mix(1.0, 0.7, podium * (0.5 + 0.5 * course));
+      float corn = smoothstep(0.82, 0.94, fract(v / 4.4));
+      wall *= 1.0 - corn * 0.5;
+      wall += vec3(0.05, 0.04, 0.028) * corn * 0.35;
       bundGraze = pow(1.0 - smoothstep(0.0, max(height * 0.72, 8.0), v), 1.35);
       bundCorn = corn;
       bundTop = smoothstep(height - 2.4, height - 0.35, v);
@@ -328,6 +331,7 @@ const FACADE_MAIN = /* glsl */`
     glow = mix(glow, mix(0.4, 1.0, floorOn), max(far, tall * 0.65));
 
     vec3 glassTint = glassy ? mix(vec3(0.2, 0.3, 0.38), vec3(0.3, 0.33, 0.34), fract(sf * 5.7)) : vec3(0.1, 0.11, 0.12);
+    if (kind > 5.5) glassTint = vec3(0.045, 0.05, 0.055);
     vec3 frameCol = fract(sf * 3.3) < 0.5 ? vec3(0.16, 0.17, 0.18) : vec3(0.62, 0.63, 0.63);
     if (usePhoto) {
       // the photo's own colours, nudged towards the building's tint
@@ -447,7 +451,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-12';
+  material.customProgramCacheKey = () => 'sh-facade-13';
   return material;
 }
 

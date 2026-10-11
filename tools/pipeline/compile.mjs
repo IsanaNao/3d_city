@@ -421,16 +421,94 @@ export function bankQuays(land) {
   return quays.length;
 }
 
-function markBundRow(buildings) {
+function eastEdge(building) {
+  let edge = -Infinity;
+  for (const p of building.rings[0]) if (p[0] > edge) edge = p[0];
+  return edge;
+}
+
+function westEdge(building) {
+  let edge = Infinity;
+  for (const p of building.rings[0]) if (p[0] < edge) edge = p[0];
+  return edge;
+}
+
+function bundBuff(id) {
+  const factor = 0.92 + ((Math.abs(id) * 13) % 11) / 100;
+  const channel = (value) => Math.max(0, Math.min(255, Math.round(value * factor)));
+  return ((channel(0xd2) << 16) | (channel(0xbe) << 8) | channel(0xa0)) >>> 0;
+}
+
+// The facade steps west as it goes north. A straight guide keeps an inland
+// block from joining just because it is the easternmost thing on its block.
+function bundGuide(z) {
+  return -1168 + (z + 500) * 0.155;
+}
+
+function riverYaw(ring) {
+  let best = 0;
+  let yaw = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const len = Math.hypot(dx, dz);
+    if (len > best) {
+      best = len;
+      yaw = Math.atan2(-dz, dx);
+    }
+  }
+  return { yaw, len: best };
+}
+
+export function markBundRow(buildings) {
+  const pool = [];
   for (const building of buildings) {
     const c = building.centroid;
-    if (!c) continue;
+    if (!c || building.kind === KIND.LANDMARK) continue;
     const height = building.topY - building.baseY;
-    if (c[0] < -1450 || c[0] > -980 || c[1] < -900 || c[1] > 750) continue;
-    if (height < 12 || height > 96) continue;
-    if (building.kind === KIND.LANDMARK) continue;
-    building.kind = KIND.HISTORIC;
+    if (height < 15 || height > 55) continue;
+    if (c[1] < -540 || c[1] > 430) continue;
+    if (c[0] < -1320 || c[0] > -1000) continue;
+    if (building.area < 280 || building.area > 8000) continue;
+    const depth = eastEdge(building) - westEdge(building);
+    if (depth < 16 || depth > 90) continue;
+    const edge = eastEdge(building);
+    const guide = bundGuide(building.centroid[1]);
+    if (edge < guide - 88 || edge > guide + 26) continue;
+    pool.push(building);
   }
+  const frontAt = (z) => {
+    let face = null;
+    for (const building of pool) {
+      if (Math.abs(building.centroid[1] - z) >= 55) continue;
+      const edge = eastEdge(building);
+      if (face == null || edge > face) face = edge;
+    }
+    return face;
+  };
+  const front = [];
+  for (const building of pool) {
+    const face = frontAt(building.centroid[1]);
+    if (face == null) continue;
+    const edge = eastEdge(building);
+    if (edge < face - 30) continue;
+    building.kind = KIND.HISTORIC;
+    building.color = bundBuff(building.id);
+    front.push(building);
+  }
+  front.sort((a, b) => a.centroid[1] - b.centroid[1]);
+  front.forEach((building, index) => {
+    const name = building.name || '';
+    if (/轮船招商局|盘谷/.test(name)) building.cupola = 1;
+    else if (/友邦|外滩六号|外滩6号/.test(name)) building.cupola = 0;
+    else if (/农业银行/.test(name)) building.cupola = 0;
+    else if (/清算所/.test(name)) building.cupola = 2;
+    else if (/浦东发展|公共服务/.test(name)) building.cupola = -1;
+    else building.cupola = index % 4 === 3 ? -1 : index % 4;
+  });
+  return front;
 }
 
 function stitchLines(items) {
@@ -664,8 +742,24 @@ function placeProps(buildings, roads, land, sampleHeight, signals = []) {
     const height = building.topY - building.baseY;
     const outer = building.rings[0];
     const rng = mulberry32(building.id * 97 + 3);
-    if (height > 14 && building.area > 50 && !building.roofShape) {
-      const c = building.centroid || centroid(outer);
+    const c = building.centroid || centroid(outer);
+    if (building.kind === KIND.HISTORIC && building.cupola >= 0 && !building.roofShape) {
+      const { yaw, len } = riverYaw(outer);
+      let variant = building.cupola;
+      if (variant === 2 && len < 28) variant = 0;
+      const span = Math.min(12, Math.max(6.2, len * 0.2));
+      props.push({
+        kind: PROP.CUPOLA,
+        variant,
+        x: c[0],
+        y: building.topY,
+        z: c[1],
+        rot: yaw,
+        scale: span,
+        extra: variant === 1 ? span * 1.05 : span * 0.78,
+      });
+    }
+    if (building.kind !== KIND.HISTORIC && height > 14 && building.area > 50 && !building.roofShape) {
       if (height > 220) {
         props.push({ kind: PROP.PENTHOUSE, variant: 1, x: c[0], y: building.topY, z: c[1], rot: 0, scale: 7, extra: 14 });
       } else {
