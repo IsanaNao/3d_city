@@ -178,8 +178,8 @@ export function createEmbankments(lines, grid, waterLevel) {
         const x = (p0.x + p1.x) / 2 + nx * 3.2;
         const z = (p0.z + p1.z) / 2 + nz * 3.2;
         const y = (y0 + y1) / 2 + 0.28;
-        addBox(poles, x, y + 4.2, z, 0.7, 8.4, 0.7, nx, nz);
-        addBox(heads, x, y + 8.55, z, 3.1, 0.7, 1.35, p1.x - p0.x, p1.z - p0.z);
+        addBox(poles, x, y + 4.05, z, 0.16, 8.1, 0.16, nx, nz);
+        addBox(heads, x, y + 8.16, z, 0.62, 0.16, 0.34, p1.x - p0.x, p1.z - p0.z);
       }
     }
   }
@@ -191,7 +191,7 @@ export function createEmbankments(lines, grid, waterLevel) {
 }
 
 export function syncEmbankmentNight(night) {
-  lampMat.emissiveIntensity = night * 2.4;
+  lampMat.emissiveIntensity = night * 1.25;
   wallMat.emissive = wallMat.emissive || new THREE.Color(0xffe2c0);
   wallMat.emissiveIntensity = night * 0.08;
 }
