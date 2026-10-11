@@ -742,7 +742,7 @@ export function createWaterMaterial() {
             float viewLen = length(viewH);
             if (viewLen > 1e-4) {
               viewH /= viewLen;
-              float hop = mix(190.0, 36.0, reach);
+              float hop = mix(460.0, 48.0, reach);
               vec4 fc = uMirrorMatrix * vec4(vWorld + viewH * hop, 1.0);
               if (fc.w > 0.05) {
                 vec2 fuv = fc.xy / fc.w * 0.5 + 0.5;
@@ -761,12 +761,12 @@ export function createWaterMaterial() {
               }
             }
           }
-          nightRefl *= mix(0.22, 1.0, reach);
+          nightRefl *= mix(0.4, 1.0, reach);
           vec3 refl = mix(m.rgb, nightRefl, uDark);
           seen = mix(seen, refl, thing);
         }
         float dayCover = max(fresnel, mix(0.42, 0.8, uHaze * 0.2) * thing);
-        float nightCover = thing * mix(0.18, 0.72, reach);
+        float nightCover = thing * mix(0.26, 0.68, reach);
         vec3 col = mix(body, seen, mix(dayCover, nightCover, uDark));
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);
