@@ -1003,12 +1003,13 @@ function shadeBundStone(mat, key, flood) {
         float top = smoothstep(0.50, 0.88, sn.y);
         float soff = smoothstep(0.22, 0.80, -sn.y);
         float tower = smoothstep(32.0, 48.0, vCpos.y);
-        float wallM = mix(0.16, 0.30, uplight) + band * 0.045 + tower * 0.06;
-        float featM = mix(0.46, 0.58, max(uplight, top));
+        float wallM = mix(0.18, 0.32, uplight) + band * 0.045 + tower * 0.06;
+        float featM = mix(0.54, 0.64, max(uplight, top));
         float mag = uFlood > 0.5 ? featM : wallM;
-        mag = max(mag, top * 0.56);
-        mag *= mix(1.0, 0.035, soff);
-        mag *= mix(1.0, mix(0.62, 1.0, flute), curved);
+        mag = max(mag, top * 0.60);
+        mag *= mix(1.0, 0.032, soff);
+        float fluteKeep = mix(1.0, 0.12, smoothstep(40.0, 170.0, length(vViewPosition)));
+        mag *= mix(1.0, mix(0.62, 1.0, flute), curved * fluteKeep);
         vec3 amber = vec3(1.15, 0.52, 0.10);
         vec3 pale = vec3(1.20, 0.92, 0.42);
         vec3 lamp = mix(amber, pale, smoothstep(0.42, 0.58, mag));
@@ -1023,17 +1024,17 @@ const bundStone = new THREE.MeshStandardMaterial({
   color: 0xe4d2b4, roughness: 0.78, metalness: 0.03,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-shadeBundStone(bundStone, 'lm-bund-stone-10', 0);
+shadeBundStone(bundStone, 'lm-bund-stone-11', 0);
 const bundPlain = new THREE.MeshStandardMaterial({
   color: 0xeadcc4, roughness: 0.64, metalness: 0.04,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-shadeBundStone(bundPlain, 'lm-bund-plain-10', 1);
+shadeBundStone(bundPlain, 'lm-bund-plain-11', 1);
 const customsWall = new THREE.MeshStandardMaterial({
   color: 0xe6d4b6, roughness: 0.76, metalness: 0.03,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-shadeBundStone(customsWall, 'lm-customs-wall-6', 0);
+shadeBundStone(customsWall, 'lm-customs-wall-7', 0);
 const recessMat = new THREE.MeshStandardMaterial({ color: 0x12181e, roughness: 0.72, metalness: 0.06 });
 const jointMat = new THREE.MeshStandardMaterial({ color: 0x6e6558, roughness: 0.84, metalness: 0.02 });
 const mullionMat = new THREE.MeshStandardMaterial({ color: 0x2a3136, roughness: 0.4, metalness: 0.4 });
