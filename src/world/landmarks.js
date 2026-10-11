@@ -6,7 +6,7 @@ import { CROWN_RGB, SCHEME_RGB, pearlShow } from '../shared/show.js';
 // Oriental Pearl: three splayed columns, two pink spheres, a spire.
 // Shanghai Tower: a rounded triangle that twists as it rises.
 // SWFC: a tapering slab with the aperture near the top.
-// Jin Mao: pagoda setbacks. Customs House: a clock tower, when OSM has one.
+// Jin Mao: pagoda setbacks. Customs House: the 1927 granite block and stepped clock tower.
 
 const steel = new THREE.MeshStandardMaterial({ color: 0xd5d9de, metalness: 0.72, roughness: 0.34 });
 const dark = new THREE.MeshStandardMaterial({ color: 0x3a4148, metalness: 0.45, roughness: 0.5 });
@@ -275,7 +275,7 @@ swfcGlass.onBeforeCompile = (shader) => {
       totalEmissiveRadiance += vec3(1.0, 0.78, 0.46) * paneE * onE * uNight * 0.42;
     `);
 };
-swfcGlass.customProgramCacheKey = () => 'lm-swfc-glass-2';
+swfcGlass.customProgramCacheKey = () => 'lm-swfc-glass-3';
 
 function add(group, geo, mat) {
   const mesh = new THREE.Mesh(geo, mat);
@@ -963,6 +963,36 @@ bundPlain.onBeforeCompile = (shader) => {
     `);
 };
 bundPlain.customProgramCacheKey = () => 'lm-bund-plain-5';
+// Customs granite. Courses and the night wash use the baked local position, so a
+// cornice lights up without the generic five-bay window stamp.
+const customsWall = new THREE.MeshStandardMaterial({
+  color: 0xd2c8b8, roughness: 0.78, metalness: 0.03,
+  emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
+});
+customsWall.onBeforeCompile = (shader) => {
+  shader.uniforms.uNight = cityUniforms.uNight;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vCpos;\nvarying vec3 vCnorm;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCpos = position;\nvCnorm = normal;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec3 vCpos;\nvarying vec3 vCnorm;')
+    .replace('#include <color_fragment>', `#include <color_fragment>
+      float cBand = smoothstep(0.55, 0.9, fract(vCpos.y * 0.72));
+      float cBase = 1.0 - smoothstep(8.0, 12.5, vCpos.y);
+      diffuseColor.rgb *= mix(1.0, 0.8, cBase * cBand);
+    `)
+    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      float cUp = smoothstep(0.45, 0.92, clamp(vCnorm.y, 0.0, 1.0));
+      float cYN = clamp(vCpos.y / 79.0, 0.0, 1.0);
+      float cGraze = pow(cYN, 1.35);
+      totalEmissiveRadiance += vec3(1.0, 0.64, 0.3) * uNight * (0.08 + 0.2 * cGraze + 0.7 * cUp);
+    `);
+};
+customsWall.customProgramCacheKey = () => 'lm-customs-wall-1';
+const recessMat = new THREE.MeshStandardMaterial({ color: 0x12181e, roughness: 0.72, metalness: 0.06 });
+const flagMat = new THREE.MeshStandardMaterial({
+  color: 0xc4372f, roughness: 0.62, metalness: 0.04, side: THREE.DoubleSide,
+});
 const copperRoof = new THREE.MeshStandardMaterial({
   color: 0x2f8f62, roughness: 0.42, metalness: 0.38,
   emissive: new THREE.Color(0x146b40), emissiveIntensity: 0,
@@ -978,62 +1008,246 @@ function putBox(g, w, hgt, d, x, y, z, mat) {
   return add(g, geo, mat);
 }
 
-function placeClocks(g, y, half, r) {
+// Four round faces. `half` is the tower half-width; `oz` shifts the tower toward the river.
+function placeClocks(g, y, half, r, oz = 0) {
   const spots = [
-    [0, half, 0],
-    [0, -half, Math.PI],
-    [half, 0, Math.PI / 2],
-    [-half, 0, -Math.PI / 2],
+    { x: 0, z: oz + half, ry: 0, nx: 0, nz: 1 },
+    { x: 0, z: oz - half, ry: Math.PI, nx: 0, nz: -1 },
+    { x: half, z: oz, ry: Math.PI / 2, nx: 1, nz: 0 },
+    { x: -half, z: oz, ry: -Math.PI / 2, nx: -1, nz: 0 },
   ];
-  for (const [x, z, ry] of spots) {
-    const face = new THREE.CircleGeometry(r, 32);
-    face.rotateY(ry);
-    face.translate(x, y, z);
-    add(g, face, clockMat);
-    const rim = new THREE.RingGeometry(r * 0.78, r * 0.98, 32);
-    rim.translate(0, 0, 0.14);
-    rim.rotateY(ry);
-    rim.translate(x, y, z);
+  for (const s of spots) {
+    const nudge = 0.2;
+    const face = new THREE.CircleGeometry(r, 40);
+    face.rotateY(s.ry);
+    face.translate(s.x + s.nx * nudge, y, s.z + s.nz * nudge);
+    const faceMesh = add(g, face, clockMat);
+    faceMesh.userData.part = 'customs-face';
+    const rim = new THREE.RingGeometry(r * 0.84, r * 0.98, 40);
+    rim.rotateY(s.ry);
+    rim.translate(s.x + s.nx * (nudge + 0.02), y, s.z + s.nz * (nudge + 0.02));
     add(g, rim, dark);
-    for (const ang of [0.35, -1.05]) {
-      const hand = new THREE.BoxGeometry(ang > 0 ? 0.22 : 0.16, r * (ang > 0 ? 0.62 : 0.46), 0.08);
-      hand.translate(0, r * (ang > 0 ? 0.26 : 0.18), 0.16);
+    const bezel = new THREE.TorusGeometry(r * 1.16, Math.max(0.12, r * 0.075), 8, 36);
+    bezel.rotateY(s.ry);
+    bezel.translate(s.x + s.nx * 0.08, y, s.z + s.nz * 0.08);
+    add(g, bezel, bundPlain);
+    const frame = r * 1.62;
+    const bar = Math.max(0.22, r * 0.09);
+    for (const vertical of [false, true]) {
+      for (const side of [-1, 1]) {
+        const w = vertical ? bar : frame * 2;
+        const hgt = vertical ? frame * 2 : bar;
+        const box = new THREE.BoxGeometry(w, hgt, bar);
+        box.translate(vertical ? side * frame : 0, vertical ? 0 : side * frame, nudge * 0.45);
+        box.rotateY(s.ry);
+        box.translate(s.x, y, s.z);
+        add(g, box, bundPlain);
+      }
+    }
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      const tick = new THREE.BoxGeometry(0.12, r * 0.18, 0.04);
+      tick.translate(Math.sin(a) * r * 0.76, Math.cos(a) * r * 0.76, nudge + 0.04);
+      tick.rotateZ(-a);
+      tick.rotateY(s.ry);
+      tick.translate(s.x, y, s.z);
+      add(g, tick, dark);
+    }
+    for (const ang of [-0.55, 2.05]) {
+      const len = ang < 0 ? 0.42 : 0.68;
+      const hand = new THREE.BoxGeometry(0.08, r * len, 0.045);
+      hand.translate(0, r * len * 0.42, nudge + 0.06);
       hand.rotateZ(ang);
-      hand.rotateY(ry);
-      hand.translate(x, y, z);
+      hand.rotateY(s.ry);
+      hand.translate(s.x, y, s.z);
       add(g, hand, dark);
     }
   }
 }
 
-// 1927 Customs House: a stone block, then a shaft, a wider clock stage and a pyramid.
+// Palmer & Turner, finished 19 Dec 1927. Survey used when h = 90 (flagpole tip);
+// the same ratios scale for any passed height. Masonry is the published
+// 79.2 m (main block 120 ft / 36.2 m, clock tower 140 ft / 43 m) and the
+// flagpole makes up the rest to 90 m.
+// East block depth about 30 m. Frontage 46 m, five equal bays, narrower than
+// the HSBC model (62 m) so the two cornices still read as a pair.
+// Tower plan 16.8 m, 0.37 of the frontage, set just behind the river parapet.
+// Clock diameter 5.4 m on every face. Above the clock the plan steps in
+// (0.74, 0.52, 0.36) — a square Art Deco crown, not a pyramid.
+// Four Greek Doric columns, no bases, spacing 4.5 m, centred under the tower.
 function customs(h) {
   const g = new THREE.Group();
-  const block = h * 0.34;
-  const shaft = h * 0.34;
-  const stage = h * 0.16;
-  const cap = h - block - shaft - stage;
-  putBox(g, 42, 6.2, 28, 0, 0, 0, bundStone);
-  putBox(g, 38, block - 6.2, 24, 0, 6.2, 0, bundStone);
-  putBox(g, 44, 1.6, 30, 0, block - 1.6, 0, bundStone);
-  const porch = block * 0.62;
-  for (let i = -2; i <= 2; i++) {
-    if (i === 0) continue;
-    add(g, new THREE.CylinderGeometry(0.62, 0.78, porch, 8).translate(i * 6.2, 3.2 + porch / 2, 13.4), bundPlain);
-    putBox(g, 1.5, 0.7, 1.5, i * 6.2, 3.2 + porch - 0.2, 13.4, bundPlain);
+  const s = h / 90;
+  const W = 46 * s;
+  const D = 30 * s;
+  const TW = 16.8 * s;
+  const podiumH = 11 * s;
+  const beltH = 1.15 * s;
+  const orderH = 19.2 * s;
+  const corniceH = 2.55 * s;
+  const parapetH = 2.3 * s;
+  const block = podiumH + beltH + orderH + corniceH + parapetH;
+  const orderY = podiumH + beltH;
+  const corniceY = orderY + orderH;
+  const wallFront = (D - 1.5 * s) / 2;
+  const wallSide = (W - 1.5 * s) / 2;
+
+  const podium = putBox(g, W, podiumH, D, 0, 0, 0, customsWall);
+  podium.userData.part = 'customs-block';
+  putBox(g, W - 1.5 * s, orderH, D - 1.5 * s, 0, orderY, 0, customsWall);
+  putBox(g, W + 0.55 * s, beltH, D + 0.45 * s, 0, podiumH, 0, bundPlain);
+  const cornice = putBox(g, W + 2.3 * s, corniceH, D + 2.1 * s, 0, corniceY, 0, bundPlain);
+  cornice.userData.part = 'customs-cornice';
+  putBox(g, W + 0.35 * s, parapetH, D + 0.3 * s, 0, corniceY + corniceH, 0, customsWall);
+
+  const bayCenters = [-2, -1, 0, 1, 2].map((i) => i * (W * 0.184));
+  const pierXs = [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5].map((i) => i * (W * 0.184));
+  for (const x of pierXs) {
+    putBox(g, 1.35 * s, orderH, 0.85 * s, x, orderY, wallFront + 0.15 * s, bundPlain);
   }
-  const shaftMesh = putBox(g, 12.4, shaft, 12.4, 0, block, 0, bundStone);
-  shaftMesh.userData.part = 'customs-shaft';
-  const stageMesh = putBox(g, 18.6, stage, 18.6, 0, block + shaft, 0, bundStone);
-  stageMesh.userData.part = 'customs-clock';
-  putBox(g, 21.2, 0.8, 21.2, 0, block + shaft + stage - 0.15, 0, bundPlain);
-  const roof = new THREE.ConeGeometry(10.6, Math.max(6, cap), 4);
-  roof.rotateY(Math.PI / 4);
-  roof.translate(0, block + shaft + stage + cap / 2, 0);
-  const roofMesh = add(g, roof, dark);
-  roofMesh.userData.part = 'customs-roof';
-  placeClocks(g, block + shaft + stage * 0.52, 9.4, 3.65);
-  add(g, new THREE.SphereGeometry(0.55, 8, 6).translate(0, h + 0.4, 0), dark);
+  for (const x of bayCenters) {
+    for (let row = 0; row < 4; row++) {
+      const rowH = orderH / 4;
+      const winH = rowH * 0.62;
+      const y = orderY + row * rowH + rowH * 0.2;
+      putBox(g, 3.15 * s, winH, 0.28 * s, x, y, wallFront + 0.02 * s, recessMat);
+      putBox(g, 3.7 * s, 0.2 * s, 0.85 * s, x, y - 0.02 * s, wallFront + 0.22 * s, customsWall);
+    }
+    if (Math.abs(x) > 4 * s) {
+      putBox(g, 2.35 * s, 2.35 * s, 0.26 * s, x, podiumH * 0.34, D / 2 + 0.02 * s, recessMat);
+    }
+  }
+  const sideZs = [-1.5, -0.5, 0.5, 1.5].map((i) => i * (D * 0.2));
+  for (const sign of [-1, 1]) {
+    for (let i = 0; i <= sideZs.length; i++) {
+      const z = -D * 0.4 + i * (D * 0.2);
+      putBox(g, 0.8 * s, orderH, 1.15 * s, sign * (wallSide + 0.12 * s), orderY, z, bundPlain);
+    }
+    for (const z of sideZs) {
+      for (let row = 0; row < 4; row++) {
+        const rowH = orderH / 4;
+        const y = orderY + row * rowH + rowH * 0.2;
+        putBox(g, 0.26 * s, rowH * 0.58, 2.35 * s, sign * (wallSide + 0.04 * s), y, z, recessMat);
+      }
+    }
+  }
+
+  // Greek Doric portico: four columns, square abaci, entablature, under the tower.
+  const colH = 8.7 * s;
+  const colR = 0.78 * s;
+  const colY = 0.9 * s;
+  const colZ = D / 2 + 1.65 * s;
+  const colXs = [-1.5, -0.5, 0.5, 1.5].map((i) => i * 4.5 * s);
+  for (const x of colXs) {
+    const cap = colR * 0.82;
+    const shaftH = colH - cap;
+    const shaft = new THREE.CylinderGeometry(colR * 0.9, colR, shaftH, 18);
+    shaft.translate(x, colY + shaftH / 2, colZ);
+    const shaftMesh = add(g, shaft, bundPlain);
+    shaftMesh.userData.part = 'customs-portico';
+    const ech = new THREE.CylinderGeometry(colR * 1.2, colR * 0.92, colR * 0.46, 16);
+    ech.translate(x, colY + shaftH + colR * 0.23, colZ);
+    add(g, ech, bundPlain);
+    putBox(g, colR * 2.4, colR * 0.36, colR * 2.4, x, colY + shaftH + colR * 0.46, colZ, bundPlain);
+  }
+  const entY = colY + colH;
+  const entW = colXs[3] - colXs[0] + 3.4 * s;
+  putBox(g, entW, 0.7 * s, 2.5 * s, 0, entY, colZ, bundPlain);
+  putBox(g, entW + 0.8 * s, 0.55 * s, 3.1 * s, 0, entY + 0.7 * s, colZ, bundPlain);
+  putBox(g, entW + 1.5 * s, 0.38 * s, 3.6 * s, 0, entY + 1.25 * s, colZ, customsWall);
+  for (let i = 0; i < 3; i++) {
+    const x = (colXs[i] + colXs[i + 1]) / 2;
+    putBox(g, 1.55 * s, 5.4 * s, 0.35 * s, x - 0.55 * s, 1.35 * s, D / 2 + 0.15 * s, recessMat);
+    putBox(g, 1.55 * s, 5.4 * s, 0.35 * s, x + 0.55 * s, 1.35 * s, D / 2 + 0.15 * s, recessMat);
+  }
+  for (let step = 0; step < 3; step++) {
+    const grow = (3 - step) * 0.7 * s;
+    putBox(g, entW + grow, 0.28 * s, 2.2 * s + grow, 0, step * 0.28 * s, colZ - 0.15 * s, customsWall);
+  }
+  for (const x of [-1, 1]) {
+    putBox(g, 2.2 * s, 3.4 * s, 1.6 * s, x * (entW / 2 + 0.4 * s), 0.4 * s, colZ - 0.2 * s, customsWall);
+  }
+
+  // Square tower on the river side of the roof. Stages step in above the clock.
+  const tz = wallFront - 0.35 * s - TW / 2;
+  const stages = [
+    { hgt: 20 * s, w: TW, part: 'customs-shaft' },
+    { hgt: 11 * s, w: TW, part: 'customs-clock' },
+    { hgt: 6.4 * s, w: TW * 0.74, part: 'customs-belfry' },
+    { hgt: 3.6 * s, w: TW * 0.52, part: 'customs-attic' },
+    { hgt: 2 * s, w: TW * 0.36, part: 'customs-roof' },
+  ];
+  let yT = block;
+  const placed = {};
+  for (const stage of stages) {
+    const mesh = putBox(g, stage.w, stage.hgt, stage.w, 0, yT, tz, customsWall);
+    mesh.userData.part = stage.part;
+    placed[stage.part] = { y: yT, h: stage.hgt, w: stage.w };
+    if (stage.part === 'customs-clock' || stage.part === 'customs-belfry' || stage.part === 'customs-shaft') {
+      putBox(g, stage.w + 0.9 * s, 0.7 * s, stage.w + 0.9 * s, 0, yT + stage.hgt - 0.7 * s, tz, bundPlain);
+    }
+    yT += stage.hgt;
+  }
+  const shaft = placed['customs-shaft'];
+  const pierInset = TW / 2 - 0.85 * s;
+  for (const face of [
+    { x: 0, z: tz + TW / 2 + 0.12 * s, ax: 'x' },
+    { x: 0, z: tz - TW / 2 - 0.12 * s, ax: 'x' },
+    { x: TW / 2 + 0.12 * s, z: tz, ax: 'z' },
+    { x: -TW / 2 - 0.12 * s, z: tz, ax: 'z' },
+  ]) {
+    for (const side of [-1, 1]) {
+      const px = face.ax === 'x' ? side * pierInset : face.x;
+      const pz = face.ax === 'z' ? side * pierInset : face.z;
+      const pw = face.ax === 'x' ? 1.35 * s : 0.72 * s;
+      const pd = face.ax === 'x' ? 0.72 * s : 1.35 * s;
+      putBox(g, pw, shaft.h * 0.92, pd, px, shaft.y + shaft.h * 0.04, pz, bundPlain);
+    }
+    for (const slot of [-1, 0, 1]) {
+      for (const band of [0.38, 0.68]) {
+        const wx = face.ax === 'x' ? slot * 2.7 * s : face.x - (face.x > 0 ? 0.12 * s : face.x < 0 ? -0.12 * s : 0);
+        const wz = face.ax === 'z' ? slot * 2.7 * s : face.z - Math.sign(face.z - tz) * 0.12 * s;
+        const ww = face.ax === 'x' ? 1.05 * s : 0.22 * s;
+        const wd = face.ax === 'x' ? 0.22 * s : 1.05 * s;
+        putBox(g, ww, 2.8 * s, wd, wx, shaft.y + shaft.h * band, wz, recessMat);
+      }
+    }
+  }
+  const clock = placed['customs-clock'];
+  placeClocks(g, clock.y + clock.h * 0.46, TW / 2, 2.7 * s, tz);
+  const belfry = placed['customs-belfry'];
+  for (const face of [
+    { x: 0, z: tz + belfry.w / 2 + 0.05 * s, ax: 'x' },
+    { x: 0, z: tz - belfry.w / 2 - 0.05 * s, ax: 'x' },
+    { x: belfry.w / 2 + 0.05 * s, z: tz, ax: 'z' },
+    { x: -belfry.w / 2 - 0.05 * s, z: tz, ax: 'z' },
+  ]) {
+    for (const slot of [-1, 0, 1]) {
+      const wx = face.ax === 'x' ? slot * 1.7 * s : face.x;
+      const wz = face.ax === 'z' ? slot * 1.7 * s : face.z;
+      const ww = face.ax === 'x' ? 0.7 * s : 0.28 * s;
+      const wd = face.ax === 'x' ? 0.28 * s : 0.7 * s;
+      putBox(g, ww, belfry.h * 0.46, wd, wx, belfry.y + belfry.h * 0.28, wz, recessMat);
+    }
+  }
+
+  // Roof pavilions at the four corners, lower than the shaft.
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const px = sx * (W / 2 - 2.6 * s);
+      const pz = sz * (D / 2 - 2.3 * s);
+      putBox(g, 4.8 * s, 5.4 * s, 4.2 * s, px, block - 0.4 * s, pz, customsWall);
+      putBox(g, 5.5 * s, 0.55 * s, 4.9 * s, px, block + 4.6 * s, pz, bundPlain);
+    }
+  }
+
+  const poleH = Math.max(1.2 * s, h - yT);
+  const pole = new THREE.CylinderGeometry(0.07 * s, 0.1 * s, poleH, 8);
+  pole.translate(0, yT + poleH / 2, tz);
+  add(g, pole, dark);
+  const flag = new THREE.PlaneGeometry(2.3 * s, 1.45 * s);
+  flag.translate(1.25 * s, yT + poleH * 0.82, tz);
+  add(g, flag, flagMat);
   return g;
 }
 
@@ -1310,8 +1524,9 @@ export function syncLandmarkNight(night) {
   swfcEdgeMat.emissiveIntensity = night * 0.22;
   bundStone.emissiveIntensity = 0;
   bundPlain.emissiveIntensity = 0;
+  customsWall.emissiveIntensity = 0;
   copperRoof.emissiveIntensity = night * 0.22;
   glazeRoof.emissiveIntensity = night * 0.18;
   beaconMat.emissiveIntensity = 0.35 + night * 2;
-  clockMat.emissiveIntensity = night * 0.32;
+  clockMat.emissiveIntensity = night * 0.62;
 }
