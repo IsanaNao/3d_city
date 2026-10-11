@@ -179,6 +179,7 @@ const FACADE_MAIN = /* glsl */`
   gRough = 0.86; gMetal = 0.0;
 
   float layer = -1.0, photo = -1.0, gGrime = 1.0;
+  float bundCorn = 0.0, bundGraze = 0.0, bundTop = 0.0;
   if (uPhotoOn > 0.5) {
     pickPhoto(kind, height, sf, glassy, layer, photo);
     if (isRoof) { layer = W_ROOF; photo = -1.0; }
@@ -215,8 +216,9 @@ const FACADE_MAIN = /* glsl */`
       float corn = smoothstep(0.84, 0.93, fract(v / 4.4));
       wall *= 1.0 - corn * 0.28;
       wall += vec3(0.07, 0.055, 0.035) * corn;
-      float up = 1.0 - smoothstep(0.0, max(height * 0.8, 10.0), v);
-      gEmissive += wall * vec3(1.2, 0.75, 0.4) * uNight * (0.28 + 0.75 * up);
+      bundGraze = pow(1.0 - smoothstep(0.0, max(height * 0.72, 8.0), v), 1.35);
+      bundCorn = corn;
+      bundTop = smoothstep(height - 2.4, height - 0.35, v);
     }
   }
   if (!isRoof && height > 85.0 && kind > 1.5 && kind < 4.5) {
@@ -354,7 +356,12 @@ const FACADE_MAIN = /* glsl */`
       room3 = mix(room3, vec3(1.0, 0.78, 0.48), far);
       soft = mix(soft, vec3(1.0, 0.74, 0.42), far);
       float power = uNight * on * glow * 0.78 * 1.75;
+      if (kind > 5.5) power *= 0.22;
       gEmissive += pane * (interior * daylight + room3 * soft * power);
+      if (kind > 5.5) {
+        float stone = 1.0 - pane;
+        gEmissive += wall * vec3(1.0, 0.55, 0.22) * uNight * stone * (0.03 + 0.09 * bundGraze + 0.32 * bundCorn + 0.18 * bundTop);
+      }
       float spill = (1.0 - far) * valid * power * 0.16;
       gEmissive += soft * spill * (inWin * frame * 0.6 + (1.0 - inWin) * exp(min(edge, 0.0) * 4.5) * step(-0.9, edge));
     }
@@ -440,7 +447,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-11';
+  material.customProgramCacheKey = () => 'sh-facade-12';
   return material;
 }
 
@@ -696,8 +703,9 @@ export function createWaterMaterial() {
           }
           m /= max(wsum, 1e-4);
           thing = smoothstep(0.0, 0.2, m.a);
-          vec3 lights = max(m.rgb - vec3(0.06), 0.0);
-          seen = mix(seen, m.rgb * vec3(0.9, 0.93, 0.95) + lights * uDark * 2.6, thing);
+          vec3 lights = min(max(m.rgb - vec3(0.1), 0.0), vec3(0.42, 0.3, 0.16));
+          vec3 refl = mix(m.rgb, m.rgb * vec3(0.78, 0.66, 0.48) + lights * vec3(1.15, 0.72, 0.32), uDark);
+          seen = mix(seen, refl, thing);
         }
         vec3 col = mix(body, seen, max(fresnel, mix(0.42, 0.9, max(uDark, uHaze * 0.2)) * thing));
         float s = max(dot(wr, uSunDir), 0.0);

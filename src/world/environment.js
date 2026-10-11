@@ -4,7 +4,7 @@ import { cityUniforms, createSkyMaterial } from './materials.js';
 const SHADOW_SIZE = 4096;
 const SUN = 3.4;
 const EXPOSURE = { target: 1.25, least: 0.5, most: 1.55 };
-const BLOOM = { day: 0.36, night: 1.2 };
+const BLOOM = { day: 0.36, night: 0.55 };
 const DAYLIGHT = new THREE.Vector3(0.9, 1, 1.12);
 const MOON = { strength: 0.32, color: new THREE.Color(0x9fb4e0) };
 const GLOW = { strength: 0.5, sky: new THREE.Color(0xe6eaf4), ground: new THREE.Color(0x8a8172) };

@@ -873,17 +873,20 @@ bundStone.onBeforeCompile = (shader) => {
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       if (abs(vStoneN.y) < 0.65) {
         float v = vStoneUv.y;
-        float up = pow(1.0 - clamp(v, 0.0, 1.0), 1.2);
+        float graze = pow(1.0 - clamp(v, 0.0, 1.0), 1.7);
+        float corn = smoothstep(0.84, 0.96, fract(v * 7.0));
+        float ledge = smoothstep(0.86, 1.0, v);
         float fx = fract(vStoneUv.x * 5.0);
         float fy = fract(v * 7.0);
         float win = smoothstep(0.2, 0.3, fx) * (1.0 - smoothstep(0.7, 0.8, fx));
         win *= smoothstep(0.22, 0.34, fy) * (1.0 - smoothstep(0.7, 0.82, fy));
         win *= smoothstep(0.1, 0.18, v);
-        totalEmissiveRadiance += diffuseColor.rgb * vec3(1.35, 0.78, 0.32) * uNight * (0.55 + 1.35 * up);
-        totalEmissiveRadiance += vec3(1.0, 0.82, 0.42) * uNight * win * 0.85;
+        float flood = (0.035 + 0.1 * graze + 0.28 * corn + 0.16 * ledge) * (1.0 - win * 0.94);
+        totalEmissiveRadiance += vec3(1.0, 0.58, 0.24) * uNight * flood;
+        totalEmissiveRadiance += vec3(0.45, 0.26, 0.1) * uNight * win * 0.07;
       }`);
 };
-bundStone.customProgramCacheKey = () => 'lm-bund-stone-3';
+bundStone.customProgramCacheKey = () => 'lm-bund-stone-4';
 const bundPlain = new THREE.MeshStandardMaterial({
   color: 0xddd4c6, roughness: 0.58, metalness: 0.06,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
@@ -896,11 +899,13 @@ bundPlain.onBeforeCompile = (shader) => {
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying float vPlainV;')
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-      float up = pow(1.0 - clamp(vPlainV, 0.0, 1.0), 1.15);
-      totalEmissiveRadiance += diffuseColor.rgb * vec3(1.3, 0.75, 0.32) * uNight * (0.4 + 1.15 * up);
+      float v = clamp(vPlainV, 0.0, 1.0);
+      float graze = pow(1.0 - v, 1.55);
+      float cap = smoothstep(0.62, 1.0, v);
+      totalEmissiveRadiance += vec3(1.0, 0.62, 0.28) * uNight * (0.04 + 0.1 * graze + 0.34 * cap);
     `);
 };
-bundPlain.customProgramCacheKey = () => 'lm-bund-plain-3';
+bundPlain.customProgramCacheKey = () => 'lm-bund-plain-4';
 const copperRoof = new THREE.MeshStandardMaterial({
   color: 0x2f8f62, roughness: 0.42, metalness: 0.38,
   emissive: new THREE.Color(0x146b40), emissiveIntensity: 0,
@@ -1246,10 +1251,10 @@ export function syncLandmarkNight(night) {
   legMat.emissiveIntensity = night * 1.7;
   shanghaiCrownMat.emissiveIntensity = night * 2.8;
   swfcEdgeMat.emissiveIntensity = night * 2.2;
-  bundStone.emissiveIntensity = night * 0.48;
-  bundPlain.emissiveIntensity = night * 0.42;
-  copperRoof.emissiveIntensity = night * 0.45;
-  glazeRoof.emissiveIntensity = night * 0.28;
+  bundStone.emissiveIntensity = 0;
+  bundPlain.emissiveIntensity = 0;
+  copperRoof.emissiveIntensity = night * 0.06;
+  glazeRoof.emissiveIntensity = night * 0.05;
   beaconMat.emissiveIntensity = 0.35 + night * 2;
-  clockMat.emissiveIntensity = night * 0.8;
+  clockMat.emissiveIntensity = night * 0.32;
 }
