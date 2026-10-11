@@ -955,8 +955,8 @@ function shadeBundStone(mat, key) {
           vec2 mapUv = suv * uWallScale[STONE_I];
           vec3 tex = texture(uWallAlb, vec3(mapUv, float(STONE_I))).rgb / max(uWallMean[STONE_I], vec3(0.02));
           float luma = dot(tex, vec3(0.3, 0.59, 0.11));
-          tex = mix(vec3(luma), tex, 0.62);
-          stoneCol = tex * vec3(0.9, 0.84, 0.72);
+          tex = mix(vec3(luma), tex, 0.8);
+          stoneCol = tex * vec3(1.18, 0.98, 0.68);
         }
         float vary = fract(sin(dot(floor(suv / vec2(1.2, 0.48)), vec2(19.1, 7.7))) * 43758.5);
         stoneCol *= 0.91 + 0.14 * vary;
@@ -966,6 +966,10 @@ function shadeBundStone(mat, key) {
         stoneCol *= mix(1.0, 0.58, base * max(course, vj * 0.8));
         float soffit = smoothstep(0.08, 0.72, -sn.y);
         stoneCol *= mix(1.0, 0.4, soffit);
+        float axis = max(abs(sn.x), max(abs(sn.y), abs(sn.z)));
+        float curved = (1.0 - smoothstep(0.9, 0.995, axis)) * (1.0 - smoothstep(0.2, 0.55, abs(sn.y)));
+        float flute = smoothstep(0.12, 0.62, abs(sin(atan(sn.z, sn.x) * 7.0)));
+        stoneCol *= mix(1.0, mix(0.58, 1.0, flute), curved);
         stoneCol *= 1.0 - (1.0 - smoothstep(0.0, 0.65, vCpos.y)) * 0.16;
         diffuseColor.rgb = stoneCol;
       `)
@@ -989,17 +993,17 @@ const bundStone = new THREE.MeshStandardMaterial({
   color: 0xe4d2b4, roughness: 0.78, metalness: 0.03,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-shadeBundStone(bundStone, 'lm-bund-stone-6');
+shadeBundStone(bundStone, 'lm-bund-stone-8');
 const bundPlain = new THREE.MeshStandardMaterial({
   color: 0xeadcc4, roughness: 0.64, metalness: 0.04,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-shadeBundStone(bundPlain, 'lm-bund-plain-6');
+shadeBundStone(bundPlain, 'lm-bund-plain-8');
 const customsWall = new THREE.MeshStandardMaterial({
   color: 0xe6d4b6, roughness: 0.76, metalness: 0.03,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-shadeBundStone(customsWall, 'lm-customs-wall-2');
+shadeBundStone(customsWall, 'lm-customs-wall-4');
 const recessMat = new THREE.MeshStandardMaterial({ color: 0x12181e, roughness: 0.72, metalness: 0.06 });
 const jointMat = new THREE.MeshStandardMaterial({ color: 0x6e6558, roughness: 0.84, metalness: 0.02 });
 const mullionMat = new THREE.MeshStandardMaterial({ color: 0x2a3136, roughness: 0.4, metalness: 0.4 });
@@ -1118,25 +1122,6 @@ function putWindow(g, w, h, x, y, z, opt = {}) {
     geo.translate(x, y + h + 0.02, midAt - 0.05);
     add(g, geo, bundPlain);
   }
-}
-
-function putFlutes(g, x, y, z, r, h) {
-  const n = 12;
-  const geo = new THREE.BoxGeometry(r * 0.12, h * 0.97, r * 0.15);
-  const mesh = new THREE.InstancedMesh(geo, jointMat, n);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mesh.frustumCulled = false;
-  const dummy = new THREE.Object3D();
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    dummy.position.set(x + Math.sin(a) * r * 0.92, y + h / 2, z + Math.cos(a) * r * 0.92);
-    dummy.lookAt(x, y + h / 2, z);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
-  }
-  mesh.instanceMatrix.needsUpdate = true;
-  g.add(mesh);
 }
 
 function putCorniceRun(g, width, y, z, s = 1) {
@@ -1299,7 +1284,6 @@ function customs(h) {
     shaft.translate(x, colY + shaftH / 2, colZ);
     const shaftMesh = add(g, shaft, bundPlain);
     shaftMesh.userData.part = 'customs-portico';
-    putFlutes(g, x, colY, colZ, colR, shaftH);
     const neck = new THREE.TorusGeometry(colR * 0.98, colR * 0.07, 6, 14);
     neck.rotateX(Math.PI / 2);
     neck.translate(x, colY + shaftH - colR * 0.05, colZ);
@@ -1526,7 +1510,6 @@ function hsbc(h) {
       shaft.translate(x, colY + shaftH / 2, colZ);
       const mesh = add(g, shaft, bundPlain);
       mesh.userData.part = 'hsbc-column';
-      putFlutes(g, x, colY, colZ, colR, shaftH);
       const bell = new THREE.CylinderGeometry(colR * 1.7, colR * 0.95, 1.15 * s, 12);
       bell.translate(x, colY + shaftH + 0.5 * s, colZ);
       add(g, bell, bundPlain);
@@ -1697,7 +1680,6 @@ function bundFront(g, spec) {
     for (const x of xs) {
       const r = 0.52;
       add(g, new THREE.CylinderGeometry(r * 0.9, r, colH * 0.86, 12).translate(x, y0c + colH * 0.43, d * 0.52), bundPlain);
-      putFlutes(g, x, y0c, d * 0.52, r, colH * 0.86);
       const bell = new THREE.CylinderGeometry(r * 1.45, r * 0.95, r * 1.1, 10);
       bell.translate(x, y0c + colH * 0.86 + r * 0.4, d * 0.52);
       add(g, bell, bundPlain);
