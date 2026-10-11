@@ -46,7 +46,8 @@ camera.layers.enable(WATER_LAYER);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
-controls.maxPolarAngle = Math.PI * 0.49;
+// up=1 lets a skyline camera look up at the towers. The default stays just above the horizon.
+controls.maxPolarAngle = params.get('up') === '1' ? Math.PI * 0.62 : Math.PI * 0.49;
 controls.minDistance = 25;
 controls.maxDistance = 4500;
 controls.screenSpacePanning = false;

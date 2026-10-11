@@ -12,7 +12,7 @@ const dark = new THREE.MeshStandardMaterial({ color: 0x3a4148, metalness: 0.45, 
 // Rose-silver glass. The shell is closed; mullions and the night cells are paint.
 // Sky reflection is added here because the shared env-map term is disabled.
 const pearlMat = new THREE.MeshStandardMaterial({
-  color: 0xc4b0b2, metalness: 0.9, roughness: 0.2,
+  color: 0xc4b0b2, metalness: 0.86, roughness: 0.34,
   emissive: new THREE.Color(0xff2218), emissiveIntensity: 0,
   transparent: false, opacity: 1, depthWrite: true, side: THREE.FrontSide,
 });
@@ -49,10 +49,10 @@ pearlMat.onBeforeCompile = (shader) => {
       float edge = min(min(pane.x, 1.0 - pane.x), min(pane.y, 1.0 - pane.y));
       float glass = smoothstep(0.003, 0.011, edge);
       float panelId = dot(floor(vPane * max(vGrid, vec2(1.0))), vec2(1.0, 17.0));
-      float vary = 0.78 + 0.34 * fract(sin(panelId * 12.9898) * 43758.5453);
+      float vary = 0.9 + 0.14 * fract(sin(panelId * 12.9898) * 43758.5453);
       vec3 rose = vec3(0.62, 0.42, 0.44) * vary;
-      diffuseColor.rgb = mix(vec3(0.34, 0.36, 0.38), rose, glass);
-      roughnessFactor = mix(0.48, 0.14 + 0.1 * fract(panelId * 0.37), glass);
+      diffuseColor.rgb = mix(vec3(0.5, 0.52, 0.54), rose, glass);
+      roughnessFactor = mix(0.55, 0.28 + 0.08 * fract(panelId * 0.37), glass);
       diffuseColor.rgb *= mix(1.0, 0.22, uNight);
       float belt = max(
         smoothstep(0.46, 0.485, vLat) * (1.0 - smoothstep(0.515, 0.54, vLat)),
@@ -78,7 +78,7 @@ pearlMat.onBeforeCompile = (shader) => {
       totalEmissiveRadiance += envCol * glass * vary * day * (0.42 + 0.75 * fres);
     `);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-2';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-3';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,

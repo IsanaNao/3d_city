@@ -726,7 +726,10 @@ export function createSkyMaterial({ sunDisc = 1, ground = false } = {}) {
         }
         vec2 sp = d.xz / (abs(d.y) + 0.35) * 220.0;
         float star = step(0.9975, hash12(floor(sp))) * smoothstep(0.1, 0.5, d.y);
-        col += vec3(0.8, 0.85, 1.0) * star * 0.5 * uDark * uSunDisc;
+        col += vec3(0.8, 0.85, 1.0) * star * 0.12 * uDark * uSunDisc;
+        vec3 moonDir = normalize(vec3(0.78, 0.28, 0.18));
+        float moon = smoothstep(0.9986, 0.9995, max(dot(d, moonDir), 0.0));
+        col += vec3(0.9, 0.92, 0.98) * moon * (0.15 + 1.1 * uDark);
         vec3 below = uGround > 0.5 ? vec3(0.3, 0.28, 0.25) * mix(1.0, 0.06, uDark) * (0.2 + 0.8 * uDay) : uHorizon;
         col = mix(col, below, 1.0 - smoothstep(-0.06, 0.0, d.y));
         gl_FragColor = vec4(col * uSkyGain, 1.0);
