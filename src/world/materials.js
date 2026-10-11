@@ -212,6 +212,11 @@ const FACADE_MAIN = /* glsl */`
       gEmissive += wall * vec3(1.2, 0.75, 0.4) * uNight * (0.28 + 0.75 * up);
     }
   }
+  if (!isRoof && height > 85.0 && kind > 1.5 && kind < 4.5) {
+    wall = mix(wall, vec3(0.42, 0.50, 0.58), 0.7);
+    gRough = 0.28;
+    gMetal = 0.62;
+  }
   diffuseColor.rgb = wall;
 
   if (!isRoof && v > 0.0 && v < height - 0.6) {
@@ -352,6 +357,9 @@ const FACADE_MAIN = /* glsl */`
       float graze = pow(1.0 - max(dot(-V, gN), 0.0), 3.0);
       gGlint += pane * 2.0 * uSunGlint * 0.035 * max(dot(paneN, uSunDir), 0.0) * (0.6 + 0.8 * hash12(room + 15.7));
       gEmissive += pane * 2.0 * (1.0 - uNight) * vec3(0.45, 0.6, 0.82) * (0.015 + 0.22 * graze) * (0.7 + 0.6 * hash12(room + 19.3));
+      if (height > 85.0 && kind > 1.5 && kind < 4.5) {
+        gEmissive += (1.0 - uNight) * vec3(0.32, 0.46, 0.64) * (0.06 + 0.32 * graze);
+      }
     }
     // A few towers carry a coloured crown. The rest stay warm window-light.
     {
@@ -413,7 +421,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-7';
+  material.customProgramCacheKey = () => 'sh-facade-8';
   return material;
 }
 
