@@ -619,18 +619,18 @@ function shanghai(h) {
 // but the trapezoid is cut through a mass that is still most of the plan,
 // and the roof is a flat edge you can see from the side, not a knife.
 function swfcSection(t) {
-  const w = 58 * (1 - 0.05 * Math.max(0, t - 0.2));
+  const w = 58 * (1 - 0.045 * Math.max(0, t - 0.12));
   const holeTop = 470 / 492;
   let d;
   if (t <= holeTop) {
-    const u = Math.max(0, t / holeTop);
-    d = 58 - 20 * (u ** 1.35);
+    const u = Math.max(0, (t - 0.08) / (holeTop - 0.08));
+    d = 58 - 20 * (u ** 1.2);
   } else {
     const v = (t - holeTop) / (1 - holeTop);
-    d = 38 + (22 - 38) * (v ** 0.75);
+    d = 38 + (22 - 38) * (v ** 0.7);
   }
   d = Math.max(20, d);
-  const chamfer = Math.min(w * 0.04, d * 0.16) * Math.min(1, Math.max(0, t - 0.3) * 3);
+  const chamfer = Math.min(w * 0.08, d * 0.28) * Math.min(1, Math.max(0, t - 0.18) * 2.4);
   return { w, d, chamfer };
 }
 
@@ -648,11 +648,13 @@ function swfcRing(t, y) {
 function swfc(h) {
   const g = new THREE.Group();
   const hole0 = 418 / 492;
-  const hole1 = 470 / 492;
+  // The bridge above the hole is about as tall as the opening, so from the
+  // river the cap reads as a frame rather than a thin lid.
+  const hole1 = 450 / (492 * 0.992);
   const yOf = (t) => t * h * 0.992;
   const openHalf = (t) => {
     const u = Math.min(1, Math.max(0, (t - hole0) / (hole1 - hole0)));
-    return 22 * (1 - 0.36 * u);
+    return 24 * (1 - 0.5 * u);
   };
   const ts = [0, hole0, hole1, 1];
   for (let i = 1; i < 42; i++) ts.push(i / 42);
@@ -688,7 +690,7 @@ function swfc(h) {
       }
       const jamb = (p0, p1, q0, q1, x0, x1, u0, u1) => {
         const at = (p, q, x) => new THREE.Vector3(x, p.y, p.z + (q.z - p.z) * 0);
-        wall(glass, at(p0, p1, x0), at(p0, p1, x1), at(q0, q1, u0), at(q0, q1, u1));
+        wall(frame, at(p0, p1, x0), at(p0, p1, x1), at(q0, q1, u0), at(q0, q1, u1));
       };
       const loA = Math.min(a0.x, a1.x);
       const hiA = Math.max(a0.x, a1.x);
@@ -738,8 +740,8 @@ function swfc(h) {
   const sillBar = new THREE.BoxGeometry(openHalf(hole0) * 2 * 0.98, 4.2, sill.d * 0.72);
   sillBar.translate(0, sillY - 2.15, 0);
   tag(add(g, sillBar, swfcEdgeMat), 'swfc-sill');
-  const lintelH = 8;
-  const lintel = new THREE.BoxGeometry(openHalf(hole1) * 2 + 2.4, lintelH, Math.max(12, head.d * 0.72));
+  const lintelH = 12;
+  const lintel = new THREE.BoxGeometry(openHalf(hole1) * 2 + 8, lintelH, Math.max(16, head.d * 0.8));
   lintel.translate(0, headY + lintelH / 2 + 0.3, 0);
   tag(add(g, lintel, swfcEdgeMat), 'swfc-lintel');
   const crown = swfcRing(1, yOf(1));
