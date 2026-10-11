@@ -176,10 +176,29 @@ const shanghaiCrownMat = new THREE.MeshStandardMaterial({
   emissive: new THREE.Color(0x3aa0ff), emissiveIntensity: 0,
 });
 const swfcEdgeMat = new THREE.MeshStandardMaterial({
-  color: 0xe7eef3, metalness: 0.55, roughness: 0.28,
-  emissive: new THREE.Color(0xe8fbff), emissiveIntensity: 0,
+  color: 0xc5ced6, metalness: 0.72, roughness: 0.32,
+  emissive: new THREE.Color(0xd8e4ee), emissiveIntensity: 0,
   side: THREE.DoubleSide,
 });
+swfcEdgeMat.onBeforeCompile = (shader) => {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vEdgeL;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvEdgeL = position;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vEdgeL;')
+    .replace('#include <color_fragment>', `#include <color_fragment>
+      vec2 ep = abs(vEdgeL.y) > max(abs(vEdgeL.x), abs(vEdgeL.z))
+        ? vEdgeL.xz : vec2(abs(vEdgeL.x) > abs(vEdgeL.z) ? vEdgeL.z : vEdgeL.x, vEdgeL.y);
+      vec2 cell = ep / vec2(1.7, 2.4);
+      vec2 f = fract(cell);
+      vec2 fw = max(fwidth(cell), vec2(1e-3));
+      float seam = 1.0 - smoothstep(0.04, 0.1, min(min(f.x, 1.0 - f.x) / fw.x, min(f.y, 1.0 - f.y) / fw.y));
+      float grain = fract(sin(dot(floor(cell), vec2(12.7, 3.1))) * 43758.5);
+      vec3 silver = vec3(0.62, 0.66, 0.7) * (0.86 + 0.2 * grain);
+      diffuseColor.rgb = mix(silver, silver * 0.45, clamp(seam, 0.0, 1.0));
+    `);
+};
+swfcEdgeMat.customProgramCacheKey = () => 'lm-swfc-edge-2';
 const beaconMat = new THREE.MeshStandardMaterial({
   color: 0xff3030, emissive: new THREE.Color(0xff2020), emissiveIntensity: 0.4,
 });
@@ -212,10 +231,50 @@ const glassBlue = glassMaterial(0x9eb4c6);
 const glassSilver = glassMaterial(0xb7c3ce);
 glassBlue.side = THREE.DoubleSide;
 glassSilver.side = THREE.DoubleSide;
-const swfcGlass = glassMaterial(0x5f7c96);
-swfcGlass.side = THREE.DoubleSide;
-swfcGlass.metalness = 0.42;
-swfcGlass.roughness = 0.34;
+const swfcGlass = new THREE.MeshStandardMaterial({
+  color: 0x8ea4b8, metalness: 0.78, roughness: 0.16, side: THREE.DoubleSide,
+});
+swfcGlass.onBeforeCompile = (shader) => {
+  shader.uniforms.uNight = cityUniforms.uNight;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vSwfcL;\nvarying vec3 vSwfcN;\nvarying vec3 vSwfcW;')
+    .replace('#include <begin_vertex>', `#include <begin_vertex>
+      vSwfcL = position;
+      vSwfcN = normal;
+      vSwfcW = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>
+      uniform float uNight;
+      varying vec3 vSwfcL;
+      varying vec3 vSwfcN;
+      varying vec3 vSwfcW;`)
+    .replace('#include <color_fragment>', `#include <color_fragment>
+      float along = abs(vSwfcN.z) > abs(vSwfcN.x) ? vSwfcL.x : vSwfcL.z;
+      if (abs(vSwfcN.y) > 0.65) along = vSwfcL.x;
+      vec2 cell = vec2(along / 3.2, vSwfcL.y / 4.2);
+      vec2 f = fract(cell);
+      vec2 fw = max(fwidth(cell), vec2(0.002));
+      float gap = min(min(f.x, 1.0 - f.x) / fw.x, min(f.y, 1.0 - f.y) / fw.y);
+      float mullion = 1.0 - smoothstep(0.55, 1.6, gap);
+      vec3 pane = vec3(0.2, 0.3, 0.4);
+      vec3 bar = vec3(0.72, 0.76, 0.8);
+      vec3 V = normalize(cameraPosition - vSwfcW);
+      vec3 N = normalize(mat3(modelMatrix) * vSwfcN);
+      float fres = pow(1.0 - max(dot(N, V), 0.0), 2.4);
+      vec3 sky = mix(vec3(0.45, 0.55, 0.66), vec3(0.78, 0.84, 0.9), fres);
+      pane = mix(pane, sky, 0.28 + 0.45 * fres);
+      diffuseColor.rgb = mix(pane, bar, mullion * 0.82);
+    `)
+    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      float alongE = abs(vSwfcN.z) > abs(vSwfcN.x) ? vSwfcL.x : vSwfcL.z;
+      float colE = floor(alongE / 3.2);
+      float rowE = floor(vSwfcL.y / 4.2);
+      float paneE = smoothstep(0.08, 0.16, min(min(fract(alongE / 3.2), 1.0 - fract(alongE / 3.2)), min(fract(vSwfcL.y / 4.2), 1.0 - fract(vSwfcL.y / 4.2))));
+      float onE = step(0.58, fract(sin(rowE * 12.9 + colE * 7.1) * 43758.5));
+      totalEmissiveRadiance += vec3(1.0, 0.78, 0.46) * paneE * onE * uNight * 0.42;
+    `);
+};
+swfcGlass.customProgramCacheKey = () => 'lm-swfc-glass-2';
 
 function add(group, geo, mat) {
   const mesh = new THREE.Mesh(geo, mat);
@@ -1247,7 +1306,7 @@ export function syncLandmarkNight(night) {
   columnMat.emissiveIntensity = night * 1.15;
   legMat.emissiveIntensity = night * 1.7;
   shanghaiCrownMat.emissiveIntensity = night * 2.8;
-  swfcEdgeMat.emissiveIntensity = night * 2.2;
+  swfcEdgeMat.emissiveIntensity = night * 0.22;
   bundStone.emissiveIntensity = 0;
   bundPlain.emissiveIntensity = 0;
   copperRoof.emissiveIntensity = night * 0.22;

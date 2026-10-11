@@ -5,7 +5,32 @@ import { sampleGrid } from '../shared/terrain.js';
 // The walk sits on the street grade. It does not follow the DEM slope into the river.
 
 const wallMat = new THREE.MeshStandardMaterial({ color: 0xb4aea3, roughness: 0.86, metalness: 0.02 });
-const deckMat = new THREE.MeshStandardMaterial({ color: 0xc8bba6, roughness: 0.78, metalness: 0.02 });
+const deckMat = new THREE.MeshStandardMaterial({ color: 0xc4b8a4, roughness: 0.86, metalness: 0.02 });
+deckMat.onBeforeCompile = (shader) => {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vDeckW;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvDeckW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>
+      varying vec3 vDeckW;
+      float deckHash(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
+      }`)
+    .replace('#include <color_fragment>', `#include <color_fragment>
+      vec2 q = vDeckW.xz / vec2(1.55, 0.92);
+      q.x += 0.5 * mod(floor(q.y), 2.0);
+      vec2 f = fract(q);
+      vec2 fw = max(fwidth(q), vec2(1e-4));
+      float fine = 1.0 - smoothstep(0.4, 1.15, max(fw.x, fw.y));
+      float edge = min(min(f.x, 1.0 - f.x) / fw.x, min(f.y, 1.0 - f.y) / fw.y);
+      float joint = (1.0 - smoothstep(0.35, 1.2, edge)) * fine;
+      vec3 stone = diffuseColor.rgb * (0.78 + 0.3 * deckHash(floor(q)));
+      diffuseColor.rgb = mix(stone, stone * 0.48, joint);
+    `);
+};
+deckMat.customProgramCacheKey = () => 'emb-deck-paver-1';
 const railMat = new THREE.MeshStandardMaterial({ color: 0x8d9398, roughness: 0.42, metalness: 0.55 });
 const poleMat = new THREE.MeshStandardMaterial({ color: 0x3c4148, roughness: 0.45, metalness: 0.4 });
 const lampMat = new THREE.MeshStandardMaterial({

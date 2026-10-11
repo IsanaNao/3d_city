@@ -501,12 +501,24 @@ export function createGroundMaterial() {
             gNt = readNormal(uGroundNor, gUv, green > 0.5 ? G_GRASS : G_PAVEMENT);
             gNs = 0.8;
           }
+          // Quay and promenade: stone slabs, so the bank is not one flat grey.
+          if (green < 0.25) {
+            vec2 q = vWorld.xz / vec2(1.25, 0.8);
+            q.x += 0.5 * mod(floor(q.y), 2.0);
+            vec2 f = fract(q);
+            vec2 fw = max(fwidth(q), vec2(1e-4));
+            float fine = 1.0 - smoothstep(0.45, 1.25, max(fw.x, fw.y));
+            float edge = min(min(f.x, 1.0 - f.x) / fw.x, min(f.y, 1.0 - f.y) / fw.y);
+            float joint = (1.0 - smoothstep(0.4, 1.3, edge)) * fine;
+            c *= 0.78 + 0.32 * hash12(floor(q) + 3.1);
+            c = mix(c, c * 0.52, joint);
+          }
           diffuseColor.rgb = c;
         }`)
       .replace('#include <normal_fragment_maps>', PHOTO_NORMAL)
       .replace('#include <lights_fragment_end>', LAMP_READ);
   };
-  material.customProgramCacheKey = () => 'sh-ground-2';
+  material.customProgramCacheKey = () => 'sh-ground-3';
   return material;
 }
 
@@ -680,11 +692,11 @@ export function createWaterMaterial() {
       void main() {
         float t = uTime, e = 0.12;
         float dist = distance(cameraPosition, vWorld);
-        float amp = 0.06 * clamp(220.0 / dist - 0.1, 0.0, 1.0);
+        float amp = mix(0.06, 0.2, uDark) * clamp(180.0 / dist - 0.05, 0.2, 1.0);
         vec2 slope = vec2(ripple(vWorld.xz + vec2(e, 0.0), t) - ripple(vWorld.xz - vec2(e, 0.0), t),
                           ripple(vWorld.xz + vec2(0.0, e), t) - ripple(vWorld.xz - vec2(0.0, e), t)) * (amp / (2.0 * e));
         // long swells that survive into the distance and break up the mirror a little
-        slope += vec2(sin(vWorld.x * 0.05 + t * 0.4), cos(vWorld.z * 0.043 - t * 0.33)) * 0.008;
+        slope += vec2(sin(vWorld.x * 0.05 + t * 0.4), cos(vWorld.z * 0.043 - t * 0.33)) * mix(0.008, 0.02, uDark);
         vec3 n = normalize(vec3(-slope.x, 1.0, -slope.y));
         vec3 wv = normalize(vWorld - cameraPosition);
         vec3 wr = reflect(wv, n);
@@ -694,57 +706,43 @@ export function createWaterMaterial() {
         body = mix(body, uHorizon * 0.42, uHaze * 0.28);
         vec3 seen = mix(uHorizon, uSky, pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * uSkyGain * 0.9;
         float thing = 0.0;
+        float reach = smoothstep(40.0, 340.0, dist);
         if (uMirrorOn > 0.5) {
           vec4 mc = uMirrorMatrix * vec4(vWorld, 1.0);
           float near = clamp(70.0 / dist, 0.12, 1.8);
           vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + n.xz * vec2(0.35, 0.7) * near;
           float swell = 0.5 + 0.5 * sin(vWorld.x * 0.031 + vWorld.z * 0.027 + t * 0.4);
-          float stretch = mix(0.004, 0.22, uDark) * near * (1.0 + 1.05 * uDark * swell);
+          float stretch = mix(0.004, 0.09, uDark) * near * (1.0 + 0.55 * uDark * swell);
+          vec2 wave = vec2(
+            vnoise(vWorld.xz * 0.16 + t * 0.17) - 0.5,
+            vnoise(vWorld.xz * 0.13 - t * 0.13) - 0.5
+          );
+          muv += wave * mix(0.0, 0.028, uDark) * near;
           vec4 m = vec4(0.0);
           float wsum = 0.0;
           for (int i = 0; i < 9; i++) {
             float o = (float(i) - 4.0) / 4.0;
-            float w = exp(-abs(o) * mix(5.0, 1.1, uDark));
-            vec2 uv = clamp(muv + vec2(o * stretch * 0.12, o * stretch), 0.001, 0.999);
+            float w = exp(-abs(o) * mix(5.0, 2.6, uDark));
+            vec2 uv = clamp(muv + vec2(o * stretch * 0.08, o * stretch), 0.001, 0.999);
             m += texture2D(uMirror, uv) * w;
             wsum += w;
           }
           m /= max(wsum, 1e-4);
           thing = smoothstep(0.0, 0.2, m.a);
-          vec3 lights = min(max(m.rgb - vec3(0.08), 0.0), vec3(0.48, 0.32, 0.16));
-          vec3 refl = mix(m.rgb, m.rgb * vec3(0.78, 0.66, 0.48) + lights * vec3(1.15, 0.72, 0.32), uDark);
-          // A low camera over the river looks up, so the near water only mirrors
-          // the night sky. Pull a sample from further along the same glance,
-          // where the lit row sits, and let it run down the foreground.
-          if (uDark > 0.45) {
-            vec3 viewH = vec3(wv.x, 0.0, wv.z);
-            float viewLen = length(viewH);
-            if (viewLen > 1e-4) {
-              viewH /= viewLen;
-              float hop = mix(70.0, 260.0, smoothstep(20.0, 420.0, dist));
-              vec4 fc = uMirrorMatrix * vec4(vWorld + viewH * hop, 1.0);
-              if (fc.w > 0.05) {
-                vec2 fuv = fc.xy / fc.w * 0.5 + 0.5;
-                vec3 farRgb = vec3(0.0);
-                float farW = 0.0;
-                for (int k = 0; k < 5; k++) {
-                  float o = (float(k) - 2.0) / 2.0;
-                  float w = exp(-abs(o) * 0.75);
-                  vec2 uv = clamp(fuv + vec2(o * 0.015, o * 0.045), 0.001, 0.999);
-                  farRgb += texture2D(uMirror, uv).rgb * w;
-                  farW += w;
-                }
-                farRgb /= max(farW, 1e-4);
-                vec3 farLights = min(max(farRgb - vec3(0.06), 0.0), vec3(0.46, 0.3, 0.15));
-                float localGold = max(max(lights.r, lights.g), lights.b);
-                float need = (1.0 - smoothstep(0.025, 0.14, localGold)) * smoothstep(560.0, 40.0, dist);
-                refl += farLights * vec3(1.12, 0.7, 0.32) * need;
-              }
-            }
-          }
+          vec3 lights = min(max(m.rgb - vec3(0.12), 0.0), vec3(0.36, 0.22, 0.1));
+          // Night: only the bright lamps, in broken vertical lanes. The lanes
+          // are strongest on the far water and die out toward the camera.
+          float across = vWorld.x * 0.23 + vnoise(vec2(vWorld.x * 0.06, vWorld.z * 0.014)) * 2.1;
+          float band = smoothstep(0.22, 0.58, fract(across));
+          float chip = smoothstep(0.18, 0.62, vnoise(vec2(vWorld.x * 0.31, vWorld.z * 0.07 + t * 0.18)));
+          float streak = band * chip;
+          vec3 nightRefl = lights * vec3(1.1, 0.64, 0.26) * streak * mix(0.08, 1.0, reach);
+          vec3 refl = mix(m.rgb, nightRefl, uDark);
           seen = mix(seen, refl, thing);
         }
-        vec3 col = mix(body, seen, max(fresnel, mix(0.42, 0.9, max(uDark, uHaze * 0.2)) * thing));
+        float dayCover = max(fresnel, mix(0.42, 0.8, uHaze * 0.2) * thing);
+        float nightCover = thing * mix(0.06, 0.7, reach);
+        vec3 col = mix(body, seen, mix(dayCover, nightCover, uDark));
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);
         gl_FragColor = vec4(col, 1.0);
