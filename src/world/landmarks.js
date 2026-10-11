@@ -905,9 +905,10 @@ function jinmao(h) {
 const STONE_I = WALL_LAYERS.findIndex((l) => l.key === 'stone');
 // Sandstone Blocks 08 (Poly Haven, CC0), divided by its mean so the warm buff
 // tint stays ours. UVs are metres, repeated 1.5× so the courses are finer than
-// the 3 m photo tile, and the joint contrast fades with distance. Night flood
-// sits just above the extruded Bund row: uFlood marks columns, cornices, the
-// dome drum and tower piers. Shared by every Bund stone material.
+// the 3 m photo tile. Joint contrast holds at mid distance and fades toward
+// the far bank. Night flood is calibrated to sRGB luma about 0.45 on the wall,
+// 0.85 on columns and cornices, 0.12 in soffits. uFlood marks that projecting
+// stone. Shared by every Bund stone material.
 const STONE_SHADE = /* glsl */`
 uniform float uNight;
 uniform float uPhotoOn;
@@ -957,7 +958,7 @@ function shadeBundStone(mat, key, flood) {
         vec3 sn = normalize(vCnorm);
         vec2 suv = abs(sn.y) > 0.65 ? vCpos.xz : (abs(sn.x) > abs(sn.z) ? vec2(vCpos.z, vCpos.y) : vec2(vCpos.x, vCpos.y));
         float dist = length(vViewPosition);
-        float fade = smoothstep(22.0, 145.0, dist);
+        float fade = smoothstep(70.0, 240.0, dist);
         float keep = mix(1.0, 0.14, fade);
         vec3 stoneCol = diffuseColor.rgb;
         if (uPhotoOn > 0.5) {
@@ -989,19 +990,31 @@ function shadeBundStone(mat, key, flood) {
           vec2 mapUv = suvN * uWallScale[STONE_I] * STONE_REPEAT;
           vec3 tm = texture(uWallNor, vec3(mapUv, float(STONE_I))).xyz * 2.0 - 1.0;
           tm.y = -tm.y;
-          float keepN = mix(0.85, 0.08, smoothstep(22.0, 145.0, length(vViewPosition)));
+          float keepN = mix(0.85, 0.12, smoothstep(70.0, 240.0, length(vViewPosition)));
           normal = stoneTbn(normal, -vViewPosition, mapUv, normalize(mix(vec3(0.0, 0.0, 1.0), tm, keepN)));
         }
       `)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        float uplight = pow(1.0 - smoothstep(0.0, 36.0, max(vCpos.y, 0.0)), 1.1);
-        float wallMag = 0.52 + 0.36 * uplight;
-        float proj = max(uFlood, smoothstep(0.42, 0.88, sn.y));
-        float mag = wallMag + proj * 0.78;
-        mag *= mix(1.0, 0.18, smoothstep(0.12, 0.7, -sn.y));
-        mag *= mix(1.0, mix(0.74, 1.0, flute), curved);
-        mag += smoothstep(33.0, 50.0, vCpos.y) * (1.0 - uFlood) * 0.26;
-        totalEmissiveRadiance += vec3(1.06, 0.62, 0.24) * uNight * mag;
+        // Pre-exposure magnitudes, tuned for night exposure ~1.30 through Neutral
+        // tone mapping and the Picture grade. Displayed sRGB luma targets:
+        // wall 0.45, cornice/column highlight 0.85, soffit/recess 0.12.
+        float uplight = pow(1.0 - smoothstep(1.5, 34.0, max(vCpos.y, 0.0)), 1.15);
+        float band = smoothstep(0.80, 0.98, fract(max(vCpos.y, 0.0) / 4.2));
+        float top = smoothstep(0.50, 0.88, sn.y);
+        float soff = smoothstep(0.22, 0.80, -sn.y);
+        float tower = smoothstep(32.0, 48.0, vCpos.y);
+        float wallM = mix(0.16, 0.30, uplight) + band * 0.045 + tower * 0.06;
+        float featM = mix(0.46, 0.58, max(uplight, top));
+        float mag = uFlood > 0.5 ? featM : wallM;
+        mag = max(mag, top * 0.56);
+        mag *= mix(1.0, 0.035, soff);
+        mag *= mix(1.0, mix(0.62, 1.0, flute), curved);
+        vec3 amber = vec3(1.15, 0.52, 0.10);
+        vec3 pale = vec3(1.20, 0.92, 0.42);
+        vec3 lamp = mix(amber, pale, smoothstep(0.42, 0.58, mag));
+        float texL = dot(max(diffuseColor.rgb, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
+        float texN = clamp(texL / 0.95, 0.82, 1.12);
+        totalEmissiveRadiance += lamp * texN * uNight * mag;
       `);
   };
   mat.customProgramCacheKey = () => key;
@@ -1010,17 +1023,17 @@ const bundStone = new THREE.MeshStandardMaterial({
   color: 0xe4d2b4, roughness: 0.78, metalness: 0.03,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-shadeBundStone(bundStone, 'lm-bund-stone-9', 0);
+shadeBundStone(bundStone, 'lm-bund-stone-10', 0);
 const bundPlain = new THREE.MeshStandardMaterial({
   color: 0xeadcc4, roughness: 0.64, metalness: 0.04,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-shadeBundStone(bundPlain, 'lm-bund-plain-9', 1);
+shadeBundStone(bundPlain, 'lm-bund-plain-10', 1);
 const customsWall = new THREE.MeshStandardMaterial({
   color: 0xe6d4b6, roughness: 0.76, metalness: 0.03,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-shadeBundStone(customsWall, 'lm-customs-wall-5', 0);
+shadeBundStone(customsWall, 'lm-customs-wall-6', 0);
 const recessMat = new THREE.MeshStandardMaterial({ color: 0x12181e, roughness: 0.72, metalness: 0.06 });
 const jointMat = new THREE.MeshStandardMaterial({ color: 0x6e6558, roughness: 0.84, metalness: 0.02 });
 const mullionMat = new THREE.MeshStandardMaterial({ color: 0x2a3136, roughness: 0.4, metalness: 0.4 });
@@ -1043,15 +1056,16 @@ bundGlass.onBeforeCompile = (shader) => {
       varying vec3 vGpos;`)
     .replace('#include <color_fragment>', `#include <color_fragment>
       diffuseColor.rgb = mix(diffuseColor.rgb, uHorizon * 0.72 + uSky * 0.28, 0.34 * (1.0 - uNight));
+      diffuseColor.rgb *= mix(1.0, 0.16, uNight);
     `)
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       float gid = floor(vGpos.x * 0.28) + floor(vGpos.y * 0.32) * 19.0 + floor(vGpos.z * 0.28) * 7.0;
       float gh = fract(sin(gid * 17.13) * 43758.5);
       float tier = step(0.38, gh) + step(0.74, gh);
-      totalEmissiveRadiance += vec3(1.02, 0.74, 0.4) * tier * uNight * 0.78;
+      totalEmissiveRadiance += vec3(1.15, 0.62, 0.18) * tier * uNight * 0.10;
     `);
 };
-bundGlass.customProgramCacheKey = () => 'lm-bund-glass-2';
+bundGlass.customProgramCacheKey = () => 'lm-bund-glass-3';
 const marbleBase = new THREE.MeshStandardMaterial({ color: 0x2c3136, roughness: 0.38, metalness: 0.22 });
 const soffitMat = new THREE.MeshStandardMaterial({ color: 0x6f685c, roughness: 0.9, metalness: 0.02 });
 const flagMat = new THREE.MeshStandardMaterial({
