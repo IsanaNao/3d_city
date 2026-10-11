@@ -990,6 +990,7 @@ customsWall.onBeforeCompile = (shader) => {
 };
 customsWall.customProgramCacheKey = () => 'lm-customs-wall-1';
 const recessMat = new THREE.MeshStandardMaterial({ color: 0x12181e, roughness: 0.72, metalness: 0.06 });
+const marbleBase = new THREE.MeshStandardMaterial({ color: 0x2c3136, roughness: 0.38, metalness: 0.22 });
 const soffitMat = new THREE.MeshStandardMaterial({ color: 0x6f685c, roughness: 0.9, metalness: 0.02 });
 const flagMat = new THREE.MeshStandardMaterial({
   color: 0xc4372f, roughness: 0.62, metalness: 0.04, side: THREE.DoubleSide,
@@ -1071,7 +1072,8 @@ function placeClocks(g, y, half, r, oz = 0) {
 // 79.2 m (main block 120 ft / 36.2 m, clock tower 140 ft / 43 m) and the
 // flagpole makes up the rest to 90 m.
 // East block depth about 30 m. Frontage 46 m, five equal bays, narrower than
-// the HSBC model (62 m) so the two cornices still read as a pair.
+// the HSBC front (90 m). Both cornices top out at 33.9 m when each model is
+// built at its design height (customs 90 m, HSBC 52 m).
 // Tower plan 16.8 m, 0.37 of the frontage, set just behind the river parapet.
 // Clock diameter 5.4 m on every face. Above the clock the plan steps in
 // (0.74, 0.52, 0.36) — a square Art Deco crown, not a pyramid.
@@ -1201,16 +1203,17 @@ function customs(h) {
     for (const side of [-1, 1]) {
       const px = face.ax === 'x' ? side * pierInset : face.x;
       const pz = face.ax === 'z' ? side * pierInset : face.z;
-      const pw = face.ax === 'x' ? 1.35 * s : 0.72 * s;
-      const pd = face.ax === 'x' ? 0.72 * s : 1.35 * s;
+      const pw = face.ax === 'x' ? 1.45 * s : 1.15 * s;
+      const pd = face.ax === 'x' ? 1.15 * s : 1.45 * s;
       putBox(g, pw, shaft.h * 0.92, pd, px, shaft.y + shaft.h * 0.04, pz, bundPlain);
     }
     for (const slot of [-1, 0, 1]) {
       for (const band of [0.22, 0.55]) {
-        const wx = face.ax === 'x' ? slot * 2.7 * s : face.x - (face.x > 0 ? 0.12 * s : face.x < 0 ? -0.12 * s : 0);
-        const wz = face.ax === 'z' ? slot * 2.7 * s : face.z - Math.sign(face.z - tz) * 0.12 * s;
-        const ww = face.ax === 'x' ? 1.05 * s : 0.22 * s;
-        const wd = face.ax === 'x' ? 0.22 * s : 1.05 * s;
+        const sink = 0.62 * s;
+        const wx = face.ax === 'x' ? slot * 2.7 * s : face.x - Math.sign(face.x || 1) * sink;
+        const wz = face.ax === 'z' ? slot * 2.7 * s : face.z - Math.sign(face.z - tz) * sink;
+        const ww = face.ax === 'x' ? 1.05 * s : 0.42 * s;
+        const wd = face.ax === 'x' ? 0.42 * s : 1.05 * s;
         putBox(g, ww, 4.6 * s, wd, wx, shaft.y + shaft.h * band, wz, recessMat);
       }
     }
@@ -1230,6 +1233,24 @@ function customs(h) {
       const ww = face.ax === 'x' ? 0.7 * s : 0.28 * s;
       const wd = face.ax === 'x' ? 0.28 * s : 0.7 * s;
       putBox(g, ww, belfry.h * 0.46, wd, wx, belfry.y + belfry.h * 0.28, wz, recessMat);
+    }
+  }
+
+  // Corner urns on the stepped crown, the ones that break the skyline in photos.
+  const urnAt = (x, y, z) => {
+    putBox(g, 0.72 * s, 0.32 * s, 0.72 * s, x, y, z, bundPlain);
+    const bowl = new THREE.SphereGeometry(0.36 * s, 10, 8);
+    bowl.scale(1, 1.2, 1);
+    bowl.translate(x, y + 0.78 * s, z);
+    add(g, bowl, bundPlain);
+    const neck = new THREE.CylinderGeometry(0.1 * s, 0.16 * s, 0.42 * s, 8);
+    neck.translate(x, y + 1.28 * s, z);
+    add(g, neck, bundPlain);
+  };
+  for (const stage of [placed['customs-belfry'], placed['customs-attic']]) {
+    const o = stage.w / 2 - 0.55 * s;
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) urnAt(sx * o, stage.y + stage.h, tz + sz * o);
     }
   }
 
@@ -1253,41 +1274,140 @@ function customs(h) {
   return g;
 }
 
-// 1923 HSBC: rusticated podium, giant order, entablature, ribbed dome on a drum.
+// 1923 HSBC, Bund 12 (now 上海浦东发展银行). Palmer & Turner.
+// The river front is about 90 m, the widest on the Bund. Five storeys plus an
+// attic; the wing cornice sits on the customs parapet line (33.9 m at h = 52,
+// matching customs at 90 m). A central bay projects, with three pairs of giant
+// Corinthian columns, a pediment, and the ribbed dome on a drum over that bay
+// — shifted east of the footprint centroid so it reads from the river.
 function hsbc(h) {
   const g = new THREE.Group();
-  const wall = Math.max(30, h * 0.6);
-  putBox(g, 62, 7.2, 40, 0, 0, 0, bundStone);
-  putBox(g, 58, wall - 7.2, 36, 0, 7.2, 0, bundStone);
-  const colH = wall * 0.58;
-  const colBase = 8;
-  for (let i = -3; i <= 3; i++) {
-    const x = i * 7.4;
-    add(g, new THREE.CylinderGeometry(0.78, 0.92, colH, 12).translate(x, colBase + colH / 2, 19.2), bundPlain);
-    add(g, new THREE.CylinderGeometry(1.2, 1.25, 1.2, 10).translate(x, colBase + colH - 0.2, 19.2), bundPlain);
-    add(g, new THREE.CylinderGeometry(1.05, 1.2, 0.7, 10).translate(x, colBase, 19.2), bundPlain);
+  const s = h / 52;
+  const W = 90;
+  const D = 34;
+  const front = 30;
+  const zc = front - D / 2;
+  // Ground, three floors inside the giant order, a fifth floor, then the
+  // cornice. The cornice top is 33.9 m at h = 52, the customs cornice at h = 90.
+  const baseH = 7.6 * s;
+  const orderH = 21.2 * s;
+  const fifthH = 3.5 * s;
+  const corniceH = 1.6 * s;
+  const corniceY = baseH + orderH + fifthH;
+  const parapetTop = 36.2 * s;
+
+  const block = putBox(g, W, baseH + orderH + fifthH, D, 0, 0, zc, customsWall);
+  block.userData.part = 'hsbc-block';
+  const cornice = putBox(g, W + 2.4, corniceH, D + 2.2, 0, corniceY, zc + 0.4, bundPlain);
+  cornice.userData.part = 'hsbc-cornice';
+  putBox(g, W + 0.4, Math.max(0.8 * s, parapetTop - (corniceY + corniceH)), D + 0.4, 0, corniceY + corniceH, zc, customsWall);
+
+  const bayW = 32;
+  const bayD = 16;
+  const bayFront = front + 3.2;
+  const bayZ = bayFront - bayD / 2;
+  putBox(g, bayW, baseH + orderH + fifthH, bayD, 0, 0, bayZ, customsWall);
+  putBox(g, bayW + 1.6, corniceH, bayD + 1.4, 0, corniceY, bayZ + 0.3, bundPlain);
+
+  // Channelled rustication on the ground floor, broken around doors and windows.
+  const course = (x0, x1, z) => {
+    if (x1 - x0 < 0.7) return;
+    for (let i = 0; i < 4; i++) {
+      putBox(g, x1 - x0, 0.22 * s, 0.4, (x0 + x1) / 2, 0.5 * s + i * 1.65 * s, z, bundPlain);
+    }
+  };
+  const wingStops = [-44, -37.4, -34.6, -29.9, -27.1, -22.4, -19.6, -16.5];
+  for (let i = 0; i < wingStops.length; i += 2) {
+    course(wingStops[i], wingStops[i + 1], front + 0.28);
+    course(-wingStops[i + 1], -wingStops[i], front + 0.28);
   }
-  putBox(g, 60, 2.5, 8, 0, wall - 0.3, 16.4, bundStone);
-  const drumY = wall + 2.1;
-  add(g, new THREE.CylinderGeometry(10.2, 11.6, 6.4, 22).translate(0, drumY + 3.2, 4), bundPlain);
+  for (const [a, b] of [[-15.2, -10.2], [-6.2, -2.0], [2.0, 6.2], [10.2, 15.2]]) {
+    course(a, b, bayFront + 0.22);
+  }
+
+  const wingBays = [-36, -28.5, -21, 21, 28.5, 36];
+  for (const x of wingBays) {
+    putBox(g, 1.15, orderH, 1.05, x, baseH, front + 0.15, bundPlain);
+    for (let row = 0; row < 3; row++) {
+      const rowH = orderH / 3;
+      putBox(g, 3.1, rowH * 0.62, 0.4, x, baseH + row * rowH + rowH * 0.2, front - 0.05, recessMat);
+    }
+    putBox(g, 2.4, 2.6 * s, 0.35, x, baseH * 0.32, front + 0.02, recessMat);
+    putBox(g, 2.5, fifthH * 0.62, 0.35, x, baseH + orderH + fifthH * 0.2, front - 0.05, recessMat);
+    putBox(g, 2.2, 1.5 * s, 0.35, x, corniceY + corniceH + 0.3 * s, front + 0.02, recessMat);
+  }
+  for (const x of [-10.5, -3.5, 3.5, 10.5]) {
+    for (let row = 0; row < 3; row++) {
+      const rowH = orderH / 3;
+      putBox(g, 2.4, rowH * 0.58, 0.35, x, baseH + row * rowH + rowH * 0.22, bayFront - 0.02, recessMat);
+    }
+    putBox(g, 2.1, fifthH * 0.55, 0.32, x, baseH + orderH + fifthH * 0.24, bayFront - 0.02, recessMat);
+  }
+  for (const x of [-8.2, 0, 8.2]) {
+    putBox(g, 3.4, 5.2 * s, 0.55, x, 0.9 * s, bayFront - 0.2, recessMat);
+  }
+
+  // Three pairs of Corinthian columns, second to fourth storey.
+  const colH = orderH - 0.8 * s;
+  const colR = 0.72;
+  const colY = baseH + 0.25 * s;
+  const colZ = bayFront + 1.35;
+  for (const cx of [-7.4, 0, 7.4]) {
+    for (const side of [-0.72, 0.72]) {
+      const x = cx + side;
+      const cap = 1.7 * s;
+      const shaftH = colH - cap;
+      const shaft = new THREE.CylinderGeometry(colR * 0.92, colR, shaftH, 16);
+      shaft.translate(x, colY + shaftH / 2, colZ);
+      const mesh = add(g, shaft, bundPlain);
+      mesh.userData.part = 'hsbc-column';
+      const ech = new THREE.CylinderGeometry(colR * 1.45, colR * 0.95, 0.9 * s, 14);
+      ech.translate(x, colY + shaftH + 0.45 * s, colZ);
+      add(g, ech, bundPlain);
+      putBox(g, 1.9, 0.42 * s, 1.9, x, colY + shaftH + 0.9 * s, colZ, bundPlain);
+    }
+  }
+  const entY = colY + colH;
+  putBox(g, bayW + 1.2, 1.15 * s, 3.2, 0, entY, colZ, bundPlain);
+  putBox(g, bayW + 2.4, 0.7 * s, 4.1, 0, entY + 1.15 * s, colZ, bundPlain);
+  const pedY = entY + 1.85 * s;
+  const ped = new THREE.Shape();
+  ped.moveTo(-16.2, 0);
+  ped.lineTo(16.2, 0);
+  ped.lineTo(0, 5.6 * s);
+  const pedGeo = new THREE.ExtrudeGeometry(ped, { depth: 2.4, bevelEnabled: false });
+  pedGeo.translate(0, pedY, colZ - 0.4);
+  add(g, pedGeo, bundPlain);
+
+  // Drum and ribbed dome sit on the central bay, in front of the roof.
+  const drumR = 8.6;
+  const drumH = 6.8 * s;
+  const drumY = parapetTop + 0.4 * s;
+  // Centred on the projecting bay, just behind the column line, so the drum
+  // reads as rising out of the portico rather than sitting inland of the roof.
+  const domeZ = bayZ + 0.4;
+  add(g, new THREE.CylinderGeometry(drumR * 0.92, drumR, drumH, 24).translate(0, drumY + drumH / 2, domeZ), bundPlain);
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * Math.PI * 2;
-    add(g, new THREE.BoxGeometry(0.32, 6.2, 0.55).translate(Math.sin(a) * 11.15, drumY + 3.2, Math.cos(a) * 11.15 + 4), bundPlain);
+    add(g, new THREE.BoxGeometry(0.38, drumH * 0.92, 0.55).translate(Math.sin(a) * (drumR + 0.15), drumY + drumH / 2, Math.cos(a) * (drumR + 0.15) + domeZ), bundPlain);
   }
-  const domeY = drumY + 6.4;
-  const domeR = 12.6;
-  add(g, new THREE.SphereGeometry(domeR, 28, 16, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, domeY, 4), bundPlain);
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    const rib = new THREE.BoxGeometry(0.42, 0.36, domeR * 0.95);
-    rib.translate(0, 0, domeR * 0.18);
-    rib.rotateX(-0.82);
+  const domeY = drumY + drumH;
+  const domeR = 9.4;
+  const dome = new THREE.SphereGeometry(domeR, 28, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+  dome.translate(0, domeY, domeZ);
+  const domeMesh = add(g, dome, bundPlain);
+  domeMesh.userData.part = 'hsbc-dome';
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2;
+    const rib = new THREE.BoxGeometry(0.36, 0.32, domeR * 0.92);
+    rib.translate(0, 0, domeR * 0.16);
+    rib.rotateX(-0.86);
     rib.rotateY(a);
-    rib.translate(0, domeY + domeR * 0.42, 4);
+    rib.translate(0, domeY + domeR * 0.4, domeZ);
     add(g, rib, bundPlain);
   }
-  add(g, new THREE.CylinderGeometry(1.35, 1.9, 3.4, 12).translate(0, domeY + domeR + 1.3, 4), bundPlain);
-  add(g, new THREE.ConeGeometry(1.6, 2.6, 8).translate(0, domeY + domeR + 3.6, 4), dark);
+  add(g, new THREE.CylinderGeometry(1.15, 1.7, 2.8 * s, 12).translate(0, domeY + domeR + 1.1 * s, domeZ), bundPlain);
+  add(g, new THREE.SphereGeometry(0.7, 10, 8).translate(0, domeY + domeR + 2.8 * s, domeZ), bundPlain);
   return g;
 }
 
@@ -1420,11 +1540,56 @@ function peaceSouth(h) {
   return bundFront(g, { w: 30 * s, d: 20 * s, floors: 6, floorH: 4.5 * s, cols: 5, pavilions: 2 });
 }
 
-// Bank of Communications, now the trade-union building: vertical fins, a raised centre.
+// 1948 Bank of Communications, Bund 14, now the trade-union building.
+// C. H. Gonda: a pale art-deco slab, black marble base, dense vertical fins,
+// and a raised central section that steps back. The river face is shifted
+// onto the east edge of the footprint, just north of the customs house.
 function bocom(h) {
   const g = new THREE.Group();
   const s = h / 38;
-  return bundFront(g, { w: 32 * s, d: 22 * s, floors: 7, floorH: 4.3 * s, fins: 8, raise: 6 * s, body: bundPlain });
+  const W = 36;
+  const D = 42;
+  const front = 26;
+  const zc = front - D / 2;
+  const baseH = 4.6 * s;
+  const shaftH = 25.2 * s;
+  const bodyTop = baseH + shaftH;
+  const body = putBox(g, W, bodyTop, D, 0, 0, zc, customsWall);
+  body.userData.part = 'bocom-body';
+  putBox(g, W + 0.3, baseH, D + 0.25, 0, 0, zc, marbleBase);
+  putBox(g, W + 1.3, 0.7 * s, D + 1.1, 0, bodyTop - 0.2 * s, zc, bundPlain);
+
+  const fins = 13;
+  for (let i = 0; i < fins; i++) {
+    const x = -W * 0.46 + (W * 0.92 * i) / (fins - 1);
+    const tall = Math.abs(i - (fins - 1) / 2) < 2.2;
+    putBox(g, 0.42, shaftH + (tall ? 3.2 * s : 0), 0.95, x, baseH, front - 0.15, bundPlain);
+    if (i < fins - 1) {
+      const wx = -W * 0.46 + (W * 0.92 * (i + 0.5)) / (fins - 1);
+      for (let row = 0; row < 5; row++) {
+        const rowH = shaftH / 5;
+        putBox(g, 1.35, rowH * 0.55, 0.4, wx, baseH + row * rowH + rowH * 0.22, front - 0.08, recessMat);
+      }
+    }
+  }
+  for (const sign of [-1, 1]) {
+    for (let i = 0; i < 8; i++) {
+      const z = zc - D * 0.36 + i * (D * 0.1);
+      putBox(g, 0.7, shaftH * 0.92, 0.38, sign * (W / 2 + 0.15), baseH, z, bundPlain);
+    }
+  }
+  putBox(g, 6.2, 4.4 * s, 0.5, 0, 0.4 * s, front + 0.15, recessMat);
+
+  const towerW = 13.5;
+  const tower = putBox(g, towerW, 5.4 * s, 14, 0, bodyTop, front - 8, customsWall);
+  tower.userData.part = 'bocom-tower';
+  putBox(g, towerW + 0.8, 0.45 * s, 14.6, 0, bodyTop + 5.1 * s, front - 8, bundPlain);
+  for (let i = -2; i <= 2; i++) {
+    putBox(g, 0.36, 5.2 * s, 0.7, i * 2.3, bodyTop, front - 1.3, bundPlain);
+  }
+  putBox(g, 8.2, 2.4 * s, 9, 0, bodyTop + 5.4 * s, front - 8, customsWall);
+  putBox(g, 8.8, 0.4 * s, 9.6, 0, bodyTop + 7.5 * s, front - 8, bundPlain);
+  return g;
 }
 
 // Taiwan Bank, now the merchants' bank on this block: a temple front of four columns.

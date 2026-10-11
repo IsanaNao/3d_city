@@ -712,7 +712,9 @@ export function createWaterMaterial() {
           float near = clamp(70.0 / dist, 0.12, 1.8);
           vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + n.xz * vec2(0.35, 0.7) * near;
           float swell = 0.5 + 0.5 * sin(vWorld.x * 0.031 + vWorld.z * 0.027 + t * 0.4);
-          float stretch = mix(0.004, 0.2, uDark) * near * (1.0 + 0.85 * uDark * swell);
+          float fg = 1.0 - smoothstep(36.0, 150.0, dist);
+          float stretch = mix(0.004, 0.16, uDark) * near * (1.0 + 0.7 * uDark * swell);
+          stretch *= mix(1.0, 0.28, fg);
           vec2 wave = vec2(
             vnoise(vWorld.xz * 0.16 + t * 0.17) - 0.5,
             vnoise(vWorld.xz * 0.13 - t * 0.13) - 0.5
@@ -732,10 +734,15 @@ export function createWaterMaterial() {
           vec3 lights = min(max(m.rgb - vec3(0.08), 0.0), vec3(0.42, 0.26, 0.12));
           // Broken vertical lanes. They stay bright near the far bank and thin
           // out toward the camera; the gaps between them stay dark water.
-          float across = vWorld.x * 0.17 + vnoise(vec2(vWorld.x * 0.045, vWorld.z * 0.012)) * 1.7;
-          float band = smoothstep(0.12, 0.46, fract(across));
-          float chip = smoothstep(0.22, 0.72, vnoise(vec2(floor(across), vWorld.z * 0.04 + t * 0.15)));
+          float across = vWorld.x * 0.09
+            + vnoise(vWorld.xz * vec2(0.028, 0.021)) * 3.6
+            + vnoise(vec2(vWorld.z * 0.06, 4.2)) * 1.8;
+          float band = smoothstep(0.18, 0.55, fract(across));
+          float chip = smoothstep(0.28, 0.78, vnoise(vec2(floor(across), vWorld.z * 0.055 + t * 0.15)));
           float streak = band * (0.28 + 0.72 * chip);
+          // The near water was resolving the reflected window grid as a dark lattice.
+          streak = mix(streak, 0.22, fg * 0.85);
+          lights = mix(lights, min(lights, vec3(0.16, 0.1, 0.05)), fg);
           vec3 nightRefl = lights * vec3(1.15, 0.66, 0.28) * streak;
           if (reach < 0.9) {
             vec3 viewH = vec3(wv.x, 0.0, wv.z);
@@ -766,7 +773,7 @@ export function createWaterMaterial() {
           seen = mix(seen, refl, thing);
         }
         float dayCover = max(fresnel, mix(0.42, 0.8, uHaze * 0.2) * thing);
-        float nightCover = thing * mix(0.26, 0.68, reach);
+        float nightCover = thing * mix(0.08, 0.68, smoothstep(0.08, 0.72, reach));
         vec3 col = mix(body, seen, mix(dayCover, nightCover, uDark));
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);

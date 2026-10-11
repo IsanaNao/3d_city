@@ -9,7 +9,7 @@ export const LANDMARK_SPECS = [
   { id: 'swfc', test: /环球金融中心|world financial center/i, h: 492, minH: 200, radius: 40 },
   { id: 'jinmao', test: /金茂大厦|jin mao tower/i, h: 421, minH: 200, radius: 40 },
   { id: 'customs', test: /(?<!浦东)上海海关|江海关|外滩海关|customs house/i, h: 90, minH: 10, maxH: 120, radius: 28 },
-  { id: 'hsbc', test: /外滩汇丰/i, h: 52, minH: 12, maxH: 80, radius: 46 },
+  { id: 'hsbc', test: /上海浦东发展银行|外滩汇丰/i, h: 52, minH: 12, maxH: 80, radius: 55 },
   { id: 'peace', test: /和平饭店(?!南)|fairmont peace hotel/i, h: 77, minH: 12, maxH: 120, radius: 30 },
   { id: 'boc', test: /中国银行大楼/i, h: 70, minH: 15, maxH: 120, radius: 32 },
   { id: 'asia', test: /中国太平洋保险公司/, h: 32, minH: 8, maxH: 50, radius: 30 },

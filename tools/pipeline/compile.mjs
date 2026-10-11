@@ -992,8 +992,8 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
   const rails = stitchLines(railPieces);
 
   const landmarks = findLandmarks(parsed.footprints || parsed.buildings);
-  // The Bund HSBC block is a cluster of unnamed parts. Drop a dome on the
-  // published site, just south of the customs house, when OSM has no name.
+  // Fallback only. The Bund 12 frontage is named 上海浦东发展银行 and is picked
+  // up by findLandmarks; this site is used when that name is missing.
   if (!landmarks.some((lm) => lm.id === 'hsbc')) {
     const [x, z] = proj.project(121.48495, 31.23835);
     if (x >= areaRect.minX && x <= areaRect.maxX && z >= areaRect.minZ && z <= areaRect.maxZ) {

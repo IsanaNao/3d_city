@@ -376,6 +376,53 @@ test('bund historic row builds a clock tower, a dome and a copper roof', () => {
   assert.deepEqual(named.map((m) => m.id).sort(), ['asia', 'russo', 'yokohama']);
 });
 
+test('HSBC takes the development-bank frontage and Bund 14 steps in the centre', () => {
+  const hsbc = createLandmarks([{ id: 'hsbc', x: 0, z: 0, y: 0, h: 52, yaw: 0 }]).children[0];
+  const customs = createLandmarks([{ id: 'customs', x: 0, z: 0, y: 0, h: 90, yaw: 0 }]).children[0];
+  const bocom = createLandmarks([{ id: 'bocom', x: 0, z: 0, y: 0, h: 38, yaw: 0 }]).children[0];
+  hsbc.updateMatrixWorld(true);
+  const partBox = (model, part) => {
+    let mesh = null;
+    model.traverse((obj) => {
+      if (obj.userData?.part === part) mesh = obj;
+    });
+    assert.ok(mesh, part);
+    return new THREE.Box3().setFromObject(mesh);
+  };
+  const block = partBox(hsbc, 'hsbc-block');
+  const frontage = Math.max(block.max.x - block.min.x, block.max.z - block.min.z);
+  assert.ok(frontage > 80, `HSBC frontage ${frontage}`);
+  const dome = partBox(hsbc, 'hsbc-dome');
+  const domeCx = (dome.max.x + dome.min.x) / 2;
+  const blockCx = (block.max.x + block.min.x) / 2;
+  assert.ok(domeCx > blockCx + 8, `dome sits on the river bay (${domeCx} vs ${blockCx})`);
+  let columns = 0;
+  hsbc.traverse((obj) => {
+    if (obj.userData?.part === 'hsbc-column') columns += 1;
+  });
+  assert.equal(columns, 6, 'three pairs of Corinthian columns');
+  const hCorn = partBox(hsbc, 'hsbc-cornice');
+  const cCorn = partBox(customs, 'customs-cornice');
+  assert.ok(Math.abs(hCorn.max.y - cCorn.max.y) < 0.25, `cornices ${hCorn.max.y} ${cCorn.max.y}`);
+  const body = partBox(bocom, 'bocom-body');
+  const tower = partBox(bocom, 'bocom-tower');
+  assert.ok(tower.max.y > body.max.y + 4, 'Bund 14 centre rises above the fins');
+  const bodySpan = Math.max(body.max.x - body.min.x, body.max.z - body.min.z);
+  const towerSpan = Math.max(tower.max.x - tower.min.x, tower.max.z - tower.min.z);
+  assert.ok(towerSpan < bodySpan * 0.55, `stepped centre ${towerSpan} / ${bodySpan}`);
+  const marks = findLandmarks([
+    {
+      name: '上海浦东发展银行', area: 5169, topY: 31, baseY: 4,
+      centroid: [10, 20], rings: [[[-30, -40], [40, -40], [40, 50], [-30, 50]]],
+    },
+    {
+      name: '汇丰银行大楼', area: 4000, topY: 250, baseY: 4,
+      centroid: [400, 0], rings: [[[380, -20], [420, -20], [420, 20], [380, 20]]],
+    },
+  ]);
+  assert.deepEqual(marks.map((m) => m.id), ['hsbc']);
+});
+
 test('named crossings become a truss and two cable-stayed bridges', () => {
   assert.equal(deckLift({ name: '南浦大桥' }, [[0, 0], [10, 0]], true, 3), 34);
   assert.equal(deckLift({ name: '南浦大桥' }, [[0, 0], [10, 0]], true, 1), 12);
