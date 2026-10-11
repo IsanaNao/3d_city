@@ -752,10 +752,6 @@ function swfc(h) {
   cap.setIndex(capIdx);
   cap.computeVertexNormals();
   add(g, cap, swfcEdgeMat);
-  const lip = swfcSection(1);
-  const parapet = new THREE.BoxGeometry(lip.w * 0.98, 2.2, lip.d * 0.9);
-  parapet.translate(0, yOf(1) + 1.1, 0);
-  tag(add(g, parapet, swfcEdgeMat), 'swfc-roof');
   return g;
 }
 
