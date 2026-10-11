@@ -233,6 +233,40 @@ function parseSpeed(tags, fallback) {
   return Math.max(3, Math.min(28, v));
 }
 
+function insideRing(p, ring) {
+  return pointInPoly(p[0], p[1], ring);
+}
+
+function outsideChannel(points, masks) {
+  if (!masks.length) return points.length >= 2 ? [points] : [];
+  const wet = (p) => masks.some((ring) => insideRing(p, ring));
+  const edge = (dry, soaked) => {
+    let a = dry;
+    let b = soaked;
+    for (let k = 0; k < 10; k++) {
+      const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      if (wet(m)) b = m;
+      else a = m;
+    }
+    return a;
+  };
+  const runs = [];
+  let cur = [];
+  for (const p of points) {
+    if (!wet(p)) {
+      cur.push(p);
+      continue;
+    }
+    if (cur.length) {
+      cur.push(edge(cur[cur.length - 1], p));
+      if (cur.length >= 2) runs.push(cur);
+      cur = [];
+    }
+  }
+  if (cur.length >= 2) runs.push(cur);
+  return runs;
+}
+
 function landKind(tags) {
   const leisure = tags.leisure;
   const landuse = tags.landuse;
@@ -321,6 +355,7 @@ function suppressOutlines(buildings) {
 export function parseCity(elements, proj, sampleHeight) {
   const buildings = [];
   const land = [];
+  const openWater = [];
   const roads = [];
   const rails = [];
   const signals = [];
@@ -355,7 +390,8 @@ export function parseCity(elements, proj, sampleHeight) {
       }
       continue;
     }
-    if ((el.type === 'way' || el.type === 'relation') && (landKind(tags) != null || tags.natural === 'water' || tags.waterway === 'riverbank')) {
+    const channel = tags.waterway === 'river' || tags.waterway === 'canal' || tags.waterway === 'stream';
+    if ((el.type === 'way' || el.type === 'relation') && (landKind(tags) != null || tags.natural === 'water' || tags.waterway === 'riverbank' || channel)) {
       const kind = landKind(tags) ?? LAND.WATER;
       if (el.type === 'relation') {
         for (const poly of relationPolys(el, proj)) {
@@ -373,6 +409,8 @@ export function parseCity(elements, proj, sampleHeight) {
         } else if (!line.closed && (tags.man_made === 'pier' || tags.waterway === 'riverbank')) {
           const poly = bufferOpen(line.points, tags.man_made === 'pier' ? 5 : 18);
           if (poly && polygonArea(poly) > 20) land.push({ kind, rings: [ensureWinding(poly, true)] });
+        } else if (!line.closed && channel) {
+          openWater.push({ points: line.points, tags });
         }
       }
       continue;
@@ -491,6 +529,22 @@ export function parseCity(elements, proj, sampleHeight) {
         tunnel: tunnel && !bridge,
         bridge,
       });
+    }
+  }
+
+  const masks = land
+    .filter((f) => f.kind === LAND.WATER && polygonArea(f.rings[0]) > 40000)
+    .map((f) => f.rings[0]);
+  for (const item of openWater) {
+    const name = item.tags.name || item.tags['name:zh'] || '';
+    if (/黄浦江/.test(name)) continue;
+    let half = 18;
+    if (item.tags.waterway === 'canal') half = 12;
+    if (item.tags.waterway === 'stream') half = 7;
+    if (/苏州河|吴淞江/.test(name)) half = 40;
+    for (const run of outsideChannel(item.points, masks)) {
+      const poly = bufferOpen(run, half);
+      if (poly && polygonArea(poly) > 40) land.push({ kind: LAND.WATER, rings: [ensureWinding(poly, true)] });
     }
   }
 

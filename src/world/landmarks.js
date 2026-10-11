@@ -710,73 +710,211 @@ const bundStone = new THREE.MeshStandardMaterial({
   color: 0xe6d3b0, roughness: 0.78, metalness: 0.02,
   emissive: new THREE.Color(0xffc98a), emissiveIntensity: 0,
 });
+bundStone.onBeforeCompile = (shader) => {
+  shader.uniforms.uNight = cityUniforms.uNight;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec2 vStoneUv;\nvarying vec3 vStoneN;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvStoneUv = uv;\nvStoneN = normal;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec2 vStoneUv;\nvarying vec3 vStoneN;')
+    .replace('#include <color_fragment>', `#include <color_fragment>
+      if (abs(vStoneN.y) < 0.65) {
+        float v = vStoneUv.y;
+        float course = smoothstep(0.72, 0.9, fract(v * 16.0));
+        float podium = 1.0 - smoothstep(0.0, 0.22, v);
+        diffuseColor.rgb *= mix(1.0, 0.76, podium * (0.4 + 0.6 * course));
+        float corn = smoothstep(0.88, 0.96, fract(v * 7.0));
+        diffuseColor.rgb *= 1.0 - corn * 0.32;
+        diffuseColor.rgb += vec3(0.06, 0.045, 0.03) * corn;
+        float fx = fract(vStoneUv.x * 5.0);
+        float fy = fract(v * 7.0);
+        float win = smoothstep(0.2, 0.3, fx) * (1.0 - smoothstep(0.7, 0.8, fx));
+        win *= smoothstep(0.22, 0.34, fy) * (1.0 - smoothstep(0.7, 0.82, fy));
+        win *= smoothstep(0.1, 0.18, v);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.22, 0.26, 0.3), win * 0.88);
+      }`)
+    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      if (abs(vStoneN.y) < 0.65) {
+        float v = vStoneUv.y;
+        float up = pow(1.0 - clamp(v, 0.0, 1.0), 1.2);
+        float fx = fract(vStoneUv.x * 5.0);
+        float fy = fract(v * 7.0);
+        float win = smoothstep(0.2, 0.3, fx) * (1.0 - smoothstep(0.7, 0.8, fx));
+        win *= smoothstep(0.22, 0.34, fy) * (1.0 - smoothstep(0.7, 0.82, fy));
+        win *= smoothstep(0.1, 0.18, v);
+        totalEmissiveRadiance += vec3(1.0, 0.62, 0.26) * uNight * (0.55 + 1.85 * up);
+        totalEmissiveRadiance += vec3(1.0, 0.84, 0.48) * uNight * win * 1.15;
+      }`);
+};
+bundStone.customProgramCacheKey = () => 'lm-bund-stone';
+const bundPlain = new THREE.MeshStandardMaterial({
+  color: 0xe4d0ac, roughness: 0.62, metalness: 0.04,
+  emissive: new THREE.Color(0xffc98a), emissiveIntensity: 0,
+});
+bundPlain.onBeforeCompile = (shader) => {
+  shader.uniforms.uNight = cityUniforms.uNight;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying float vPlainV;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPlainV = uv.y;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying float vPlainV;')
+    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      float up = pow(1.0 - clamp(vPlainV, 0.0, 1.0), 1.15);
+      totalEmissiveRadiance += vec3(1.0, 0.64, 0.28) * uNight * (0.4 + 1.5 * up);
+    `);
+};
+bundPlain.customProgramCacheKey = () => 'lm-bund-plain';
 const copperRoof = new THREE.MeshStandardMaterial({
-  color: 0x2f8f62, roughness: 0.45, metalness: 0.35,
+  color: 0x2f8f62, roughness: 0.42, metalness: 0.38,
   emissive: new THREE.Color(0x146b40), emissiveIntensity: 0,
 });
+const glazeRoof = new THREE.MeshStandardMaterial({
+  color: 0x1c6e68, roughness: 0.36, metalness: 0.34,
+  emissive: new THREE.Color(0x145e58), emissiveIntensity: 0,
+});
 
-function customs(h) {
-  const g = new THREE.Group();
-  const baseH = h * 0.42;
-  add(g, new THREE.BoxGeometry(48, baseH, 26).translate(0, baseH / 2, 0), bundStone);
-  const towerH = h - baseH;
-  const tower = new THREE.BoxGeometry(12, towerH, 12);
-  tower.translate(0, baseH + towerH / 2, 0);
-  add(g, tower, bundStone);
-  for (const [x, y, z, rx] of [[0, h * 0.78, 6.15, 0], [0, h * 0.78, -6.15, Math.PI], [6.15, h * 0.78, 0, Math.PI / 2], [-6.15, h * 0.78, 0, -Math.PI / 2]]) {
-    const face = new THREE.CircleGeometry(2.15, 24);
-    face.rotateY(rx);
+function putBox(g, w, hgt, d, x, y, z, mat) {
+  const geo = new THREE.BoxGeometry(w, hgt, d);
+  geo.translate(x, y + hgt / 2, z);
+  return add(g, geo, mat);
+}
+
+function placeClocks(g, y, half, r) {
+  const spots = [
+    [0, half, 0],
+    [0, -half, Math.PI],
+    [half, 0, Math.PI / 2],
+    [-half, 0, -Math.PI / 2],
+  ];
+  for (const [x, z, ry] of spots) {
+    const face = new THREE.CircleGeometry(r, 32);
+    face.rotateY(ry);
     face.translate(x, y, z);
     add(g, face, clockMat);
+    const rim = new THREE.RingGeometry(r * 0.78, r * 0.98, 32);
+    rim.translate(0, 0, 0.14);
+    rim.rotateY(ry);
+    rim.translate(x, y, z);
+    add(g, rim, dark);
+    for (const ang of [0.35, -1.05]) {
+      const hand = new THREE.BoxGeometry(ang > 0 ? 0.22 : 0.16, r * (ang > 0 ? 0.62 : 0.46), 0.08);
+      hand.translate(0, r * (ang > 0 ? 0.26 : 0.18), 0.16);
+      hand.rotateZ(ang);
+      hand.rotateY(ry);
+      hand.translate(x, y, z);
+      add(g, hand, dark);
+    }
   }
-  const roof = new THREE.ConeGeometry(8.5, 8, 4);
+}
+
+// 1927 Customs House: a stone block, then a shaft, a wider clock stage and a pyramid.
+function customs(h) {
+  const g = new THREE.Group();
+  const block = h * 0.34;
+  const shaft = h * 0.34;
+  const stage = h * 0.16;
+  const cap = h - block - shaft - stage;
+  putBox(g, 54, 6.2, 32, 0, 0, 0, bundStone);
+  putBox(g, 50, block - 6.2, 28, 0, 6.2, 0, bundStone);
+  putBox(g, 56, 1.6, 34, 0, block - 1.6, 0, bundStone);
+  const shaftMesh = putBox(g, 12.4, shaft, 12.4, 0, block, 0, bundStone);
+  shaftMesh.userData.part = 'customs-shaft';
+  const stageMesh = putBox(g, 18.6, stage, 18.6, 0, block + shaft, 0, bundStone);
+  stageMesh.userData.part = 'customs-clock';
+  putBox(g, 21.2, 0.8, 21.2, 0, block + shaft + stage - 0.15, 0, bundPlain);
+  const roof = new THREE.ConeGeometry(10.6, Math.max(6, cap), 4);
   roof.rotateY(Math.PI / 4);
-  roof.translate(0, h + 3, 0);
-  add(g, roof, dark);
+  roof.translate(0, block + shaft + stage + cap / 2, 0);
+  const roofMesh = add(g, roof, dark);
+  roofMesh.userData.part = 'customs-roof';
+  placeClocks(g, block + shaft + stage * 0.52, 9.4, 3.65);
+  add(g, new THREE.SphereGeometry(0.55, 8, 6).translate(0, h + 0.4, 0), dark);
   return g;
 }
 
-// Bund 12: a wide neoclassical block and a dome, just south of the customs tower.
+// 1923 HSBC: rusticated podium, giant order, entablature, ribbed dome on a drum.
 function hsbc(h) {
   const g = new THREE.Group();
-  const wall = h * 0.72;
-  add(g, new THREE.BoxGeometry(62, wall, 36).translate(0, wall / 2, 0), bundStone);
-  for (let i = -3; i <= 3; i++) {
-    const col = new THREE.CylinderGeometry(0.7, 0.8, wall * 0.55, 8);
-    col.translate(i * 6.2, wall * 0.28, 18.4);
-    add(g, col, bundStone);
+  const wall = Math.max(30, h * 0.6);
+  putBox(g, 76, 7.2, 44, 0, 0, 0, bundStone);
+  putBox(g, 72, wall - 7.2, 40, 0, 7.2, 0, bundStone);
+  const colH = wall * 0.58;
+  const colBase = 8;
+  for (let i = -4; i <= 4; i++) {
+    const x = i * 6.6;
+    add(g, new THREE.CylinderGeometry(0.78, 0.92, colH, 12).translate(x, colBase + colH / 2, 21.2), bundPlain);
+    add(g, new THREE.CylinderGeometry(1.2, 1.25, 1.2, 10).translate(x, colBase + colH - 0.2, 21.2), bundPlain);
+    add(g, new THREE.CylinderGeometry(1.05, 1.2, 0.7, 10).translate(x, colBase, 21.2), bundPlain);
   }
-  const drum = new THREE.CylinderGeometry(9, 10, 6, 20);
-  drum.translate(0, wall + 3, 4);
-  add(g, drum, bundStone);
-  const dome = new THREE.SphereGeometry(10.5, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2);
-  dome.translate(0, wall + 6, 4);
-  add(g, dome, bundStone);
+  putBox(g, 74, 2.5, 8, 0, wall - 0.3, 18.2, bundStone);
+  const drumY = wall + 2.1;
+  add(g, new THREE.CylinderGeometry(10.2, 11.6, 6.4, 22).translate(0, drumY + 3.2, 4), bundPlain);
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    add(g, new THREE.BoxGeometry(0.32, 6.2, 0.55).translate(Math.sin(a) * 11.15, drumY + 3.2, Math.cos(a) * 11.15 + 4), bundPlain);
+  }
+  const domeY = drumY + 6.4;
+  const domeR = 11.4;
+  add(g, new THREE.SphereGeometry(domeR, 28, 16, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, domeY, 4), bundPlain);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const rib = new THREE.BoxGeometry(0.42, 0.36, domeR * 0.95);
+    rib.translate(0, 0, domeR * 0.18);
+    rib.rotateX(-0.82);
+    rib.rotateY(a);
+    rib.translate(0, domeY + domeR * 0.42, 4);
+    add(g, rib, bundPlain);
+  }
+  add(g, new THREE.CylinderGeometry(1.35, 1.9, 3.4, 12).translate(0, domeY + domeR + 1.3, 4), bundPlain);
+  add(g, new THREE.ConeGeometry(1.6, 2.6, 8).translate(0, domeY + domeR + 3.6, 4), dark);
   return g;
 }
 
-// Sassoon House: a stone slab under a green copper pyramid.
+// 1929 Sassoon House: a narrow stone tower under a steep green copper pyramid.
 function peace(h) {
   const g = new THREE.Group();
-  const wall = h * 0.78;
-  add(g, new THREE.BoxGeometry(34, wall, 28).translate(0, wall / 2, 0), bundStone);
-  const roof = new THREE.CylinderGeometry(0.6, 18, h - wall, 4);
+  const roofH = Math.max(20, h * 0.36);
+  const wall = h - roofH;
+  putBox(g, 28, 7, 22, 0, 0, 0, bundStone);
+  putBox(g, 24, Math.max(4, wall - 13), 18, 0, 7, 0, bundStone);
+  putBox(g, 22, 6, 16, 0, wall - 6, 0, bundStone);
+  for (let i = -2; i <= 2; i++) {
+    putBox(g, 0.85, wall - 9, 0.7, i * 4.2, 6.5, 9.3, bundPlain);
+    putBox(g, 0.85, wall - 9, 0.7, i * 4.2, 6.5, -9.3, bundPlain);
+  }
+  putBox(g, 30, 1.4, 24, 0, wall - 0.2, 0, bundStone);
+  const roof = new THREE.CylinderGeometry(0.45, 13.2, roofH, 4);
   roof.rotateY(Math.PI / 4);
-  roof.translate(0, wall + (h - wall) / 2, 0);
-  add(g, roof, copperRoof);
+  roof.translate(0, wall + roofH / 2, 0);
+  const mesh = add(g, roof, copperRoof);
+  mesh.userData.part = 'peace-roof';
   return g;
 }
 
-// Art deco shaft with a Chinese roof, beside the Peace Hotel.
+// 1937 Bank of China: Art Deco setbacks and a blue-green Chinese hip roof.
 function boc(h) {
   const g = new THREE.Group();
-  add(g, new THREE.BoxGeometry(36, h * 0.55, 24).translate(0, h * 0.275, 0), bundStone);
-  add(g, new THREE.BoxGeometry(28, h * 0.28, 20).translate(0, h * 0.69, 0), bundStone);
-  add(g, new THREE.BoxGeometry(18, h * 0.12, 14).translate(0, h * 0.86, 0), bundStone);
-  const roof = new THREE.CylinderGeometry(2, 12, h * 0.1, 4);
-  roof.rotateY(Math.PI / 4);
-  roof.translate(0, h * 0.95, 0);
-  add(g, roof, copperRoof);
+  const roofH = Math.max(13, h * 0.22);
+  const body = h - roofH;
+  putBox(g, 44, body * 0.48, 28, 0, 0, 0, bundStone);
+  putBox(g, 36, body * 0.28, 23, 0, body * 0.48, 0, bundStone);
+  putBox(g, 28, body * 0.24, 18, 0, body * 0.76, 0, bundStone);
+  const bayH = body * 0.84;
+  for (let i = -3; i <= 3; i++) {
+    const bay = new THREE.BoxGeometry(1.15, bayH, 0.28);
+    bay.translate(i * 4.4, 3.2 + bayH / 2, 14.15);
+    add(g, bay, dark);
+  }
+  putBox(g, 38, 1.15, 26, 0, body - 0.3, 0, glazeRoof);
+  const hip = new THREE.CylinderGeometry(5.2, 17.5, roofH * 0.62, 4);
+  hip.rotateY(Math.PI / 4);
+  hip.translate(0, body + roofH * 0.28, 0);
+  add(g, hip, glazeRoof);
+  const cap = new THREE.CylinderGeometry(0.7, 5.4, roofH * 0.4, 4);
+  cap.rotateY(Math.PI / 4);
+  cap.translate(0, body + roofH * 0.78, 0);
+  const capMesh = add(g, cap, glazeRoof);
+  capMesh.userData.part = 'boc-roof';
   return g;
 }
 
@@ -809,8 +947,10 @@ export function syncLandmarkNight(night) {
   legMat.emissiveIntensity = night * 1.25;
   shanghaiCrownMat.emissiveIntensity = night * 2.8;
   swfcEdgeMat.emissiveIntensity = night * 2.2;
-  bundStone.emissiveIntensity = night * 0.22;
-  copperRoof.emissiveIntensity = night * 0.35;
+  bundStone.emissiveIntensity = night * 0.42;
+  bundPlain.emissiveIntensity = night * 0.55;
+  copperRoof.emissiveIntensity = night * 0.7;
+  glazeRoof.emissiveIntensity = night * 0.45;
   beaconMat.emissiveIntensity = 0.35 + night * 2;
   clockMat.emissiveIntensity = night * 0.8;
 }

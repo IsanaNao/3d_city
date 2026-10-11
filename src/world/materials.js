@@ -200,8 +200,17 @@ const FACADE_MAIN = /* glsl */`
       wall *= 1.0 - grime;
       gGrime = 1.0 - grime;
     }
-    // Bund stonework is floodlit from below at night.
-    if (kind > 5.5) gEmissive += wall * vec3(1.0, 0.66, 0.32) * uNight * (0.16 + 0.34 * (1.0 - smoothstep(0.0, height, v)));
+    // Bund ashlar: rusticated base, a cornice each floor, warm floodlight from the promenade.
+    if (kind > 5.5) {
+      float course = smoothstep(0.78, 0.92, fract(v * 1.25));
+      float podium = 1.0 - smoothstep(0.0, 6.0, v);
+      wall *= mix(1.0, 0.78, podium * (0.45 + 0.55 * course));
+      float corn = smoothstep(0.84, 0.93, fract(v / 4.4));
+      wall *= 1.0 - corn * 0.28;
+      wall += vec3(0.07, 0.055, 0.035) * corn;
+      float up = 1.0 - smoothstep(0.0, max(height * 0.8, 10.0), v);
+      gEmissive += vec3(1.0, 0.68, 0.32) * uNight * (0.5 + 1.45 * up);
+    }
   }
   diffuseColor.rgb = wall;
 
@@ -402,7 +411,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-4';
+  material.customProgramCacheKey = () => 'sh-facade-5';
   return material;
 }
 
@@ -636,7 +645,7 @@ export function createWaterMaterial() {
         vec3 wr = reflect(wv, n);
         float fresnel = 0.05 + 0.95 * pow(1.0 - max(dot(-wv, n), 0.0), 4.0);
         // the Huangpu is silty: a dull olive brown seen straight down
-        vec3 body = vec3(0.035, 0.04, 0.03) * (0.04 + 0.96 * (1.0 - uDark));
+        vec3 body = vec3(0.06, 0.11, 0.13) * (0.28 + 0.72 * (1.0 - uDark));
         vec3 seen = mix(uHorizon, uSky, pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * uSkyGain * 0.9;
         float thing = 0.0;
         if (uMirrorOn > 0.5) {

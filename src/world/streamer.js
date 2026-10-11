@@ -46,10 +46,54 @@ function roadGeometry(roads) {
   return geo;
 }
 
-function terrainGeometry(grid) {
+function segDist(px, pz, ax, az, bx, bz) {
+  const abx = bx - ax;
+  const abz = bz - az;
+  const ab2 = abx * abx + abz * abz || 1e-6;
+  const t = Math.max(0, Math.min(1, ((px - ax) * abx + (pz - az) * abz) / ab2));
+  return Math.hypot(px - (ax + abx * t), pz - (az + abz * t));
+}
+
+function blockHash(ix, iz) {
+  let n = Math.imul(ix, 374761393) + Math.imul(iz, 668265263);
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+}
+
+// Bare terrain used to be one grey. Paint pavement beside carriageways and a
+// patchwork of turf and yards in the blocks; parks and plazas still overlay it.
+function terrainGeometry(grid, roads, waterLevel) {
   const { originX, originZ, step, cols, rows, heights } = grid;
+  const nearRoad = new Float32Array(cols * rows);
+  nearRoad.fill(40);
+  const edges = roads?.edges || [];
+  for (const edge of edges) {
+    const p = edge.points;
+    if (!p || p.length < 6) continue;
+    for (let k = 0; k + 5 < p.length; k += 3) {
+      const ax = p[k];
+      const az = p[k + 2];
+      const bx = p[k + 3];
+      const bz = p[k + 5];
+      const pad = 22;
+      const c0 = Math.max(0, Math.floor((Math.min(ax, bx) - pad - originX) / step));
+      const c1 = Math.min(cols - 1, Math.floor((Math.max(ax, bx) + pad - originX) / step));
+      const r0 = Math.max(0, Math.floor((Math.min(az, bz) - pad - originZ) / step));
+      const r1 = Math.min(rows - 1, Math.floor((Math.max(az, bz) + pad - originZ) / step));
+      for (let r = r0; r <= r1; r++) {
+        const z = originZ + r * step;
+        for (let c = c0; c <= c1; c++) {
+          const x = originX + c * step;
+          const d = segDist(x, z, ax, az, bx, bz);
+          const i = r * cols + c;
+          if (d < nearRoad[i]) nearRoad[i] = d;
+        }
+      }
+    }
+  }
   const pos = new Float32Array(cols * rows * 3);
   const col = new Float32Array(cols * rows * 3);
+  const wet = Number.isFinite(waterLevel) ? waterLevel : -1e9;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const i = r * cols + c;
@@ -59,10 +103,26 @@ function terrainGeometry(grid) {
       pos[i * 3] = x;
       pos[i * 3 + 1] = y;
       pos[i * 3 + 2] = z;
-      const shade = 0.96 + 0.04 * Math.sin(x * 0.04) * Math.cos(z * 0.035);
-      col[i * 3] = 0.5 * shade;
-      col[i * 3 + 1] = 0.5 * shade;
-      col[i * 3 + 2] = 0.48 * shade;
+      const shade = 0.94 + 0.08 * blockHash(Math.floor(x / 18), Math.floor(z / 18));
+      let cr;
+      let cg;
+      let cb;
+      if (y < wet + 0.35) {
+        cr = 0.1; cg = 0.18; cb = 0.2;
+      } else if (nearRoad[i] < 16) {
+        const t = Math.min(1, nearRoad[i] / 16);
+        cr = 0.5 + 0.08 * t;
+        cg = 0.48 + 0.08 * t;
+        cb = 0.45 + 0.06 * t;
+      } else {
+        const h = blockHash(Math.floor(x / 32), Math.floor(z / 32));
+        if (h < 0.58) { cr = 0.38; cg = 0.5; cb = 0.3; }
+        else if (h < 0.82) { cr = 0.62; cg = 0.6; cb = 0.54; }
+        else { cr = 0.46; cg = 0.52; cb = 0.36; }
+      }
+      col[i * 3] = cr * shade;
+      col[i * 3 + 1] = cg * shade;
+      col[i * 3 + 2] = cb * shade;
     }
   }
   const idx = [];
@@ -271,7 +331,7 @@ export function createStreamer({ scene, getView }) {
       waterLevel = city.manifest.waterLevel ?? sampleGrid(grid, 0, 0);
       known = new Set(city.manifest.tiles);
       signAtlas.current = atlas;
-      const geo = terrainGeometry(grid);
+      const geo = terrainGeometry(grid, city.roads, waterLevel);
       terrainMesh = new THREE.Mesh(geo, groundMat);
       terrainMesh.receiveShadow = true;
       scene.add(terrainMesh);

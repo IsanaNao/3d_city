@@ -255,6 +255,27 @@ test('bund historic row builds a clock tower, a dome and a copper roof', () => {
   }
   const dome = new THREE.Box3().setFromObject(hsbc);
   assert.ok(dome.max.y > 50, 'the HSBC dome rises above the block');
+  const spanOf = (model, part) => {
+    let mesh = null;
+    model.traverse((obj) => {
+      if (obj.userData?.part === part) mesh = obj;
+    });
+    assert.ok(mesh, part);
+    const box = new THREE.Box3().setFromObject(mesh);
+    return { box, span: Math.max(box.max.x - box.min.x, box.max.z - box.min.z) };
+  };
+  const shaft = spanOf(customs, 'customs-shaft');
+  const stage = spanOf(customs, 'customs-clock');
+  assert.ok(stage.span > shaft.span + 3, 'the clock stage is wider than the shaft');
+  let pyramid = false;
+  customs.traverse((obj) => {
+    if (obj.userData?.part === 'customs-roof' && obj.geometry?.type === 'ConeGeometry') pyramid = true;
+  });
+  assert.ok(pyramid, 'the customs cap is a pyramid');
+  const peaceRoof = spanOf(peace, 'peace-roof');
+  assert.ok(peaceRoof.box.max.y - peaceRoof.box.min.y > 18, 'the Peace Hotel pyramid is a tall roof');
+  const bocRoof = spanOf(boc, 'boc-roof');
+  assert.ok(bocRoof.box.max.y > 55, 'the Bank of China hip rises over the setbacks');
   const marks = findLandmarks([
     {
       name: '上海海关', area: 900, topY: 30, baseY: 4,

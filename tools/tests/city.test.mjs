@@ -3,9 +3,10 @@ import test from 'node:test';
 import { makeProjection } from '../../src/shared/geo.js';
 import { approachIsGreen, createSim, prepareGraph, stepSim } from '../../src/sim/traffic.js';
 import { decodeTile, encodeTile } from '../../src/shared/tileformat.js';
-import { compileDataset, settleGround } from '../pipeline/compile.mjs';
+import { LAND } from '../../src/shared/kinds.js';
+import { bankQuays, carveWater, compileDataset, settleGround } from '../pipeline/compile.mjs';
 import { liftAlong, parseCity } from '../pipeline/osm.mjs';
-import { clipPolygon, finalizeRing, offsetPolyline, resamplePolyline } from '../pipeline/geom.mjs';
+import { clipPolygon, finalizeRing, offsetPolyline, polygonArea, resamplePolyline } from '../pipeline/geom.mjs';
 import { buildRoadGraph } from '../pipeline/graph.mjs';
 
 test('the Lujiazui ring stays a low deck and a viaduct ramp slopes down', () => {
@@ -203,6 +204,68 @@ test('building spikes in the elevation grid settle back to street level', () => 
   const settled = settleGround(grid, [ring]);
   assert.ok(settled.heights[3 * cols + 3] < 12);
   assert.equal(settled.heights[0], 4);
+});
+
+test('a sloped river is cut to one bed and the smeared bank is raised', () => {
+  const cols = 24;
+  const rows = 16;
+  const step = 8;
+  const heights = new Float32Array(cols * rows);
+  heights.fill(12);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = c * step;
+      const z = r * step;
+      if (x > 60 && x < 120 && z > 12 && z < 100) heights[r * cols + c] = 7 - (x - 64) * 0.12;
+    }
+  }
+  heights[1] = 14;
+  heights[2 * cols + 6] = 3;
+  const grid = { originX: 0, originZ: 0, step, cols, rows, heights };
+  const hydro = carveWater(grid, [{ rings: [[[64, 16], [112, 16], [112, 96], [64, 96]]] }]);
+  assert.ok(hydro.waterLevel < 6);
+  const bed = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = c * step;
+      const z = r * step;
+      if (x > 70 && x < 104 && z > 24 && z < 88) bed.push(heights[r * cols + c]);
+    }
+  }
+  assert.ok(bed.length > 8);
+  assert.ok(bed.every((h) => Math.abs(h - bed[0]) < 0.001));
+  assert.ok(bed[0] < hydro.waterLevel);
+  assert.equal(heights[1], 14);
+  assert.ok(heights[2 * cols + 6] > 8);
+});
+
+test('Suzhou Creek is buffered into water and the Huangpu centreline is not', () => {
+  const proj = makeProjection(0, 0);
+  const line = (id, name, lon1) => ({
+    type: 'way',
+    id,
+    tags: { waterway: 'river', name },
+    geometry: [
+      { lon: 0, lat: 0 },
+      { lon: lon1 * 0.5, lat: 0.0001 },
+      { lon: lon1, lat: 0 },
+    ],
+  });
+  const creek = parseCity([line(1, '苏州河', 0.008)], proj, () => 4);
+  const water = creek.land.filter((f) => f.kind === LAND.WATER);
+  assert.equal(water.length, 1);
+  assert.ok(polygonArea(water[0].rings[0]) > 4000);
+  const huangpu = parseCity([line(2, '黄浦江', 0.01)], proj, () => 4);
+  assert.equal(huangpu.land.length, 0);
+});
+
+test('a wide channel grows a paved bank on the land side', () => {
+  const land = [{ kind: LAND.WATER, rings: [[[0, 0], [500, 0], [500, 500], [0, 500]]] }];
+  const n = bankQuays(land);
+  assert.ok(n > 8);
+  assert.ok(land.some((f) => f.kind === LAND.PLAZA));
+  const plaza = land.find((f) => f.kind === LAND.PLAZA);
+  assert.ok(polygonArea(plaza.rings[0]) > 20);
 });
 
 function encodeTileSafe(tile) {

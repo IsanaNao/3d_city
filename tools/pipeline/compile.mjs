@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { TILE, boundsFromBbox, makeProjection, tileKey, tileRect } from '../../src/shared/geo.js';
-import { LAND, PROP, ROAD } from '../../src/shared/kinds.js';
+import { KIND, LAND, PROP, ROAD } from '../../src/shared/kinds.js';
 import { findLandmarks, hiddenByLandmark } from '../../src/shared/landmarks.js';
 import { collectBridges } from './bridges.mjs';
 import { mulberry32 } from '../../src/shared/rng.js';
@@ -165,28 +165,140 @@ function clipRings(rings, rect, areaRect) {
   return out;
 }
 
-function carveWater(grid, waters) {
-  const polys = waters.map((w) => w.rings[0]).filter((r) => r && r.length >= 3);
-  if (!polys.length) return null;
-  const inside = [];
-  for (let r = 0; r < grid.rows; r++) {
-    for (let c = 0; c < grid.cols; c++) {
-      const x = grid.originX + c * grid.step;
-      const z = grid.originZ + r * grid.step;
-      if (polys.some((poly) => pointInPoly(x, z, poly))) inside.push(r * grid.cols + c);
+// SRTM draws the Huangpu as a ramp hundreds of metres wide. The water mesh only
+// shows where that ramp is already below the water line, so the channel looks
+// like a grey beach. Flatten every wet cell to one bed and lift the smeared
+// bank back up to the street, leaving a flood wall instead of a slope.
+export function carveWater(grid, waters) {
+  const boxed = [];
+  for (const w of waters) {
+    const ring = w.rings?.[0];
+    if (!ring || ring.length < 3) continue;
+    const box = ringBBox(ring);
+    boxed.push({ ring, ...box });
+  }
+  if (!boxed.length) return null;
+  const { cols, rows, originX, originZ, step } = grid;
+  const n = cols * rows;
+  const inside = new Uint8Array(n);
+  const insideIdx = [];
+  for (let r = 0; r < rows; r++) {
+    const z = originZ + r * step;
+    for (let c = 0; c < cols; c++) {
+      const x = originX + c * step;
+      let hit = false;
+      for (const b of boxed) {
+        if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue;
+        if (pointInPoly(x, z, b.ring)) { hit = true; break; }
+      }
+      if (!hit) continue;
+      const i = r * cols + c;
+      inside[i] = 1;
+      insideIdx.push(i);
     }
   }
-  if (inside.length < 3) return null;
-  const waterVals = inside.map((i) => grid.heights[i]).sort((a, b) => a - b);
-  const waterMedian = waterVals[waterVals.length >> 1];
-  const all = Array.from(grid.heights).sort((a, b) => a - b);
-  const landMedian = all[all.length >> 1];
-  if (landMedian - waterMedian < 0.8) {
-    const bed = waterMedian - 2.1;
-    for (const i of inside) grid.heights[i] = bed;
-    return waterMedian - 0.25;
+  if (insideIdx.length < 3) return null;
+
+  const wet = insideIdx.map((i) => grid.heights[i]).filter((h) => Number.isFinite(h)).sort((a, b) => a - b);
+  if (wet.length < 3) return null;
+  const low = wet[Math.floor(wet.length * 0.2)];
+  const bed = low - 1.5;
+
+  const REACH = 12;
+  const dist = new Int16Array(n);
+  dist.fill(-1);
+  const queue = new Int32Array(n);
+  let head = 0;
+  let tail = 0;
+  for (const i of insideIdx) {
+    dist[i] = 0;
+    queue[tail++] = i;
   }
-  return waterMedian + 0.15;
+  while (head < tail) {
+    const i = queue[head++];
+    const d = dist[i];
+    if (d >= REACH) continue;
+    const c = i % cols;
+    const r = (i - c) / cols;
+    if (c > 0 && dist[i - 1] < 0) { dist[i - 1] = d + 1; queue[tail++] = i - 1; }
+    if (c + 1 < cols && dist[i + 1] < 0) { dist[i + 1] = d + 1; queue[tail++] = i + 1; }
+    if (r > 0 && dist[i - cols] < 0) { dist[i - cols] = d + 1; queue[tail++] = i - cols; }
+    if (r + 1 < rows && dist[i + cols] < 0) { dist[i + cols] = d + 1; queue[tail++] = i + cols; }
+  }
+
+  const ringH = [];
+  for (let i = 0; i < n; i++) {
+    if (dist[i] <= 0 || dist[i] > 8) continue;
+    const h = grid.heights[i];
+    if (Number.isFinite(h)) ringH.push(h);
+  }
+  ringH.sort((a, b) => a - b);
+  const p80 = ringH.length ? ringH[Math.min(ringH.length - 1, Math.floor(ringH.length * 0.82))] : 11;
+  const bank = Math.max(8, Math.min(16, p80));
+
+  for (const i of insideIdx) grid.heights[i] = bed;
+  for (let i = 0; i < n; i++) {
+    if (dist[i] <= 0 || dist[i] > REACH) continue;
+    if (grid.heights[i] < Math.min(bank - 2.2, 8.5)) grid.heights[i] = bank;
+  }
+  return { waterLevel: bed + 1.75, bank };
+}
+
+// A paved strip along the outside of a wide channel, so the Bund promenade
+// and the opposite bank meet the water instead of stopping on bare terrain.
+export function bankQuays(land) {
+  const waters = land.filter((f) => f.kind === LAND.WATER && f.rings?.[0] && polygonArea(f.rings[0]) > 80000);
+  const quays = [];
+  for (const water of waters) {
+    const ring = water.rings[0];
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i];
+      const b = ring[(i + 1) % ring.length];
+      const dx = b[0] - a[0];
+      const dz = b[1] - a[1];
+      const len = Math.hypot(dx, dz);
+      if (len < 3) continue;
+      const steps = Math.max(1, Math.ceil(len / 36));
+      for (let s = 0; s < steps; s++) {
+        const t0 = s / steps;
+        const t1 = (s + 1) / steps;
+        const p0 = [a[0] + dx * t0, a[1] + dz * t0];
+        const p1 = [a[0] + dx * t1, a[1] + dz * t1];
+        const mx = (p0[0] + p1[0]) / 2;
+        const mz = (p0[1] + p1[1]) / 2;
+        const slen = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) || 1;
+        let ox = -(p1[1] - p0[1]) / slen;
+        let oz = (p1[0] - p0[0]) / slen;
+        if (pointInPoly(mx + ox * 5, mz + oz * 5, ring)) { ox = -ox; oz = -oz; }
+        if (pointInPoly(mx + ox * 5, mz + oz * 5, ring)) continue;
+        const bund = ox < -0.35 && mz > -1200 && mz < 1100;
+        const depth = bund ? 48 : 16;
+        const near = 1.2;
+        const q0 = [p0[0] + ox * near, p0[1] + oz * near];
+        const q1 = [p1[0] + ox * near, p1[1] + oz * near];
+        const q2 = [p1[0] + ox * (near + depth), p1[1] + oz * (near + depth)];
+        const q3 = [p0[0] + ox * (near + depth), p0[1] + oz * (near + depth)];
+        const farX = mx + ox * (near + depth);
+        const farZ = mz + oz * (near + depth);
+        if (pointInPoly(farX, farZ, ring)) continue;
+        quays.push({ kind: LAND.PLAZA, rings: [ensureWinding([q0, q1, q2, q3], true)] });
+      }
+    }
+  }
+  land.push(...quays);
+  return quays.length;
+}
+
+function markBundRow(buildings) {
+  for (const building of buildings) {
+    const c = building.centroid;
+    if (!c) continue;
+    const height = building.topY - building.baseY;
+    if (c[0] < -1450 || c[0] > -980 || c[1] < -900 || c[1] > 750) continue;
+    if (height < 12 || height > 96) continue;
+    if (building.kind === KIND.LANDMARK) continue;
+    building.kind = KIND.HISTORIC;
+  }
 }
 
 function stitchLines(items) {
@@ -606,8 +718,23 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
   const areaRect = { minX: bounds.minX, maxX: bounds.maxX, minZ: bounds.minZ, maxZ: bounds.maxZ };
   const rough = parseCity(elements, proj, (x, z) => sampleGrid(grid, x, z));
   const settled = settleGround(grid, rough.buildings.map((building) => building.rings[0]));
-  const sampleHeight = (x, z) => sampleGrid(settled, x, z);
+  const carved = {
+    ...settled,
+    heights: Float32Array.from(settled.heights),
+  };
+  const hydro = carveWater(carved, rough.land.filter((f) => f.kind === LAND.WATER));
+  const waterLevel = hydro ? hydro.waterLevel : null;
+  const sampleHeight = (x, z) => sampleGrid(carved, x, z);
+  // Bridge decks are lifted off the ground. Sampling the carved bed would sag
+  // every span into the channel, so a point in the bed keeps the bank grade.
+  const sampleDeck = (x, z) => {
+    const y = sampleHeight(x, z);
+    if (hydro && y < hydro.waterLevel + 0.4) return hydro.bank;
+    return y;
+  };
   const parsed = parseCity(elements, proj, sampleHeight);
+  bankQuays(parsed.land);
+  markBundRow(parsed.buildings);
 
   const draped = [];
   for (const road of parsed.roads) {
@@ -615,7 +742,7 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
       const points = resamplePolyline(part, 16);
       if (points.length < 2 || polylineLength(points) < 4) continue;
       const lifts = liftAlong(road, points);
-      const y = points.map(([x, z], i) => sampleHeight(x, z) + 0.22 + lifts[i]);
+      const y = points.map(([x, z], i) => sampleDeck(x, z) + 0.22 + lifts[i]);
       draped.push({ ...road, points, y });
     }
   }
@@ -627,7 +754,7 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
       const points = resamplePolyline(part, 18);
       if (polylineLength(points) < 30) continue;
       const y = points.map(([x, z]) => {
-        const ground = sampleHeight(x, z);
+        const ground = sampleDeck(x, z);
         if (rail.bridge) return ground + 7;
         if (rail.tunnel) return ground + 0.5;
         return ground + 0.35;
@@ -637,11 +764,6 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
   }
   const rails = stitchLines(railPieces);
 
-  const carved = {
-    ...settled,
-    heights: Float32Array.from(settled.heights),
-  };
-  const waterLevel = carveWater(carved, parsed.land.filter((f) => f.kind === LAND.WATER));
   const landmarks = findLandmarks(parsed.footprints || parsed.buildings);
   // The Bund HSBC block is a cluster of unnamed parts. Drop a dome on the
   // published site, just south of the customs house, when OSM has no name.
@@ -652,7 +774,7 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
         id: 'hsbc',
         name: '汇丰银行大楼',
         x, z,
-        y: sampleHeight(x, z),
+        y: sampleDeck(x, z),
         h: 52,
         yaw: Math.PI / 2,
         radius: 46,
@@ -660,7 +782,7 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
     }
   }
   const keptBuildings = parsed.buildings.filter((building) => !hiddenByLandmark(building, landmarks));
-  const bridges = collectBridges(elements, proj, sampleHeight);
+  const bridges = collectBridges(elements, proj, sampleDeck);
   const props = placeProps(keptBuildings, draped, parsed.land, sampleHeight, parsed.signals);
 
   const buckets = createBuckets();
