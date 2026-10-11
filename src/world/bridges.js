@@ -14,12 +14,11 @@ const cableMat = new THREE.MeshStandardMaterial({
   emissive: new THREE.Color(0xfff2d0), emissiveIntensity: 0,
 });
 
-function member(group, a, b, radius, mat, sides = 6) {
+function member(group, a, b, radius, mat, sides = 6, part = '') {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
-  if (len < 0.4) return;
+  if (len < 0.4) return null;
   const geo = new THREE.CylinderGeometry(radius, radius, len, sides);
-  const mid = a.clone().add(b).multiplyScalar(0.5);
   geo.translate(0, len / 2, 0);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.copy(a);
@@ -27,7 +26,10 @@ function member(group, a, b, radius, mat, sides = 6) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.frustumCulled = false;
+  if (part) mesh.userData.part = part;
+  mesh.userData.anchor = a.clone();
   group.add(mesh);
+  return mesh;
 }
 
 function resample(points, step) {
@@ -97,8 +99,35 @@ function trussBridge(item) {
   return g;
 }
 
+function orientBox(mesh, xAxis, yAxis) {
+  const x = xAxis.clone().normalize();
+  const y = yAxis.clone().normalize();
+  const z = new THREE.Vector3().crossVectors(x, y).normalize();
+  const yOrtho = new THREE.Vector3().crossVectors(z, x).normalize();
+  mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, yOrtho, z));
+}
+
+// Rectangular concrete member. Local X follows `across`, local Y follows a→b.
+function boxMember(group, a, b, across, thickness, depth, mat, part) {
+  const along = b.clone().sub(a);
+  const len = along.length();
+  if (len < 0.4) return null;
+  const geo = new THREE.BoxGeometry(thickness, len, depth);
+  geo.translate(0, len / 2, 0);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(a);
+  orientBox(mesh, across, along);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.frustumCulled = false;
+  mesh.userData.part = part;
+  mesh.userData.anchor = b.clone();
+  group.add(mesh);
+  return mesh;
+}
+
 function towerPair(group, base, dir, height, spread, style) {
-  const side = new THREE.Vector3(-dir.z, 0, dir.x);
+  const side = new THREE.Vector3(-dir.z, 0, dir.x).normalize();
   const left = base.clone().add(side.clone().multiplyScalar(spread));
   const right = base.clone().add(side.clone().multiplyScalar(-spread));
   if (style === 'y') {
@@ -110,19 +139,28 @@ function towerPair(group, base, dir, height, spread, style) {
     const a = left.clone().lerp(top, beam);
     const b = right.clone().lerp(top, beam);
     member(group, a, b, 1.7, concrete, 8);
-    return top;
+    return { left: top, right: top, side };
   }
-  const topL = left.clone();
-  topL.y += height;
-  const topR = right.clone();
-  topR.y += height;
-  member(group, left, topL, 2.4, concrete, 10);
-  member(group, right, topR, 2.4, concrete, 10);
-  member(group, topL, topR, 1.8, concrete, 8);
-  const midL = left.clone().lerp(topL, 0.58);
-  const midR = right.clone().lerp(topR, 0.58);
-  member(group, midL, midR, 1.5, concrete, 8);
-  return topL.clone().add(topR).multiplyScalar(0.5);
+  // Both Nanpu towers are the same H: two legs across the deck and two crossbeams.
+  // The frame is yawed off the pure cross-section so a side view still shows both
+  // legs instead of stacking them into one pole.
+  const legH = height;
+  const along = new THREE.Vector3(dir.x, 0, dir.z).normalize();
+  boxMember(group, left, left.clone().setY(base.y + legH), side, 4.4, 6.6, concrete, 'h-leg');
+  boxMember(group, right, right.clone().setY(base.y + legH), side, 4.4, 6.6, concrete, 'h-leg');
+  const beamAt = (t, tall, deep) => {
+    const a = left.clone().setY(base.y + legH * t);
+    const b = right.clone().setY(base.y + legH * t);
+    boxMember(group, a, b, along, deep, tall, concrete, 'h-beam');
+  };
+  beamAt(0.56, 3.2, 5.4);
+  beamAt(0.96, 3.6, 6.0);
+  const anchorY = base.y + legH * 0.9;
+  return {
+    left: left.clone().setY(anchorY),
+    right: right.clone().setY(anchorY),
+    side,
+  };
 }
 
 function cableBridge(item) {
@@ -152,17 +190,30 @@ function cableBridge(item) {
   };
   const height = item.towerH || 150;
   const style = item.style || 'h';
+  // One span direction for both towers, so the two H frames stay parallel.
+  let face = dirOf(a0 + main * 0.5);
+  if (style === 'h') {
+    const yaw = -0.7;
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    face = new THREE.Vector3(face.x * c - face.z * s, 0, face.x * s + face.z * c).normalize();
+  }
   const anchors = [];
   for (const dist of [a0, a0 + main]) {
-    const base = at(dist);
-    anchors.push(towerPair(g, base, dirOf(dist), height, 14, style));
+    anchors.push(towerPair(g, at(dist), face, height, 20, style));
   }
   const fanFrom = Math.max(0, a0 - main * 0.22);
   const fanTo = Math.min(total, a0 + main + main * 0.22);
-  for (let d = fanFrom; d <= fanTo; d += 28) {
+  for (let d = fanFrom; d <= fanTo; d += 26) {
     const deck = at(d);
-    const anchor = d < a0 + main / 2 ? anchors[0] : anchors[1];
-    member(g, anchor, deck, 0.38, cableMat, 4);
+    const tower = d < a0 + main / 2 ? anchors[0] : anchors[1];
+    if (style === 'h') {
+      const side = tower.side;
+      member(g, tower.left, deck.clone().add(side.clone().multiplyScalar(8)), 0.34, cableMat, 4, 'cable');
+      member(g, tower.right, deck.clone().add(side.clone().multiplyScalar(-8)), 0.34, cableMat, 4, 'cable');
+    } else {
+      member(g, tower.left, deck, 0.38, cableMat, 4, 'cable');
+    }
   }
   g.userData.towers = 2;
   return g;

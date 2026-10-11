@@ -9,6 +9,7 @@ import { createBuildingMaterial, createGroundMaterial, createRoadMaterial, creat
 import { lampPools, lampScene } from './lamplight.js';
 import { WATER_LAYER } from './mirror.js';
 import { createBridges, syncBridgeNight } from './bridges.js';
+import { createEmbankments, embankmentSegments } from './embankment.js';
 import { createLandmarks, syncLandmarkNight } from './landmarks.js';
 import {
   instanceProps, lampGeometries, lampHeadMaterial, signMesh, signalGeometry, staticPropMesh, treeGeometry, treeGeometryFar,
@@ -62,7 +63,45 @@ function blockHash(ix, iz) {
 
 // Bare terrain used to be one grey. Paint pavement beside carriageways and a
 // patchwork of turf and yards in the blocks; parks and plazas still overlay it.
-function terrainGeometry(grid, roads, waterLevel) {
+function hardBankHash(segments) {
+  const cell = 48;
+  const buckets = new Map();
+  const key = (ix, iz) => `${ix},${iz}`;
+  for (const seg of segments) {
+    const minX = Math.min(seg.ax, seg.bx) - seg.width - 8;
+    const maxX = Math.max(seg.ax, seg.bx) + seg.width + 8;
+    const minZ = Math.min(seg.az, seg.bz) - seg.width - 8;
+    const maxZ = Math.max(seg.az, seg.bz) + seg.width + 8;
+    const ix0 = Math.floor(minX / cell);
+    const ix1 = Math.floor(maxX / cell);
+    const iz0 = Math.floor(minZ / cell);
+    const iz1 = Math.floor(maxZ / cell);
+    for (let ix = ix0; ix <= ix1; ix++) {
+      for (let iz = iz0; iz <= iz1; iz++) {
+        const k = key(ix, iz);
+        let list = buckets.get(k);
+        if (!list) { list = []; buckets.set(k, list); }
+        list.push(seg);
+      }
+    }
+  }
+  return (x, z, extra = 0) => {
+    const ix = Math.floor(x / cell);
+    const iz = Math.floor(z / cell);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const list = buckets.get(key(ix + dx, iz + dz));
+        if (!list) continue;
+        for (const seg of list) {
+          if (segDist(x, z, seg.ax, seg.az, seg.bx, seg.bz) < seg.width + extra) return true;
+        }
+      }
+    }
+    return false;
+  };
+}
+
+function terrainGeometry(grid, roads, waterLevel, embankments) {
   const { originX, originZ, step, cols, rows, heights } = grid;
   const nearRoad = new Float32Array(cols * rows);
   nearRoad.fill(40);
@@ -91,6 +130,7 @@ function terrainGeometry(grid, roads, waterLevel) {
       }
     }
   }
+  const onPromenade = hardBankHash(embankmentSegments(embankments));
   const pos = new Float32Array(cols * rows * 3);
   const col = new Float32Array(cols * rows * 3);
   const wet = Number.isFinite(waterLevel) ? waterLevel : -1e9;
@@ -109,6 +149,8 @@ function terrainGeometry(grid, roads, waterLevel) {
       let cb;
       if (y < wet + 0.35) {
         cr = 0.1; cg = 0.18; cb = 0.2;
+      } else if (onPromenade(x, z, 2)) {
+        cr = 0.62; cg = 0.58; cb = 0.52;
       } else if (nearRoad[i] < 16) {
         const t = Math.min(1, nearRoad[i] / 16);
         cr = 0.5 + 0.08 * t;
@@ -127,12 +169,20 @@ function terrainGeometry(grid, roads, waterLevel) {
   }
   const idx = [];
   const vi = (c, r) => r * cols + c;
+  const yOf = (i) => pos[i * 3 + 1];
   for (let r = 0; r < rows - 1; r++) {
     for (let c = 0; c < cols - 1; c++) {
       const a = vi(c, r);
       const b = vi(c + 1, r);
       const d = vi(c, r + 1);
       const e = vi(c + 1, r + 1);
+      const drop = Math.max(yOf(a), yOf(b), yOf(d), yOf(e)) - Math.min(yOf(a), yOf(b), yOf(d), yOf(e));
+      if (drop > 4.5) {
+        const mx = (pos[a * 3] + pos[b * 3] + pos[d * 3] + pos[e * 3]) / 4;
+        const mz = (pos[a * 3 + 2] + pos[b * 3 + 2] + pos[d * 3 + 2] + pos[e * 3 + 2]) / 4;
+        // The flood wall closes this gap. A park bank is not in the hash, so its slope stays.
+        if (onPromenade(mx, mz, 10)) continue;
+      }
       idx.push(a, d, b, b, d, e);
     }
   }
@@ -142,6 +192,37 @@ function terrainGeometry(grid, roads, waterLevel) {
   geo.setIndex(idx);
   geo.computeVertexNormals();
   return geo;
+}
+
+// A riverside park is meshed as one sheet. Triangles that fall onto the flood
+// wall or the promenade would drape grass over the stone, so those faces go.
+function stripBankDrape(geo, onBank, waterLevel) {
+  const srcP = geo.position;
+  const srcN = geo.normal;
+  const srcC = geo.color;
+  const pos = [];
+  const nrm = [];
+  const col = [];
+  const wet = Number.isFinite(waterLevel) ? waterLevel : -1e9;
+  for (let i = 0; i < srcP.length; i += 9) {
+    const ys = [srcP[i + 1], srcP[i + 4], srcP[i + 7]];
+    const drop = Math.max(ys[0], ys[1], ys[2]) - Math.min(ys[0], ys[1], ys[2]);
+    const mx = (srcP[i] + srcP[i + 3] + srcP[i + 6]) / 3;
+    const mz = (srcP[i + 2] + srcP[i + 5] + srcP[i + 8]) / 3;
+    const low = Math.min(ys[0], ys[1], ys[2]);
+    if (drop > 3.2 && low < wet + 4 && onBank(mx, mz, 16)) continue;
+    if (onBank(mx, mz, -4)) continue;
+    for (let k = 0; k < 9; k++) {
+      pos.push(srcP[i + k]);
+      nrm.push(srcN[i + k]);
+      col.push(srcC[i + k]);
+    }
+  }
+  return {
+    position: new Float32Array(pos),
+    normal: new Float32Array(nrm),
+    color: new Float32Array(col),
+  };
 }
 
 export async function loadCity(area, base) {
@@ -176,6 +257,7 @@ export function createStreamer({ scene, getView }) {
   let grid = null;
   let waterLevel = 0;
   let terrainMesh = null;
+  let onBank = () => false;
   const signAtlas = { current: null };
 
   function yAt(x, z, kind) {
@@ -213,7 +295,7 @@ export function createStreamer({ scene, getView }) {
     }
     const opaque = tile.land.filter((f) => f.kind !== LAND.WATER);
     const water = tile.land.filter((f) => f.kind === LAND.WATER);
-    const landGeo = buildLandGeometry(opaque, yAt);
+    const landGeo = stripBankDrape(buildLandGeometry(opaque, yAt), onBank, waterLevel);
     if (landGeo.position.length) {
       const geo = new THREE.BufferGeometry();
       setAttr(geo, 'position', landGeo.position, 3);
@@ -329,9 +411,10 @@ export function createStreamer({ scene, getView }) {
       root = city.root;
       grid = city.terrain;
       waterLevel = city.manifest.waterLevel ?? sampleGrid(grid, 0, 0);
+      onBank = hardBankHash(embankmentSegments(city.manifest.embankments));
       known = new Set(city.manifest.tiles);
       signAtlas.current = atlas;
-      const geo = terrainGeometry(grid, city.roads, waterLevel);
+      const geo = terrainGeometry(grid, city.roads, waterLevel, city.manifest.embankments);
       terrainMesh = new THREE.Mesh(geo, groundMat);
       terrainMesh.receiveShadow = true;
       scene.add(terrainMesh);
@@ -343,6 +426,9 @@ export function createStreamer({ scene, getView }) {
       }
       if (city.manifest.bridges?.length) {
         scene.add(createBridges(city.manifest.bridges));
+      }
+      if (city.manifest.embankments?.length) {
+        scene.add(createEmbankments(city.manifest.embankments, grid, waterLevel));
       }
     },
     syncNight(night) {

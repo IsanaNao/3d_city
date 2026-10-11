@@ -244,8 +244,116 @@ export function carveWater(grid, waters) {
   return { waterLevel: bed + 1.75, bank };
 }
 
-// A paved strip along the outside of a wide channel, so the Bund promenade
-// and the opposite bank meet the water instead of stopping on bare terrain.
+// Bund west bank and the Lujiazui shore get a hard wall. Other edges stay as they are.
+// The east bank bends west toward the Suzhou Creek mouth, so the x window reaches past -980.
+function frontageKind(mx, mz, ox) {
+  if (ox < -0.22 && mz > -1100 && mz < 1000 && mx < -500) return 'bund';
+  if (ox > 0.18 && mz > -1550 && mz < 1150 && mx > -1200 && mx < 700) return 'lujiazui';
+  return null;
+}
+
+function stitchBank(segments) {
+  const pool = segments.map((seg) => ({ ...seg, used: false }));
+  const lines = [];
+  // A dropped corner step leaves a gap of about one sample. Bridge that, not a dock mouth.
+  const near = (p, q) => Math.hypot(p.x - q.x, p.z - q.z) < 18;
+  for (const seed of pool) {
+    if (seed.used) continue;
+    seed.used = true;
+    const line = [
+      { x: seed.a[0], z: seed.a[1], ox: seed.ox, oz: seed.oz },
+      { x: seed.b[0], z: seed.b[1], ox: seed.ox, oz: seed.oz },
+    ];
+    let grew = true;
+    while (grew) {
+      grew = false;
+      const head = line[0];
+      const tail = line[line.length - 1];
+      for (const seg of pool) {
+        if (seg.used || seg.id !== seed.id) continue;
+        const a = { x: seg.a[0], z: seg.a[1], ox: seg.ox, oz: seg.oz };
+        const b = { x: seg.b[0], z: seg.b[1], ox: seg.ox, oz: seg.oz };
+        if (near(a, tail)) { line.push(b); seg.used = true; grew = true; }
+        else if (near(b, tail)) { line.push(a); seg.used = true; grew = true; }
+        else if (near(b, head)) { line.unshift(a); seg.used = true; grew = true; }
+        else if (near(a, head)) { line.unshift(b); seg.used = true; grew = true; }
+      }
+    }
+    const slim = [line[0]];
+    for (let i = 1; i < line.length; i++) {
+      const prev = slim[slim.length - 1];
+      if (Math.hypot(line[i].x - prev.x, line[i].z - prev.z) >= 10 || i === line.length - 1) slim.push(line[i]);
+    }
+    if (slim.length >= 2) {
+      let length = 0;
+      for (let i = 1; i < slim.length; i++) length += Math.hypot(slim[i].x - slim[i - 1].x, slim[i].z - slim[i - 1].z);
+      if (length >= 40) lines.push({ id: seed.id, width: seed.id === 'bund' ? 46 : 22, points: slim });
+    }
+  }
+  return lines;
+}
+
+// Water polygons extend past the downloaded area. Keep the wall on the map.
+function trimEmbankments(lines, rect) {
+  const pad = 40;
+  const inside = (p) => p.x >= rect.minX - pad && p.x <= rect.maxX + pad
+    && p.z >= rect.minZ - pad && p.z <= rect.maxZ + pad;
+  const out = [];
+  for (const line of lines) {
+    let run = [];
+    const flush = () => {
+      if (run.length < 2) { run = []; return; }
+      let length = 0;
+      for (let i = 1; i < run.length; i++) length += Math.hypot(run[i].x - run[i - 1].x, run[i].z - run[i - 1].z);
+      if (length >= 40) out.push({ ...line, points: run });
+      run = [];
+    };
+    for (const p of line.points) {
+      if (inside(p)) run.push(p);
+      else flush();
+    }
+    flush();
+  }
+  return out;
+}
+
+// Vertical flood wall and a raised walk along the Bund and the Lujiazui shore.
+// Riverside greens (滨江公园, 陆家嘴绿地) are tagged as parks down to the water,
+// but the real edge there is still the flood wall. The lawn stays behind the walk.
+export function collectEmbankments(land) {
+  const segments = [];
+  const waters = land.filter((f) => f.kind === LAND.WATER && f.rings?.[0] && polygonArea(f.rings[0]) > 80000);
+  for (const water of waters) {
+    const ring = water.rings[0];
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i];
+      const b = ring[(i + 1) % ring.length];
+      const dx = b[0] - a[0];
+      const dz = b[1] - a[1];
+      const len = Math.hypot(dx, dz);
+      if (len < 4) continue;
+      const steps = Math.max(1, Math.ceil(len / 28));
+      for (let s = 0; s < steps; s++) {
+        const p0 = [a[0] + dx * (s / steps), a[1] + dz * (s / steps)];
+        const p1 = [a[0] + dx * ((s + 1) / steps), a[1] + dz * ((s + 1) / steps)];
+        const mx = (p0[0] + p1[0]) / 2;
+        const mz = (p0[1] + p1[1]) / 2;
+        const slen = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) || 1;
+        let ox = -(p1[1] - p0[1]) / slen;
+        let oz = (p1[0] - p0[0]) / slen;
+        if (pointInPoly(mx + ox * 5, mz + oz * 5, ring)) { ox = -ox; oz = -oz; }
+        if (pointInPoly(mx + ox * 5, mz + oz * 5, ring)) continue;
+        const id = frontageKind(mx, mz, ox);
+        if (!id) continue;
+        segments.push({ id, a: p0, b: p1, ox, oz });
+      }
+    }
+  }
+  return stitchBank(segments);
+}
+
+// A paved strip along the outside of a wide channel, so the bank meets the
+// water. The Bund and Lujiazui frontages are walls instead, built separately.
 export function bankQuays(land) {
   const waters = land.filter((f) => f.kind === LAND.WATER && f.rings?.[0] && polygonArea(f.rings[0]) > 80000);
   const quays = [];
@@ -271,6 +379,7 @@ export function bankQuays(land) {
         let oz = (p1[0] - p0[0]) / slen;
         if (pointInPoly(mx + ox * 5, mz + oz * 5, ring)) { ox = -ox; oz = -oz; }
         if (pointInPoly(mx + ox * 5, mz + oz * 5, ring)) continue;
+        if (frontageKind(mx, mz, ox)) continue;
         const bund = ox < -0.35 && mz > -1200 && mz < 1100;
         const depth = bund ? 48 : 16;
         const near = 1.2;
@@ -734,6 +843,7 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
   };
   const parsed = parseCity(elements, proj, sampleHeight);
   bankQuays(parsed.land);
+  const embankments = trimEmbankments(collectEmbankments(parsed.land), areaRect);
   markBundRow(parsed.buildings);
 
   const draped = [];
@@ -924,6 +1034,7 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
     bridges: bridges.map(({ id, name, kind, style, towerH, mainSpan, points }) => ({
       id, name, kind, style, towerH, mainSpan, points,
     })),
+    embankments,
     generatedAt: new Date().toISOString(),
     attribution: {
       osm: '© OpenStreetMap contributors (ODbL)',

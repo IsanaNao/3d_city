@@ -4,7 +4,7 @@ import { makeProjection } from '../../src/shared/geo.js';
 import { approachIsGreen, createSim, prepareGraph, stepSim } from '../../src/sim/traffic.js';
 import { decodeTile, encodeTile } from '../../src/shared/tileformat.js';
 import { LAND } from '../../src/shared/kinds.js';
-import { bankQuays, carveWater, compileDataset, settleGround } from '../pipeline/compile.mjs';
+import { bankQuays, carveWater, collectEmbankments, compileDataset, settleGround } from '../pipeline/compile.mjs';
 import { liftAlong, parseCity } from '../pipeline/osm.mjs';
 import { clipPolygon, finalizeRing, offsetPolyline, polygonArea, resamplePolyline } from '../pipeline/geom.mjs';
 import { buildRoadGraph } from '../pipeline/graph.mjs';
@@ -257,6 +257,23 @@ test('Suzhou Creek is buffered into water and the Huangpu centreline is not', ()
   assert.ok(polygonArea(water[0].rings[0]) > 4000);
   const huangpu = parseCity([line(2, '黄浦江', 0.01)], proj, () => 4);
   assert.equal(huangpu.land.length, 0);
+});
+
+test('the Bund and Lujiazui shores keep a hard embankment where a park meets the water', () => {
+  const water = {
+    kind: LAND.WATER,
+    rings: [[[-1300, -200], [-700, -200], [-700, 200], [-1300, 200]]],
+  };
+  const lines = collectEmbankments([water]);
+  assert.ok(lines.some((line) => line.id === 'bund' && line.width >= 40 && line.points.length >= 2));
+  assert.ok(lines.some((line) => line.id === 'lujiazui' && line.points.length >= 2));
+  const park = {
+    kind: LAND.PARK,
+    rings: [[[-1450, -260], [-1120, -260], [-1120, 260], [-1450, 260]]],
+  };
+  const kept = collectEmbankments([water, park]);
+  assert.ok(kept.some((line) => line.id === 'bund' && line.width >= 40));
+  assert.ok(kept.some((line) => line.id === 'lujiazui'));
 });
 
 test('a wide channel grows a paved bank on the land side', () => {

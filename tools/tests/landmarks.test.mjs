@@ -344,4 +344,36 @@ test('named crossings become a truss and two cable-stayed bridges', () => {
   assert.ok(group.children[0].children.length > 8);
   assert.equal(group.children[1].userData.towers, 2);
   assert.ok(group.children[1].children.length > 8);
+  const nanpu = group.children[1];
+  let legs = 0;
+  let beams = 0;
+  const anchors = [];
+  nanpu.traverse((obj) => {
+    if (obj.userData?.part === 'h-leg') legs += 1;
+    if (obj.userData?.part === 'h-beam') beams += 1;
+    if (obj.userData?.part === 'cable' && obj.userData.anchor) anchors.push(obj.userData.anchor);
+  });
+  assert.equal(legs, 4, 'both towers have two legs');
+  assert.equal(beams, 4, 'each H has a mid beam and a top beam');
+  const clusters = [];
+  for (const anchor of anchors) {
+    if (!clusters.some((c) => c.distanceTo(anchor) < 4)) clusters.push(anchor);
+  }
+  assert.equal(clusters.length, 4, 'cable fans anchor on both legs of both towers');
+  const legPos = [];
+  nanpu.traverse((obj) => {
+    if (obj.userData?.part === 'h-leg') legPos.push(obj.position.clone());
+  });
+  const towers = [];
+  for (const p of legPos) {
+    const hit = towers.find((group) => group[0].distanceTo(p) < 45);
+    if (hit) hit.push(p);
+    else towers.push([p]);
+  }
+  assert.equal(towers.length, 2);
+  assert.ok(towers.every((group) => group.length === 2));
+  const sep = (p, q) => new THREE.Vector3(q.x - p.x, 0, q.z - p.z).normalize();
+  const s0 = sep(towers[0][0], towers[0][1]);
+  const s1 = sep(towers[1][0], towers[1][1]);
+  assert.ok(Math.abs(s0.dot(s1)) > 0.98, 'the two H frames are parallel');
 });

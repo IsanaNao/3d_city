@@ -12,6 +12,7 @@ import { LampLight } from './world/lamplight.js';
 import { WaterMirror, WATER_LAYER } from './world/mirror.js';
 import { createStreamer, loadCity } from './world/streamer.js';
 import { syncBridgeNight } from './world/bridges.js';
+import { syncEmbankmentNight } from './world/embankment.js';
 import { syncLandmarkNight } from './world/landmarks.js';
 import { loadPhotoTextures } from './world/textures.js';
 import { signMaterial } from './world/props.js';
@@ -130,6 +131,7 @@ function applySun() {
   if (streamer.headMat) streamer.headMat.emissiveIntensity = night * 4;
   syncLandmarkNight(night);
   syncBridgeNight(night);
+  syncEmbankmentNight(night);
   signsMat.emissiveIntensity = 0.15 + night * 0.9;
   if (cars) cars.lampMat.emissiveIntensity = 0.05 + night * 5;
   if (trainMesh) trainMesh.windows.material.emissiveIntensity = night * 1.2;
