@@ -615,32 +615,22 @@ function shanghai(h) {
   return g;
 }
 
-// KPF: a 58 m square cut by two arcs from about a third of the way up.
-// The arcs meet in one long roof edge, but the trapezoid (decks at 423 m
-// and 474 m) is cut through a mass that is still tens of metres deep.
-// Only the last few metres close down to a flat edge, not a knife.
+// KPF: a 58 m square cut by two arcs. The arcs meet in one long roof edge,
+// but the trapezoid is cut through a mass that is still most of the plan,
+// and the roof is a flat edge you can see from the side, not a knife.
 function swfcSection(t) {
-  const u = Math.max(0, (t - 0.28) / 0.72);
-  const w = 58 * (1 - 0.06 * u);
+  const w = 58 * (1 - 0.05 * Math.max(0, t - 0.2));
   const holeTop = 470 / 492;
-  const uHole = Math.max(0, (holeTop - 0.28) / 0.72);
-  const atHole = 58 * (1 - 0.52 * (uHole ** 1.15));
   let d;
   if (t <= holeTop) {
-    const uH = t <= 0.28 ? 0 : (t - 0.28) / (holeTop - 0.28);
-    d = 58 - (58 - atHole) * (uH ** 1.15);
+    const u = Math.max(0, t / holeTop);
+    d = 58 - 20 * (u ** 1.35);
   } else {
-    const knee = 0.978;
-    if (t < knee) {
-      const k = (t - holeTop) / (knee - holeTop);
-      d = atHole + (11.2 - atHole) * k;
-    } else {
-      const k = (t - knee) / (1 - knee);
-      d = 11.2 + (10.4 - 11.2) * k;
-    }
+    const v = (t - holeTop) / (1 - holeTop);
+    d = 38 + (22 - 38) * (v ** 0.75);
   }
-  d = Math.max(10.2, d);
-  const chamfer = Math.min(w * 0.05, d * 0.2) * Math.min(1, u * 3);
+  d = Math.max(20, d);
+  const chamfer = Math.min(w * 0.04, d * 0.16) * Math.min(1, Math.max(0, t - 0.3) * 3);
   return { w, d, chamfer };
 }
 

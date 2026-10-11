@@ -175,8 +175,8 @@ test('swfc aperture is a large hole under a sharp top edge', () => {
       if (y > h * 0.83 && y < h * 0.88) sill = Math.max(sill, z);
     }
   });
-  assert.ok(deep > 3.5 && deep < 6, `roof edge depth ${deep}`);
-  assert.ok(sill > 9, `the aperture is cut through a mass only ${sill} m deep`);
+  assert.ok(deep > 8 && deep < 16, `roof edge depth ${deep}`);
+  assert.ok(sill > 16, `the aperture is cut through a mass only ${sill} m deep`);
 });
 
 test('pearl stands on a stepped circular plinth with stairs', () => {
