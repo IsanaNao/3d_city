@@ -209,7 +209,7 @@ const FACADE_MAIN = /* glsl */`
       wall *= 1.0 - corn * 0.28;
       wall += vec3(0.07, 0.055, 0.035) * corn;
       float up = 1.0 - smoothstep(0.0, max(height * 0.8, 10.0), v);
-      gEmissive += vec3(1.0, 0.68, 0.32) * uNight * (0.5 + 1.45 * up);
+      gEmissive += wall * vec3(1.2, 0.75, 0.4) * uNight * (0.28 + 0.75 * up);
     }
   }
   diffuseColor.rgb = wall;
@@ -411,7 +411,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-5';
+  material.customProgramCacheKey = () => 'sh-facade-6';
   return material;
 }
 

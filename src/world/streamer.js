@@ -351,7 +351,12 @@ export function createStreamer({ scene, getView }) {
     },
     update() {
       const { target, camera } = getView();
-      const reach = Math.min(1500, Math.max(420, camera.position.distanceTo(target) * 0.85));
+      const dist = camera.position.distanceTo(target);
+      const altitude = Math.max(0, camera.position.y - 40);
+      // Street level stays inside a neighbourhood. From a high overview the
+      // cap grows so the river section in frame is actually loaded.
+      const cap = altitude > 400 ? Math.min(3600, 900 + altitude) : 1500;
+      const reach = Math.min(cap, Math.max(420, dist * 0.85, altitude > 400 ? altitude * 0.9 : 0));
       const want = new Set();
       const cover = (x, z, radius) => {
         const [tx, tz] = tileOf(x, z);

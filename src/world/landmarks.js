@@ -742,11 +742,11 @@ bundStone.onBeforeCompile = (shader) => {
         float win = smoothstep(0.2, 0.3, fx) * (1.0 - smoothstep(0.7, 0.8, fx));
         win *= smoothstep(0.22, 0.34, fy) * (1.0 - smoothstep(0.7, 0.82, fy));
         win *= smoothstep(0.1, 0.18, v);
-        totalEmissiveRadiance += vec3(1.0, 0.62, 0.26) * uNight * (0.55 + 1.85 * up);
-        totalEmissiveRadiance += vec3(1.0, 0.84, 0.48) * uNight * win * 1.15;
+        totalEmissiveRadiance += diffuseColor.rgb * vec3(1.15, 0.72, 0.4) * uNight * (0.28 + 0.85 * up);
+        totalEmissiveRadiance += vec3(1.0, 0.82, 0.48) * uNight * win * 0.55;
       }`);
 };
-bundStone.customProgramCacheKey = () => 'lm-bund-stone';
+bundStone.customProgramCacheKey = () => 'lm-bund-stone-2';
 const bundPlain = new THREE.MeshStandardMaterial({
   color: 0xe4d0ac, roughness: 0.62, metalness: 0.04,
   emissive: new THREE.Color(0xffc98a), emissiveIntensity: 0,
@@ -760,10 +760,10 @@ bundPlain.onBeforeCompile = (shader) => {
     .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying float vPlainV;')
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       float up = pow(1.0 - clamp(vPlainV, 0.0, 1.0), 1.15);
-      totalEmissiveRadiance += vec3(1.0, 0.64, 0.28) * uNight * (0.4 + 1.5 * up);
+      totalEmissiveRadiance += diffuseColor.rgb * vec3(1.1, 0.7, 0.4) * uNight * (0.22 + 0.7 * up);
     `);
 };
-bundPlain.customProgramCacheKey = () => 'lm-bund-plain';
+bundPlain.customProgramCacheKey = () => 'lm-bund-plain-2';
 const copperRoof = new THREE.MeshStandardMaterial({
   color: 0x2f8f62, roughness: 0.42, metalness: 0.38,
   emissive: new THREE.Color(0x146b40), emissiveIntensity: 0,
@@ -947,10 +947,10 @@ export function syncLandmarkNight(night) {
   legMat.emissiveIntensity = night * 1.25;
   shanghaiCrownMat.emissiveIntensity = night * 2.8;
   swfcEdgeMat.emissiveIntensity = night * 2.2;
-  bundStone.emissiveIntensity = night * 0.42;
-  bundPlain.emissiveIntensity = night * 0.55;
-  copperRoof.emissiveIntensity = night * 0.7;
-  glazeRoof.emissiveIntensity = night * 0.45;
+  bundStone.emissiveIntensity = night * 0.16;
+  bundPlain.emissiveIntensity = night * 0.2;
+  copperRoof.emissiveIntensity = night * 0.45;
+  glazeRoof.emissiveIntensity = night * 0.28;
   beaconMat.emissiveIntensity = 0.35 + night * 2;
   clockMat.emissiveIntensity = night * 0.8;
 }
