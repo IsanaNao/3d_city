@@ -148,35 +148,48 @@ test('jin mao steps inward and shanghai tapers and twists', () => {
   assert.ok(delta > 0.45 && delta < 1.3, `shanghai twist ${delta} rad between the lower and middle shaft`);
 });
 
-test('swfc aperture is a large hole under a sharp top edge', () => {
+test('swfc aperture is an inverted trapezoid under a flat roof', () => {
   const h = 492;
   const model = createLandmarks([{ id: 'swfc', x: 0, z: 0, y: 0, h, yaw: 0 }]).children[0];
   model.rotation.y = 0;
   model.updateMatrixWorld(true);
-  const through = new THREE.Raycaster(new THREE.Vector3(0, 445, 80), new THREE.Vector3(0, 0, -1));
+  const through = new THREE.Raycaster(new THREE.Vector3(0, 450, 80), new THREE.Vector3(0, 0, -1));
   assert.equal(through.intersectObject(model, true).length, 0, 'ray should pass through the aperture');
-  const wide = new THREE.Raycaster(new THREE.Vector3(18, 430, 80), new THREE.Vector3(0, 0, -1));
-  assert.equal(wide.intersectObject(model, true).length, 0, 'the bottom of the hole is the wide end of the trapezoid');
-  const narrow = new THREE.Raycaster(new THREE.Vector3(18, 458, 80), new THREE.Vector3(0, 0, -1));
-  assert.ok(narrow.intersectObject(model, true).length > 0, 'the top of the hole is narrower');
+  const narrow = new THREE.Raycaster(new THREE.Vector3(16, 438, 80), new THREE.Vector3(0, 0, -1));
+  assert.ok(narrow.intersectObject(model, true).length > 0, 'the bottom of the hole is the narrow end');
+  const wide = new THREE.Raycaster(new THREE.Vector3(18, 464, 80), new THREE.Vector3(0, 0, -1));
+  assert.equal(wide.intersectObject(model, true).length, 0, 'the top of the hole is the wide end');
+  const bridge = new THREE.Raycaster(new THREE.Vector3(0, 478, 80), new THREE.Vector3(0, 0, -1));
+  assert.ok(bridge.intersectObject(model, true).length > 0, 'the bridge above the hole is solid');
   const solid = new THREE.Raycaster(new THREE.Vector3(0, 200, 80), new THREE.Vector3(0, 0, -1));
   assert.ok(solid.intersectObject(model, true).length > 0, 'mid-height face should be solid');
-  const top = vertexRadii(model, h * 0.97, h);
-  assert.ok(top.maxR > 8, 'the ridge stays wide');
+  const top = vertexRadii(model, h * 0.985, h + 2);
+  assert.ok(top.maxR > 20, 'the roof edge stays long');
   let deep = 0;
+  let wideX = 0;
   let sill = 0;
+  let roofY = [];
   model.traverse((obj) => {
     const pos = obj.geometry?.getAttribute?.('position');
     if (!pos) return;
     for (let i = 0; i < pos.count; i++) {
       const y = pos.getY(i);
       const z = Math.abs(pos.getZ(i));
-      if (y > h * 0.97) deep = Math.max(deep, z);
-      if (y > h * 0.83 && y < h * 0.88) sill = Math.max(sill, z);
+      const x = Math.abs(pos.getX(i));
+      if (y > h * 0.995) {
+        deep = Math.max(deep, z);
+        wideX = Math.max(wideX, x);
+        roofY.push(y);
+      }
+      if (y > h * 0.84 && y < h * 0.89) sill = Math.max(sill, z);
     }
   });
-  assert.ok(deep > 8 && deep < 16, `roof edge depth ${deep}`);
-  assert.ok(sill > 16, `the aperture is cut through a mass only ${sill} m deep`);
+  assert.ok(deep > 6 && deep < 12, `roof edge depth ${deep}`);
+  assert.ok(wideX > 22, `roof edge length ${wideX}`);
+  assert.ok(sill > 10, `the aperture is cut through a mass only ${sill} m deep`);
+  const roofLo = Math.min(...roofY);
+  const roofHi = Math.max(...roofY);
+  assert.ok(roofHi - roofLo < 2.2, `roof is not a flat edge (${roofHi - roofLo})`);
 });
 
 test('pearl stands on a stepped circular plinth with stairs', () => {

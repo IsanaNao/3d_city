@@ -364,7 +364,11 @@ const FACADE_MAIN = /* glsl */`
       gEmissive += pane * (interior * daylight + room3 * soft * power);
       if (kind > 5.5) {
         float stone = 1.0 - pane;
-        gEmissive += wall * vec3(1.0, 0.55, 0.22) * uNight * stone * (0.03 + 0.09 * bundGraze + 0.32 * bundCorn + 0.18 * bundTop);
+        float wash = 0.62 + 0.4 * bundGraze;
+        float edge = 1.55 * bundCorn + 1.05 * bundTop;
+        float pilaster = smoothstep(0.9, 0.99, fract(vWall.x / 6.8));
+        gEmissive += wall * vec3(1.05, 0.62, 0.26) * uNight * stone * wash;
+        gEmissive += vec3(1.02, 0.56, 0.2) * uNight * stone * (edge + pilaster * 0.42);
       }
       float spill = (1.0 - far) * valid * power * 0.16;
       gEmissive += soft * spill * (inWin * frame * 0.6 + (1.0 - inWin) * exp(min(edge, 0.0) * 4.5) * step(-0.9, edge));
@@ -451,7 +455,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-13';
+  material.customProgramCacheKey = () => 'sh-facade-14';
   return material;
 }
 
@@ -695,7 +699,7 @@ export function createWaterMaterial() {
           float near = clamp(70.0 / dist, 0.12, 1.8);
           vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + n.xz * vec2(0.35, 0.7) * near;
           float swell = 0.5 + 0.5 * sin(vWorld.x * 0.031 + vWorld.z * 0.027 + t * 0.4);
-          float stretch = mix(0.004, 0.12, uDark) * near * (1.0 + 0.85 * uDark * swell);
+          float stretch = mix(0.004, 0.22, uDark) * near * (1.0 + 1.05 * uDark * swell);
           vec4 m = vec4(0.0);
           float wsum = 0.0;
           for (int i = 0; i < 9; i++) {
@@ -707,8 +711,37 @@ export function createWaterMaterial() {
           }
           m /= max(wsum, 1e-4);
           thing = smoothstep(0.0, 0.2, m.a);
-          vec3 lights = min(max(m.rgb - vec3(0.1), 0.0), vec3(0.42, 0.3, 0.16));
+          vec3 lights = min(max(m.rgb - vec3(0.08), 0.0), vec3(0.48, 0.32, 0.16));
           vec3 refl = mix(m.rgb, m.rgb * vec3(0.78, 0.66, 0.48) + lights * vec3(1.15, 0.72, 0.32), uDark);
+          // A low camera over the river looks up, so the near water only mirrors
+          // the night sky. Pull a sample from further along the same glance,
+          // where the lit row sits, and let it run down the foreground.
+          if (uDark > 0.45) {
+            vec3 viewH = vec3(wv.x, 0.0, wv.z);
+            float viewLen = length(viewH);
+            if (viewLen > 1e-4) {
+              viewH /= viewLen;
+              float hop = mix(70.0, 260.0, smoothstep(20.0, 420.0, dist));
+              vec4 fc = uMirrorMatrix * vec4(vWorld + viewH * hop, 1.0);
+              if (fc.w > 0.05) {
+                vec2 fuv = fc.xy / fc.w * 0.5 + 0.5;
+                vec3 farRgb = vec3(0.0);
+                float farW = 0.0;
+                for (int k = 0; k < 5; k++) {
+                  float o = (float(k) - 2.0) / 2.0;
+                  float w = exp(-abs(o) * 0.75);
+                  vec2 uv = clamp(fuv + vec2(o * 0.015, o * 0.045), 0.001, 0.999);
+                  farRgb += texture2D(uMirror, uv).rgb * w;
+                  farW += w;
+                }
+                farRgb /= max(farW, 1e-4);
+                vec3 farLights = min(max(farRgb - vec3(0.06), 0.0), vec3(0.46, 0.3, 0.15));
+                float localGold = max(max(lights.r, lights.g), lights.b);
+                float need = (1.0 - smoothstep(0.025, 0.14, localGold)) * smoothstep(560.0, 40.0, dist);
+                refl += farLights * vec3(1.12, 0.7, 0.32) * need;
+              }
+            }
+          }
           seen = mix(seen, refl, thing);
         }
         vec3 col = mix(body, seen, max(fresnel, mix(0.42, 0.9, max(uDark, uHaze * 0.2)) * thing));

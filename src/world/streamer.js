@@ -445,7 +445,9 @@ export function createStreamer({ scene, getView }) {
       // Street level stays inside a neighbourhood. From a high overview the
       // cap grows so the river section in frame is actually loaded.
       const cap = altitude > 400 ? Math.min(3600, 900 + altitude) : 1500;
-      const reach = Math.min(cap, Math.max(420, dist * 0.85, altitude > 400 ? altitude * 0.9 : 0));
+      // The Bund row is nearly a kilometre. A camera parked mid-river used to
+      // drop the north and south ends once they left a 420 m disc.
+      const reach = Math.min(cap, Math.max(780, dist * 0.85, altitude > 400 ? altitude * 0.9 : 0));
       const want = new Set();
       const cover = (x, z, radius) => {
         const [tx, tz] = tileOf(x, z);

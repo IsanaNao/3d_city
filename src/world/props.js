@@ -137,9 +137,9 @@ function cupolaMaterial() {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform float uNight;')
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        totalEmissiveRadiance += vec3(0.36, 0.2, 0.07) * uNight;`);
+        totalEmissiveRadiance += vec3(0.92, 0.5, 0.18) * uNight;`);
   };
-  cupolaMat.customProgramCacheKey = () => 'sh-cupola-1';
+  cupolaMat.customProgramCacheKey = () => 'sh-cupola-2';
   return cupolaMat;
 }
 

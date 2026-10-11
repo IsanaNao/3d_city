@@ -619,22 +619,21 @@ function shanghai(h) {
   return g;
 }
 
-// KPF: a 58 m square cut by two arcs. The arcs meet in one long roof edge,
-// but the trapezoid is cut through a mass that is still most of the plan,
-// and the roof is a flat edge you can see from the side, not a knife.
+// KPF: a square shaft. Two opposite faces sweep inward from about a third of
+// the way up and finish on one long, flat roof edge with sharp corners.
+// The aperture is cut through those broad faces. It is an inverted trapezoid:
+// a horizontal sill, straight sides, and a wider horizontal head.
 function swfcSection(t) {
-  const w = 58 * (1 - 0.045 * Math.max(0, t - 0.12));
-  const holeTop = 470 / 492;
-  let d;
-  if (t <= holeTop) {
-    const u = Math.max(0, (t - 0.08) / (holeTop - 0.08));
-    d = 58 - 20 * (u ** 1.2);
-  } else {
-    const v = (t - holeTop) / (1 - holeTop);
-    d = 38 + (22 - 38) * (v ** 0.7);
+  const w = 58 * (1 - 0.055 * Math.max(0, t - 0.12));
+  const arc0 = 0.3;
+  const roofD = 17.2;
+  let d = 58;
+  if (t > arc0) {
+    const u = (t - arc0) / (1 - arc0);
+    d = 58 + (roofD - 58) * (u ** 1.08);
   }
-  d = Math.max(20, d);
-  const chamfer = Math.min(w * 0.08, d * 0.28) * Math.min(1, Math.max(0, t - 0.18) * 2.4);
+  // The crown is a true rectangle. A chamfer here reads as a bottle cap.
+  const chamfer = t > 0.76 ? 0 : Math.min(1.35, w * 0.03) * Math.min(1, Math.max(0, (t - 0.2) * 2.4));
   return { w, d, chamfer };
 }
 
@@ -651,14 +650,14 @@ function swfcRing(t, y) {
 
 function swfc(h) {
   const g = new THREE.Group();
-  const hole0 = 418 / 492;
-  // The bridge above the hole is about as tall as the opening, so from the
-  // river the cap reads as a frame rather than a thin lid.
-  const hole1 = 450 / (492 * 0.992);
   const yOf = (t) => t * h * 0.992;
+  // Sill and head are horizontal. The bridge above them is about a third of
+  // the opening, glass with a thin silver soffit, not a second tower.
+  const hole0 = 430 / (h * 0.992);
+  const hole1 = 470 / (h * 0.992);
   const openHalf = (t) => {
     const u = Math.min(1, Math.max(0, (t - hole0) / (hole1 - hole0)));
-    return 25 * (1 - 0.58 * u);
+    return 13.5 + (21.5 - 13.5) * u;
   };
   const ts = [0, hole0, hole1, 1];
   for (let i = 1; i < 42; i++) ts.push(i / 42);
@@ -682,14 +681,13 @@ function swfc(h) {
       wall(glass, ringA[edge], ringA[e2], ringB[edge], ringB[e2]);
     }
     const open = t0 >= hole0 - 1e-6 && t1 <= hole1 + 1e-6;
-    const bridge = t0 >= hole1 - 1e-6;
     for (const face of [0, 4]) {
       const a0 = ringA[face];
       const a1 = ringA[(face + 1) % 8];
       const b0 = ringB[face];
       const b1 = ringB[(face + 1) % 8];
       if (!open) {
-        wall(bridge ? frame : glass, a0, a1, b0, b1);
+        wall(glass, a0, a1, b0, b1);
         continue;
       }
       const jamb = (p0, p1, q0, q1, x0, x1, u0, u1) => {
@@ -739,25 +737,18 @@ function swfc(h) {
   }
   quadsMesh(g, glass, swfcGlass);
   quadsMesh(g, frame, swfcEdgeMat);
-  // Deck and soffit sit inside the opening so the portal has a thick frame
-  // you can see through the hole, not a paper edge.
-  const sillBar = new THREE.BoxGeometry(openHalf(hole0) * 2 * 0.98, 4.2, sill.d * 0.72);
-  sillBar.translate(0, sillY - 2.15, 0);
+  // A thin slab, flush with the opening, so the sill is one horizontal line.
+  const sillBar = new THREE.BoxGeometry(openHalf(hole0) * 2, 2.2, sill.d * 0.96);
+  sillBar.translate(0, sillY - 1.1, 0);
   tag(add(g, sillBar, swfcEdgeMat), 'swfc-sill');
-  const lintelH = 12;
-  const lintel = new THREE.BoxGeometry(openHalf(hole1) * 2 + 8, lintelH, Math.max(16, head.d * 0.8));
-  lintel.translate(0, headY + lintelH / 2 + 0.3, 0);
-  tag(add(g, lintel, swfcEdgeMat), 'swfc-lintel');
-  const crown = swfcRing(1, yOf(1));
-  const cap = new THREE.BufferGeometry();
-  const capPos = [0, crown[0].y, 0];
-  for (const p of crown) capPos.push(p.x, p.y, p.z);
-  const capIdx = [];
-  for (let i = 0; i < crown.length; i++) capIdx.push(0, i + 1, ((i + 1) % crown.length) + 1);
-  cap.setAttribute('position', new THREE.Float32BufferAttribute(capPos, 3));
-  cap.setIndex(capIdx);
-  cap.computeVertexNormals();
-  add(g, cap, swfcEdgeMat);
+  const soffitH = 2.4;
+  const soffit = new THREE.BoxGeometry(openHalf(hole1) * 2, soffitH, Math.max(14, head.d * 0.94));
+  soffit.translate(0, headY + soffitH / 2, 0);
+  tag(add(g, soffit, swfcEdgeMat), 'swfc-lintel');
+  const crown = swfcSection(1);
+  const roof = new THREE.BoxGeometry(crown.w, 1.5, crown.d);
+  roof.translate(0, yOf(1) + 0.75, 0);
+  add(g, roof, swfcEdgeMat);
   return g;
 }
 
@@ -887,12 +878,12 @@ bundStone.onBeforeCompile = (shader) => {
         float win = smoothstep(0.2, 0.3, fx) * (1.0 - smoothstep(0.7, 0.8, fx));
         win *= smoothstep(0.22, 0.34, fy) * (1.0 - smoothstep(0.7, 0.82, fy));
         win *= smoothstep(0.1, 0.18, v);
-        float flood = (0.035 + 0.1 * graze + 0.28 * corn + 0.16 * ledge) * (1.0 - win * 0.94);
-        totalEmissiveRadiance += vec3(1.0, 0.58, 0.24) * uNight * flood;
+        float flood = (0.16 + 0.28 * graze + 1.05 * corn + 0.72 * ledge) * (1.0 - win * 0.94);
+        totalEmissiveRadiance += vec3(1.0, 0.62, 0.28) * uNight * flood;
         totalEmissiveRadiance += vec3(0.45, 0.26, 0.1) * uNight * win * 0.07;
       }`);
 };
-bundStone.customProgramCacheKey = () => 'lm-bund-stone-4';
+bundStone.customProgramCacheKey = () => 'lm-bund-stone-5';
 const bundPlain = new THREE.MeshStandardMaterial({
   color: 0xddd4c6, roughness: 0.58, metalness: 0.06,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
@@ -908,10 +899,10 @@ bundPlain.onBeforeCompile = (shader) => {
       float v = clamp(vPlainV, 0.0, 1.0);
       float graze = pow(1.0 - v, 1.55);
       float cap = smoothstep(0.62, 1.0, v);
-      totalEmissiveRadiance += vec3(1.0, 0.62, 0.28) * uNight * (0.04 + 0.1 * graze + 0.34 * cap);
+      totalEmissiveRadiance += vec3(1.0, 0.66, 0.32) * uNight * (0.2 + 0.32 * graze + 0.95 * cap);
     `);
 };
-bundPlain.customProgramCacheKey = () => 'lm-bund-plain-4';
+bundPlain.customProgramCacheKey = () => 'lm-bund-plain-5';
 const copperRoof = new THREE.MeshStandardMaterial({
   color: 0x2f8f62, roughness: 0.42, metalness: 0.38,
   emissive: new THREE.Color(0x146b40), emissiveIntensity: 0,
@@ -1259,8 +1250,8 @@ export function syncLandmarkNight(night) {
   swfcEdgeMat.emissiveIntensity = night * 2.2;
   bundStone.emissiveIntensity = 0;
   bundPlain.emissiveIntensity = 0;
-  copperRoof.emissiveIntensity = night * 0.06;
-  glazeRoof.emissiveIntensity = night * 0.05;
+  copperRoof.emissiveIntensity = night * 0.22;
+  glazeRoof.emissiveIntensity = night * 0.18;
   beaconMat.emissiveIntensity = 0.35 + night * 2;
   clockMat.emissiveIntensity = night * 0.32;
 }
