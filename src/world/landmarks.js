@@ -59,7 +59,7 @@ columnMat.onBeforeCompile = (shader) => {
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       float band = smoothstep(0.58, 0.78, fract(vColUv.y * 14.0));
       vec3 warm = mix(vec3(1.0, 0.55, 0.1), vec3(1.0, 0.14, 0.05), band);
-      totalEmissiveRadiance += warm * uNight * (1.7 + band * 1.8);
+      totalEmissiveRadiance += warm * uNight * (0.45 + band * 0.85);
     `);
 };
 columnMat.customProgramCacheKey = () => 'lm-pearl-column';
@@ -805,8 +805,8 @@ export function createLandmarks(list) {
 export function syncLandmarkNight(night) {
   pearlMat.emissiveIntensity = night * 0.15;
   pearlBand.emissiveIntensity = 0.05 + night * 2.4;
-  columnMat.emissiveIntensity = night * 0.9;
-  legMat.emissiveIntensity = night * 3.1;
+  columnMat.emissiveIntensity = night * 0.4;
+  legMat.emissiveIntensity = night * 1.25;
   shanghaiCrownMat.emissiveIntensity = night * 2.8;
   swfcEdgeMat.emissiveIntensity = night * 2.2;
   bundStone.emissiveIntensity = night * 0.22;

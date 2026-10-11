@@ -343,15 +343,15 @@ const FACADE_MAIN = /* glsl */`
     // some towers are lit in one colour throughout: blue, gold, a few cyan or violet
     {
       float pickA = fract(sf * 31.7), hu = fract(sf * 47.3);
-      float accent = tall * step(0.48, pickA) * uNight;
+      float accent = tall * step(0.62, pickA) * uNight;
       vec3 accentCol = hu < 0.22 ? vec3(0.16, 0.42, 1.0)
         : hu < 0.42 ? vec3(1.0, 0.68, 0.16)
         : hu < 0.58 ? vec3(0.12, 0.82, 0.32)
         : hu < 0.74 ? vec3(1.0, 0.16, 0.2)
         : hu < 0.88 ? vec3(0.15, 0.86, 1.0)
         : vec3(0.7, 0.28, 1.0);
-      gEmissive = mix(gEmissive, accentCol * max(dot(gEmissive, vec3(0.9)), 0.12), accent * 0.9);
-      gEmissive += accentCol * accent * 0.34 * (0.3 + 0.7 * pane);
+      gEmissive *= mix(vec3(1.0), accentCol * 2.5, accent);
+      gEmissive += accentCol * accent * pane * 0.2;
     }
     // the lintel shades the top of the opening
     if (!usePhoto) diffuseColor.rgb *= 1.0 - 0.35 * inWin * (1.0 - smoothstep(0.0, 0.18, wmax.y - pm.y)) * (1.0 - far);

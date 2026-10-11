@@ -14,11 +14,11 @@ const cableMat = new THREE.MeshStandardMaterial({
   emissive: new THREE.Color(0xfff2d0), emissiveIntensity: 0,
 });
 
-function member(group, a, b, radius, mat) {
+function member(group, a, b, radius, mat, sides = 6) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
   if (len < 0.4) return;
-  const geo = new THREE.CylinderGeometry(radius, radius, len, 5);
+  const geo = new THREE.CylinderGeometry(radius, radius, len, sides);
   const mid = a.clone().add(b).multiplyScalar(0.5);
   geo.translate(0, len / 2, 0);
   const mesh = new THREE.Mesh(geo, mat);
@@ -104,24 +104,24 @@ function towerPair(group, base, dir, height, spread, style) {
   if (style === 'y') {
     const top = base.clone();
     top.y += height;
-    member(group, left, top, 1.7, concrete);
-    member(group, right, top, 1.7, concrete);
+    member(group, left, top, 2.6, concrete, 10);
+    member(group, right, top, 2.6, concrete, 10);
     const beam = 0.42;
     const a = left.clone().lerp(top, beam);
     const b = right.clone().lerp(top, beam);
-    member(group, a, b, 1.05, concrete);
+    member(group, a, b, 1.7, concrete, 8);
     return top;
   }
   const topL = left.clone();
   topL.y += height;
   const topR = right.clone();
   topR.y += height;
-  member(group, left, topL, 1.55, concrete);
-  member(group, right, topR, 1.55, concrete);
-  member(group, topL, topR, 1.15, concrete);
+  member(group, left, topL, 2.4, concrete, 10);
+  member(group, right, topR, 2.4, concrete, 10);
+  member(group, topL, topR, 1.8, concrete, 8);
   const midL = left.clone().lerp(topL, 0.58);
   const midR = right.clone().lerp(topR, 0.58);
-  member(group, midL, midR, 0.95, concrete);
+  member(group, midL, midR, 1.5, concrete, 8);
   return topL.clone().add(topR).multiplyScalar(0.5);
 }
 
@@ -159,10 +159,10 @@ function cableBridge(item) {
   }
   const fanFrom = Math.max(0, a0 - main * 0.22);
   const fanTo = Math.min(total, a0 + main + main * 0.22);
-  for (let d = fanFrom; d <= fanTo; d += 18) {
+  for (let d = fanFrom; d <= fanTo; d += 28) {
     const deck = at(d);
     const anchor = d < a0 + main / 2 ? anchors[0] : anchors[1];
-    member(g, anchor, deck, 0.16, cableMat);
+    member(g, anchor, deck, 0.38, cableMat, 4);
   }
   g.userData.towers = 2;
   return g;
