@@ -237,17 +237,19 @@ const swfcGlass = new THREE.MeshStandardMaterial({
 swfcGlass.onBeforeCompile = (shader) => {
   shader.uniforms.uNight = cityUniforms.uNight;
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vSwfcL;\nvarying vec3 vSwfcN;\nvarying vec3 vSwfcW;')
+    .replace('#include <common>', '#include <common>\nvarying vec3 vSwfcL;\nvarying vec3 vSwfcN;\nvarying vec3 vSwfcW;\nvarying vec3 vSwfcNw;')
     .replace('#include <begin_vertex>', `#include <begin_vertex>
       vSwfcL = position;
       vSwfcN = normal;
-      vSwfcW = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
+      vSwfcW = (modelMatrix * vec4(transformed, 1.0)).xyz;
+      vSwfcNw = normalize(mat3(modelMatrix) * normal);`);
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', `#include <common>
       uniform float uNight;
       varying vec3 vSwfcL;
       varying vec3 vSwfcN;
-      varying vec3 vSwfcW;`)
+      varying vec3 vSwfcW;
+      varying vec3 vSwfcNw;`)
     .replace('#include <color_fragment>', `#include <color_fragment>
       float along = abs(vSwfcN.z) > abs(vSwfcN.x) ? vSwfcL.x : vSwfcL.z;
       if (abs(vSwfcN.y) > 0.65) along = vSwfcL.x;
@@ -259,8 +261,7 @@ swfcGlass.onBeforeCompile = (shader) => {
       vec3 pane = vec3(0.2, 0.3, 0.4);
       vec3 bar = vec3(0.72, 0.76, 0.8);
       vec3 V = normalize(cameraPosition - vSwfcW);
-      vec3 N = normalize(mat3(modelMatrix) * vSwfcN);
-      float fres = pow(1.0 - max(dot(N, V), 0.0), 2.4);
+      float fres = pow(1.0 - max(dot(normalize(vSwfcNw), V), 0.0), 2.4);
       vec3 sky = mix(vec3(0.45, 0.55, 0.66), vec3(0.78, 0.84, 0.9), fres);
       pane = mix(pane, sky, 0.28 + 0.45 * fres);
       diffuseColor.rgb = mix(pane, bar, mullion * 0.82);
