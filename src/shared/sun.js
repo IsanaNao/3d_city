@@ -42,6 +42,14 @@ export function daylight(altitude) {
   return smoothstep(-3, 14, altitude * 180 / Math.PI);
 }
 
+// Pale warm haze of the reference dusk. `dusk` forces it, `clear` keeps the
+// analytic sky, and with no preset it follows the sun down through late afternoon.
+export function duskHaze(altitudeDeg, preset) {
+  if (preset === 'dusk') return 1;
+  if (preset === 'clear') return 0;
+  return smoothstep(16, 4, altitudeDeg) * (1 - smoothstep(1, -8, altitudeDeg));
+}
+
 function lerp(a, b, t) {
   return a + (b - a) * t;
 }

@@ -4,7 +4,8 @@ import { TILE, makeProjection, tileOf } from '../../src/shared/geo.js';
 import { KIND, ROOF } from '../../src/shared/kinds.js';
 import { buildBuildingGeometry } from '../../src/shared/meshbuild.js';
 import { classifyKind, defaultHeight, resolveVertical } from '../../src/shared/heights.js';
-import { daylight, nightFactor, sunVector } from '../../src/shared/sun.js';
+import { daylight, duskHaze, nightFactor, sunVector } from '../../src/shared/sun.js';
+import { pearlShow } from '../../src/shared/show.js';
 import { decodeTerrain, encodeTerrain, sampleGrid } from '../../src/shared/terrain.js';
 import { decodeTile, encodeTile } from '../../src/shared/tileformat.js';
 
@@ -122,6 +123,16 @@ test('noon in June is high, midnight is night, dusk turns lights on early', () =
   const duskAlt = 3 * Math.PI / 180;
   assert.ok(nightFactor(duskAlt) > 0.35);
   assert.ok(daylight(duskAlt) > 0.05);
+  assert.equal(duskHaze(70, 'dusk'), 1);
+  assert.equal(duskHaze(6, 'clear'), 0);
+  assert.ok(duskHaze(70, '') < 0.05);
+  assert.ok(duskHaze(6, '') > 0.7);
+  assert.ok(duskHaze(-20, '') < 0.05);
+  const pinned = pearlShow(21, 'blue');
+  assert.equal(pinned.name, 'blue');
+  assert.equal(pinned.fade, 0);
+  assert.deepEqual(pearlShow(21, 'blue'), pearlShow(21, 'blue'));
+  assert.notEqual(pearlShow(21, '').name, pearlShow(21.4, '').name);
 });
 
 function box(x0, z0, x1, z1) {

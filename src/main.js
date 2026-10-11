@@ -1,7 +1,8 @@
 import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { sunVector } from './shared/sun.js';
+import { sunVector, duskHaze } from './shared/sun.js';
+import { syncLandmarkNight, syncPearlShow } from './world/landmarks.js';
 import { createSim, prepareGraph, stepSim, carPose } from './sim/traffic.js';
 import { createTrains, prepareLines, stepTrains, trainPoses } from './sim/trains.js';
 import { yawFromHeading } from './sim/path.js';
@@ -13,7 +14,6 @@ import { WaterMirror, WATER_LAYER } from './world/mirror.js';
 import { createStreamer, loadCity } from './world/streamer.js';
 import { syncBridgeNight } from './world/bridges.js';
 import { syncEmbankmentNight } from './world/embankment.js';
-import { syncLandmarkNight } from './world/landmarks.js';
 import { loadPhotoTextures } from './world/textures.js';
 import { signMaterial } from './world/props.js';
 import { createCarFleet, createTrainMesh, setVehicleMatrix } from './world/vehicles.js';
@@ -78,7 +78,9 @@ const beyond = new THREE.Mesh(
 );
 beyond.receiveShadow = true;
 scene.add(beyond);
-let waterLevel = 0;
+const skyPreset = params.get('sky') || '';
+const pearlPin = params.get('pearl') || '';
+const hazeFog = new THREE.Color(0.86, 0.78, 0.74);
 
 const keys = new Set();
 const signAtlas = makeSignAtlas();
@@ -125,6 +127,10 @@ function shanghaiNow() {
 function applySun() {
   const sunPos = sunVector(hour, dayOfYear, 31.23);
   env.setSun(new THREE.Vector3(sunPos.x, sunPos.y, sunPos.z));
+  const haze = duskHaze(env.elevation, skyPreset);
+  cityUniforms.uHaze.value = haze;
+  if (haze > 0) env.fogColor.lerp(hazeFog, haze * 0.82);
+  syncPearlShow(hour, pearlPin);
   env.follow(controls.target, camera);
   cityUniforms.uSkyGain.value = 1 / env.exposure;
   post.apply(env, controls.target.y);

@@ -15,6 +15,11 @@ export const cityUniforms = {
   uSkyGain: { value: 1 },
   uWarm: { value: 0 },
   uCloudCover: { value: 0 },
+  uHaze: { value: 0 },
+  uShowScheme: { value: 0 },
+  uShowNext: { value: 0 },
+  uShowFade: { value: 0 },
+  uShowPhase: { value: 0 },
   uNightBlue: { value: 0.35 },
   uLampOn: { value: 0 },
   uLampMap: { value: null },
@@ -102,6 +107,8 @@ uniform float uNight;
 uniform float uDark;
 uniform float uTime;
 uniform float uNightBlue;
+uniform float uShowScheme;
+uniform float uShowPhase;
 uniform vec3 uSunDir;
 uniform vec3 uSunGlint;
 varying float vSeed;
@@ -298,17 +305,16 @@ const FACADE_MAIN = /* glsl */`
     float b1 = fract(sf * 11.7), b2 = fract(sf * 17.3), b3 = fract(sf * 23.9);
     onRate *= mix(0.35, 1.9, b1);
     if (!shop && office > 0.5 && b2 > 0.4) onRate = mix(0.05, 0.9, step(0.5, hash12(vec2(row * 3.0 + mod(seed, 37.0), mod(seed, 53.0)))));
-    // a tower at night is mostly dark glass, with a few storeys lit as bands
+    // Tall towers light whole floors. At distance every pixel of a floor agrees,
+    // so the skyline reads as bands instead of a field of random dots.
     float tall = smoothstep(70.0, 110.0, height);
-    if (!shop) {
-      float scatter = 0.16 + 0.36 * hash12(vec2(mod(seed, 41.0), 3.0));
-      float band = step(0.93, hash12(vec2(row * 5.0 + mod(seed, 41.0), mod(seed, 59.0))));
-      onRate = mix(onRate, scatter + band * 0.4, tall);
-    }
+    float floorOn = step(0.48, hash12(vec2(floor(row) + mod(seed, 89.0) * 3.0, 4.0)));
+    if (!shop) onRate = mix(onRate, mix(0.05, 0.92, floorOn), tall);
     onRate = clamp(onRate, 0.0, 0.95);
     float slot = floor(uTime / (90.0 + 240.0 * hash12(room + 37.0)) + hash12(room + 41.0) * 64.0);
     float fickle = step(0.6, hash12(room + 31.0));
-    float on = step(1.0 - onRate, hash12(room + 23.0 + fickle * vec2(mod(slot, 61.0) * 7.13, mod(slot, 47.0) * 3.71)));
+    float onClose = step(1.0 - onRate, hash12(room + 23.0 + fickle * vec2(mod(slot, 61.0) * 7.13, mod(slot, 47.0) * 3.71)));
+    float on = mix(onClose, floorOn, far);
 
     float tint = hash12(room + 61.0);
     vec3 warm = mix(vec3(1.0, 0.6, 0.3), vec3(1.0, 0.82, 0.6), hash12(room + 67.0));
@@ -317,6 +323,7 @@ const FACADE_MAIN = /* glsl */`
     vec3 lamp = mix(warm, cool, step(1.0 - coolShare, mix(tint, 0.5 * b3 + 0.5 * tint, office)));
     lamp = mix(lamp, vec3(0.3, 0.55, 1.0), step(0.93 - 0.22 * uNightBlue, tint) * mix(1.0 - office, 1.0, uNightBlue));
     float glow = mix(0.3, 1.35, hash12(room + 1.3)) * mix(0.65, 1.25, b3);
+    glow = mix(glow, mix(0.4, 1.0, floorOn), max(far, tall * 0.65));
 
     vec3 glassTint = glassy ? mix(vec3(0.2, 0.3, 0.38), vec3(0.3, 0.33, 0.34), fract(sf * 5.7)) : vec3(0.1, 0.11, 0.12);
     vec3 frameCol = fract(sf * 3.3) < 0.5 ? vec3(0.16, 0.17, 0.18) : vec3(0.62, 0.63, 0.63);
@@ -343,7 +350,9 @@ const FACADE_MAIN = /* glsl */`
       vec3 cloth = mix(vec3(0.95, 0.82, 0.62), vec3(0.85, 0.86, 0.84), hash12(room + 18.7)) * 0.42;
       vec3 soft = mix(vec3(1.0, 0.8, 0.58), lamp, 0.45);
       vec3 room3 = mix(interior * fall, cloth * (0.75 + 0.35 * fall), curtain);
-      room3 = mix(room3, vec3(0.3), far);
+      room3 = mix(room3, vec3(0.3), far * (1.0 - tall));
+      room3 = mix(room3, vec3(1.0, 0.78, 0.48), far);
+      soft = mix(soft, vec3(1.0, 0.74, 0.42), far);
       float power = uNight * on * glow * 0.78 * 1.75;
       gEmissive += pane * (interior * daylight + room3 * soft * power);
       float spill = (1.0 - far) * valid * power * 0.16;
@@ -372,6 +381,14 @@ const FACADE_MAIN = /* glsl */`
         : hu < 0.75 ? vec3(0.2, 0.85, 0.45)
         : vec3(0.35, 0.85, 1.0);
       gEmissive = mix(gEmissive, gEmissive * accentCol * 1.25 + accentCol * pane * 0.4, accent);
+    }
+    if (tall > 0.35 && vWall.y > 0.0) {
+      float edgeDist = min(vWall.x, max(vWall.y - vWall.x, 0.0));
+      float side = 1.0 - smoothstep(0.25, 1.6, edgeDist);
+      float crownLine = smoothstep(0.84, 0.92, v / height) * (1.0 - smoothstep(0.975, 0.998, v / height));
+      float led = fract(sf * 2.7 + uShowScheme / 7.0 + uShowPhase * 0.2);
+      vec3 line = mix(vec3(1.0, 0.76, 0.4), hue(led), 0.7);
+      gEmissive += line * uNight * (side * 0.55 + crownLine * 1.2);
     }
     // the lintel shades the top of the opening
     if (!usePhoto) diffuseColor.rgb *= 1.0 - 0.35 * inWin * (1.0 - smoothstep(0.0, 0.18, wmax.y - pm.y)) * (1.0 - far);
@@ -422,7 +439,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-9';
+  material.customProgramCacheKey = () => 'sh-facade-10';
   return material;
 }
 
@@ -661,15 +678,25 @@ export function createWaterMaterial() {
         float thing = 0.0;
         if (uMirrorOn > 0.5) {
           vec4 mc = uMirrorMatrix * vec4(vWorld, 1.0);
-          float near = clamp(70.0 / dist, 0.12, 1.6);
-          vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + n.xz * vec2(0.5, 0.9) * near;
+          float near = clamp(70.0 / dist, 0.12, 1.8);
+          vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + n.xz * vec2(0.35, 0.7) * near;
+          float swell = 0.5 + 0.5 * sin(vWorld.x * 0.031 + vWorld.z * 0.027 + t * 0.4);
+          float stretch = mix(0.004, 0.12, uDark) * near * (1.0 + 0.85 * uDark * swell);
           vec4 m = vec4(0.0);
-          for (int i = -1; i <= 1; i++) m += texture2D(uMirror, clamp(muv + vec2(0.0, float(i) * 0.004 * near), 0.001, 0.999));
-          m /= 3.0;
-          thing = smoothstep(0.0, 0.3, m.a);
-          seen = mix(seen, m.rgb * vec3(0.86, 0.9, 0.9), thing);
+          float wsum = 0.0;
+          for (int i = 0; i < 9; i++) {
+            float o = (float(i) - 4.0) / 4.0;
+            float w = exp(-abs(o) * mix(5.0, 1.1, uDark));
+            vec2 uv = clamp(muv + vec2(o * stretch * 0.12, o * stretch), 0.001, 0.999);
+            m += texture2D(uMirror, uv) * w;
+            wsum += w;
+          }
+          m /= max(wsum, 1e-4);
+          thing = smoothstep(0.0, 0.2, m.a);
+          vec3 lights = max(m.rgb - vec3(0.06), 0.0);
+          seen = mix(seen, m.rgb * vec3(0.9, 0.93, 0.95) + lights * uDark * 2.6, thing);
         }
-        vec3 col = mix(body, seen, max(fresnel, 0.42 * thing));
+        vec3 col = mix(body, seen, max(fresnel, mix(0.4, 0.9, uDark) * thing));
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);
         gl_FragColor = vec4(col, 1.0);
@@ -708,6 +735,7 @@ export function createSkyMaterial({ sunDisc = 1, ground = false } = {}) {
       uniform float uSkyGain;
       uniform float uCloudCover;
       uniform float uWarm;
+      uniform float uHaze;
       varying vec3 vDir;
       ${NOISE}
       float fbm(vec2 p) {
@@ -740,6 +768,11 @@ export function createSkyMaterial({ sunDisc = 1, ground = false } = {}) {
         float moon = smoothstep(0.9986, 0.9995, max(dot(d, moonDir), 0.0));
         col += vec3(0.9, 0.92, 0.98) * moon * (0.15 + 1.1 * uDark);
         vec3 below = uGround > 0.5 ? vec3(0.3, 0.28, 0.25) * mix(1.0, 0.06, uDark) * (0.2 + 0.8 * uDay) : uHorizon;
+        vec3 hazeZen = vec3(0.68, 0.74, 0.82);
+        vec3 hazeHor = vec3(0.96, 0.84, 0.76);
+        vec3 hazy = mix(hazeHor, hazeZen, pow(clamp(d.y, 0.0, 1.0), 0.38));
+        hazy = mix(hazy, hazeHor, exp(-max(d.y, 0.0) * 2.8) * 0.62);
+        col = mix(col, hazy, uHaze * smoothstep(-0.02, 0.1, d.y));
         col = mix(col, below, 1.0 - smoothstep(-0.06, 0.0, d.y));
         gl_FragColor = vec4(col * uSkyGain, 1.0);
       }

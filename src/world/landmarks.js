@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { cityUniforms } from './materials.js';
+import { CROWN_RGB, SCHEME_RGB, pearlShow } from '../shared/show.js';
 
 // Self-made stand-ins for towers an extruded footprint cannot describe.
 // Oriental Pearl: three splayed columns, two pink spheres, a spire.
@@ -12,8 +13,8 @@ const dark = new THREE.MeshStandardMaterial({ color: 0x3a4148, metalness: 0.45, 
 // Rose-silver glass. The shell is closed; mullions and the night cells are paint.
 // Sky reflection is added here because the shared env-map term is disabled.
 const pearlMat = new THREE.MeshStandardMaterial({
-  color: 0xc4b0b2, metalness: 0.86, roughness: 0.34,
-  emissive: new THREE.Color(0xff2218), emissiveIntensity: 0,
+  color: 0xc42a48, metalness: 0.58, roughness: 0.2,
+  emissive: new THREE.Color(0xff1830), emissiveIntensity: 0,
   transparent: false, opacity: 1, depthWrite: true, side: THREE.FrontSide,
 });
 pearlMat.onBeforeCompile = (shader) => {
@@ -23,6 +24,10 @@ pearlMat.onBeforeCompile = (shader) => {
   shader.uniforms.uSkyGain = cityUniforms.uSkyGain;
   shader.uniforms.uSunDir = cityUniforms.uSunDir;
   shader.uniforms.uSunGlint = cityUniforms.uSunGlint;
+  shader.uniforms.uShowScheme = cityUniforms.uShowScheme;
+  shader.uniforms.uShowNext = cityUniforms.uShowNext;
+  shader.uniforms.uShowFade = cityUniforms.uShowFade;
+  shader.uniforms.uShowPhase = cityUniforms.uShowPhase;
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', '#include <common>\nattribute float aLat;\nattribute vec2 aGrid;\nvarying vec2 vPane;\nvarying float vLat;\nvarying vec2 vGrid;\nvarying vec3 vPearlN;\nvarying vec3 vPearlW;')
     .replace('#include <begin_vertex>', `#include <begin_vertex>
@@ -39,6 +44,26 @@ pearlMat.onBeforeCompile = (shader) => {
       uniform vec3 uHorizon;
       uniform vec3 uSunDir;
       uniform vec3 uSunGlint;
+      uniform float uShowScheme;
+      uniform float uShowNext;
+      uniform float uShowFade;
+      uniform float uShowPhase;
+      vec3 pearlHue(float h) {
+        return clamp(abs(fract(h + vec3(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+      }
+      vec3 schemeColor(float id, float lat, float lon) {
+        float i = mod(id, 7.0);
+        if (i < 0.5) return vec3(1.0, 0.05, 0.10);
+        if (i < 1.5) return vec3(1.0, 0.06, 0.52);
+        if (i < 2.5) return vec3(0.15, 0.45, 1.0);
+        if (i < 3.5) return vec3(0.55, 0.16, 1.0);
+        if (i < 4.5) return vec3(1.0, 0.72, 0.22);
+        if (i < 5.5) return vec3(0.15, 0.95, 0.35);
+        return pearlHue(fract(lat * 1.7 + lon * 0.35 + uShowPhase));
+      }
+      vec3 showColor(float lat, float lon) {
+        return mix(schemeColor(uShowScheme, lat, lon), schemeColor(uShowNext, lat, lon), uShowFade);
+      }
       varying vec2 vPane;
       varying float vLat;
       varying vec2 vGrid;
@@ -47,13 +72,15 @@ pearlMat.onBeforeCompile = (shader) => {
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       vec2 pane = fract(vPane * max(vGrid, vec2(1.0)));
       float edge = min(min(pane.x, 1.0 - pane.x), min(pane.y, 1.0 - pane.y));
-      float glass = smoothstep(0.003, 0.011, edge);
+      float glass = smoothstep(0.0025, 0.009, edge);
       float panelId = dot(floor(vPane * max(vGrid, vec2(1.0))), vec2(1.0, 17.0));
-      float vary = 0.9 + 0.14 * fract(sin(panelId * 12.9898) * 43758.5453);
-      vec3 rose = vec3(0.62, 0.42, 0.44) * vary;
-      diffuseColor.rgb = mix(vec3(0.5, 0.52, 0.54), rose, glass);
-      roughnessFactor = mix(0.7, 0.5 + 0.08 * fract(panelId * 0.37), glass);
-      diffuseColor.rgb *= mix(1.0, 0.22, uNight);
+      float vary = 0.78 + 0.32 * fract(sin(panelId * 12.9898) * 43758.5453);
+      float bottom = smoothstep(0.28, 0.92, vLat);
+      vec3 rose = vec3(0.78, 0.10, 0.18) * vary * mix(1.15, 0.38, bottom);
+      diffuseColor.rgb = mix(vec3(0.32, 0.24, 0.26), rose, glass);
+      roughnessFactor = mix(0.46, 0.16 + 0.06 * fract(panelId * 0.37), glass);
+      vec3 show = showColor(vLat, pane.x);
+      diffuseColor.rgb = mix(diffuseColor.rgb, show * 0.11, uNight);
       float belt = max(
         smoothstep(0.46, 0.485, vLat) * (1.0 - smoothstep(0.515, 0.54, vLat)),
         max(
@@ -61,24 +88,26 @@ pearlMat.onBeforeCompile = (shader) => {
           smoothstep(0.63, 0.655, vLat) * (1.0 - smoothstep(0.675, 0.70, vLat))
         )
       );
-      vec2 cell = abs(fract(pane) - 0.5);
-      float dotCore = smoothstep(0.30, 0.07, max(cell.x, cell.y));
-      vec3 cellCol = mix(vec3(1.0, 0.24, 0.08), vec3(1.0, 0.55, 0.32), belt);
-      totalEmissiveRadiance += cellCol * glass * dotCore * uNight * (1.55 + belt * 0.7);
-      totalEmissiveRadiance += vec3(1.0, 0.72, 0.48) * belt * uNight * 0.18;
+      vec2 micro = fract(pane * vec2(3.0, 3.0));
+      vec2 cell = abs(micro - 0.5);
+      float dotCore = smoothstep(0.16, 0.02, max(cell.x, cell.y));
+      float chase = 0.5 + 0.5 * smoothstep(0.38, 0.02, abs(fract(vLat * 5.0 - pane.x * 0.4 + uShowPhase * 2.0) - 0.5));
+      float pulse = 0.7 + 0.3 * sin(uShowPhase * 12.566 + panelId * 0.05);
+      vec3 cellCol = mix(show, min(show + vec3(0.25), vec3(1.0)), belt);
+      totalEmissiveRadiance += cellCol * glass * dotCore * chase * pulse * uNight * 2.35;
+      totalEmissiveRadiance += vec3(1.0, 0.62, 0.38) * belt * uNight * 0.16;
       vec3 N = normalize(vPearlN);
       vec3 V = normalize(cameraPosition - vPearlW);
       vec3 R = reflect(-V, N);
-      float skyAmt = smoothstep(-0.2, 0.55, R.y);
-      vec3 skyCol = mix(uHorizon, uSky, pow(clamp(R.y, 0.0, 1.0), 0.55)) * uSkyGain;
-      vec3 cityCol = vec3(0.42, 0.36, 0.34) * uSkyGain;
-      vec3 envCol = mix(cityCol, skyCol, skyAmt) * mix(vec3(1.0), vec3(1.15, 0.72, 0.74), 0.62);
-      float fres = pow(1.0 - max(dot(V, N), 0.0), 1.7);
+      vec3 skyCol = mix(uHorizon, uSky, pow(clamp(R.y, 0.0, 1.0), 0.45)) * uSkyGain;
+      float fres = pow(1.0 - max(dot(V, N), 0.0), 2.6);
       float day = 1.0 - uNight;
-      totalEmissiveRadiance += envCol * glass * vary * day * (0.42 + 0.75 * fres);
+      float sunSpec = pow(max(dot(R, normalize(uSunDir)), 0.0), 80.0);
+      totalEmissiveRadiance += skyCol * glass * day * fres * 0.7;
+      totalEmissiveRadiance += uSunGlint * glass * day * sunSpec * 0.28;
     `);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-4';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-5';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
@@ -89,18 +118,46 @@ const columnMat = new THREE.MeshStandardMaterial({
 });
 columnMat.onBeforeCompile = (shader) => {
   shader.uniforms.uNight = cityUniforms.uNight;
+  shader.uniforms.uShowScheme = cityUniforms.uShowScheme;
+  shader.uniforms.uShowNext = cityUniforms.uShowNext;
+  shader.uniforms.uShowFade = cityUniforms.uShowFade;
+  shader.uniforms.uShowPhase = cityUniforms.uShowPhase;
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', '#include <common>\nvarying vec2 vColUv;')
     .replace('#include <begin_vertex>', '#include <begin_vertex>\nvColUv = uv;');
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec2 vColUv;')
+    .replace('#include <common>', `#include <common>
+      uniform float uNight;
+      uniform float uShowScheme;
+      uniform float uShowNext;
+      uniform float uShowFade;
+      uniform float uShowPhase;
+      varying vec2 vColUv;
+      vec3 pearlHue(float h) {
+        return clamp(abs(fract(h + vec3(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+      }
+      vec3 schemeColor(float id, float lat, float lon) {
+        float i = mod(id, 7.0);
+        if (i < 0.5) return vec3(1.0, 0.05, 0.10);
+        if (i < 1.5) return vec3(1.0, 0.06, 0.52);
+        if (i < 2.5) return vec3(0.15, 0.45, 1.0);
+        if (i < 3.5) return vec3(0.55, 0.16, 1.0);
+        if (i < 4.5) return vec3(1.0, 0.72, 0.22);
+        if (i < 5.5) return vec3(0.15, 0.95, 0.35);
+        return pearlHue(fract(lat * 1.7 + lon * 0.35 + uShowPhase));
+      }
+      vec3 showColor(float lat, float lon) {
+        return mix(schemeColor(uShowScheme, lat, lon), schemeColor(uShowNext, lat, lon), uShowFade);
+      }`)
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-      float band = smoothstep(0.58, 0.78, fract(vColUv.y * 14.0));
-      vec3 warm = mix(vec3(1.0, 0.55, 0.1), vec3(1.0, 0.14, 0.05), band);
-      totalEmissiveRadiance += warm * uNight * (0.45 + band * 0.85);
+      float band = smoothstep(0.62, 0.82, fract(vColUv.y * 11.0));
+      vec3 show = showColor(vColUv.y, vColUv.x);
+      vec3 warm = mix(vec3(1.0, 0.74, 0.30), show, 0.82);
+      warm = mix(warm, show * vec3(1.0, 0.28, 0.22), band);
+      totalEmissiveRadiance += warm * uNight * (0.7 + band * 1.05);
     `);
 };
-columnMat.customProgramCacheKey = () => 'lm-pearl-column';
+columnMat.customProgramCacheKey = () => 'lm-pearl-column-3';
 const legMat = new THREE.MeshStandardMaterial({
   color: 0xe0ddd6, metalness: 0.16, roughness: 0.58,
   emissive: new THREE.Color(0xff1c18), emissiveIntensity: 0,
@@ -222,6 +279,63 @@ function tube(group, points, radius, mat, part, angle) {
   return tag(add(group, geo, mat), part, angle);
 }
 
+const beamMat = new THREE.ShaderMaterial({
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+  side: THREE.DoubleSide,
+  uniforms: {
+    uNight: cityUniforms.uNight,
+    uColor: { value: new THREE.Color(1, 0.15, 0.25) },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform float uNight;
+    uniform vec3 uColor;
+    varying vec2 vUv;
+    void main() {
+      float along = vUv.y;
+      float across = abs(fract(vUv.x) - 0.5) * 2.0;
+      float core = pow(1.0 - across, 1.7);
+      float fade = smoothstep(0.0, 0.08, along) * (1.0 - smoothstep(0.4, 1.0, along));
+      float a = core * fade * uNight * 0.5;
+      if (a < 0.012) discard;
+      gl_FragColor = vec4(uColor, a);
+    }
+  `,
+});
+let beamFan = null;
+
+// Searchlights sit on the antenna: one vertical beam and three that sweep.
+// The 2014 lighting fit includes steerable high-power searchlights.
+function addSearchlights(g, h) {
+  const pivot = new THREE.Group();
+  pivot.position.y = h;
+  const up = new THREE.CylinderGeometry(0.3, 2.6, 150, 8, 1, true);
+  up.translate(0, 75, 0);
+  const upMesh = new THREE.Mesh(up, beamMat);
+  upMesh.frustumCulled = false;
+  pivot.add(upMesh);
+  beamFan = new THREE.Group();
+  for (let i = 0; i < 3; i++) {
+    const geo = new THREE.CylinderGeometry(0.18, 4.8, 96, 8, 1, true);
+    geo.translate(0, 48, 0);
+    const mesh = new THREE.Mesh(geo, beamMat);
+    mesh.rotation.z = 0.42;
+    mesh.rotation.y = (i / 3) * Math.PI * 2;
+    mesh.frustumCulled = false;
+    beamFan.add(mesh);
+  }
+  pivot.add(beamFan);
+  g.add(pivot);
+}
+
 function pearl(h) {
   const g = new THREE.Group();
   const m = pearlMeasures(h);
@@ -287,6 +401,7 @@ function pearl(h) {
   antenna.translate(0, m.capsuleC + m.capsuleR + antennaH / 2, 0);
   tag(add(g, antenna, columnMat), 'antenna');
   add(g, new THREE.SphereGeometry(1.1 * m.s, 10, 8).translate(0, h * 0.998, 0), beaconMat);
+  addSearchlights(g, h);
   pearlPlinth(g, m, angles);
   return g;
 }
@@ -957,11 +1072,29 @@ export function createLandmarks(list) {
   return group;
 }
 
+export function syncPearlShow(hour, pin) {
+  const show = pearlShow(hour, pin);
+  cityUniforms.uShowScheme.value = show.scheme;
+  cityUniforms.uShowNext.value = show.next;
+  cityUniforms.uShowFade.value = show.fade;
+  cityUniforms.uShowPhase.value = show.pattern;
+  const rgb = SCHEME_RGB[show.scheme];
+  const nxt = SCHEME_RGB[show.next];
+  const mix = (i) => rgb[i] * (1 - show.fade) + nxt[i] * show.fade;
+  beamMat.uniforms.uColor.value.setRGB(mix(0), mix(1), mix(2));
+  if (beamFan) beamFan.rotation.y = show.pattern * Math.PI * 2;
+  legMat.emissive.setRGB(mix(0) * 0.9, mix(1) * 0.35, mix(2) * 0.4);
+  beaconMat.emissive.setRGB(mix(0), mix(1) * 0.4, mix(2) * 0.35);
+  const crown = CROWN_RGB[show.scheme];
+  shanghaiCrownMat.emissive.setRGB(crown[0], crown[1], crown[2]);
+  swfcEdgeMat.emissive.setRGB(0.72 + rgb[0] * 0.22, 0.88, 1);
+}
+
 export function syncLandmarkNight(night) {
-  pearlMat.emissiveIntensity = night * 0.05;
-  pearlBand.emissiveIntensity = 0.02 + night * 0.85;
-  columnMat.emissiveIntensity = night * 0.4;
-  legMat.emissiveIntensity = night * 1.25;
+  pearlMat.emissiveIntensity = night * 0.08;
+  pearlBand.emissiveIntensity = 0.02 + night * 0.7;
+  columnMat.emissiveIntensity = night * 0.55;
+  legMat.emissiveIntensity = night * 1.7;
   shanghaiCrownMat.emissiveIntensity = night * 2.8;
   swfcEdgeMat.emissiveIntensity = night * 2.2;
   bundStone.emissiveIntensity = night * 0.16;
