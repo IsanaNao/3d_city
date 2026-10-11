@@ -248,6 +248,7 @@ const FACADE_MAIN = /* glsl */`
 
     bool shop = row < 0.5 && (kind > 2.5 && kind < 3.5 || kind > 5.5 && height < 40.0 || kind < 0.5 && height < 24.0);
     if (shop) r = vec4(0.05, 0.95, 0.03, 0.8);
+    if (height > 85.0 && kind > 1.5 && kind < 4.5) photo = -1.0;
     bool usePhoto = photo > -0.5 && !shop;
     vec4 ph = vec4(0.0);
     if (usePhoto) {
@@ -421,7 +422,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-8';
+  material.customProgramCacheKey = () => 'sh-facade-9';
   return material;
 }
 
