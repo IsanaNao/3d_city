@@ -78,6 +78,7 @@ const beyond = new THREE.Mesh(
 );
 beyond.receiveShadow = true;
 scene.add(beyond);
+let waterLevel = 0;
 const skyPreset = params.get('sky') || '';
 const pearlPin = params.get('pearl') || '';
 const hazeFog = new THREE.Color(0.86, 0.78, 0.74);
