@@ -1236,19 +1236,20 @@ function customs(h) {
     }
   }
 
-  // Corner urns on the stepped crown, the ones that break the skyline in photos.
+  // Corner urns on the stepped crown. They have to be large enough to break
+  // the skyline from the river, the way the stone finials do in photographs.
   const urnAt = (x, y, z) => {
-    putBox(g, 0.72 * s, 0.32 * s, 0.72 * s, x, y, z, bundPlain);
-    const bowl = new THREE.SphereGeometry(0.36 * s, 10, 8);
-    bowl.scale(1, 1.2, 1);
-    bowl.translate(x, y + 0.78 * s, z);
+    putBox(g, 1.25 * s, 0.48 * s, 1.25 * s, x, y, z, bundPlain);
+    const bowl = new THREE.SphereGeometry(0.72 * s, 12, 8);
+    bowl.scale(1, 1.15, 1);
+    bowl.translate(x, y + 1.25 * s, z);
     add(g, bowl, bundPlain);
-    const neck = new THREE.CylinderGeometry(0.1 * s, 0.16 * s, 0.42 * s, 8);
-    neck.translate(x, y + 1.28 * s, z);
+    const neck = new THREE.CylinderGeometry(0.1 * s, 0.2 * s, 0.85 * s, 8);
+    neck.translate(x, y + 2.25 * s, z);
     add(g, neck, bundPlain);
   };
-  for (const stage of [placed['customs-belfry'], placed['customs-attic']]) {
-    const o = stage.w / 2 - 0.55 * s;
+  for (const stage of [placed['customs-clock'], placed['customs-belfry'], placed['customs-attic']]) {
+    const o = stage.w / 2 - 0.15 * s;
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) urnAt(sx * o, stage.y + stage.h, tz + sz * o);
     }
@@ -1386,25 +1387,38 @@ function hsbc(h) {
   // Centred on the projecting bay, just behind the column line, so the drum
   // reads as rising out of the portico rather than sitting inland of the roof.
   const domeZ = bayZ + 0.4;
-  add(g, new THREE.CylinderGeometry(drumR * 0.92, drumR, drumH, 24).translate(0, drumY + drumH / 2, domeZ), bundPlain);
+  add(g, new THREE.CylinderGeometry(drumR * 0.94, drumR, drumH, 24).translate(0, drumY + drumH / 2, domeZ), bundPlain);
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * Math.PI * 2;
-    add(g, new THREE.BoxGeometry(0.38, drumH * 0.92, 0.55).translate(Math.sin(a) * (drumR + 0.15), drumY + drumH / 2, Math.cos(a) * (drumR + 0.15) + domeZ), bundPlain);
+    const colH = drumH * 0.82;
+    add(g, new THREE.BoxGeometry(0.42, colH, 0.55).translate(Math.sin(a) * (drumR + 0.18), drumY + 0.45 * s + colH / 2, Math.cos(a) * (drumR + 0.18) + domeZ), bundPlain);
   }
-  const domeY = drumY + drumH;
-  const domeR = 9.4;
-  const dome = new THREE.SphereGeometry(domeR, 28, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+  const ringH = 0.7 * s;
+  const ringY = drumY + drumH;
+  add(g, new THREE.CylinderGeometry(drumR * 1.08, drumR * 0.98, ringH, 28).translate(0, ringY + ringH / 2, domeZ), bundPlain);
+  const domeR = drumR * 0.96;
+  const domeY = ringY + ringH;
+  const dome = new THREE.SphereGeometry(domeR, 32, 18, 0, Math.PI * 2, 0, Math.PI / 2);
   dome.translate(0, domeY, domeZ);
   const domeMesh = add(g, dome, bundPlain);
   domeMesh.userData.part = 'hsbc-dome';
-  for (let i = 0; i < 14; i++) {
-    const a = (i / 14) * Math.PI * 2;
-    const rib = new THREE.BoxGeometry(0.36, 0.32, domeR * 0.92);
-    rib.translate(0, 0, domeR * 0.16);
-    rib.rotateX(-0.86);
-    rib.rotateY(a);
-    rib.translate(0, domeY + domeR * 0.4, domeZ);
-    add(g, rib, bundPlain);
+  const ribUp = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    for (let k = 0; k < 4; k++) {
+      const u0 = 0.06 + (k / 4) * 0.78;
+      const u1 = 0.06 + ((k + 1) / 4) * 0.78;
+      const at = (u) => new THREE.Vector3(Math.cos(u) * Math.sin(a), Math.sin(u), Math.cos(u) * Math.cos(a)).multiplyScalar(domeR * 1.015);
+      const p0 = at(u0);
+      const p1 = at(u1);
+      const mid = p0.clone().add(p1).multiplyScalar(0.5);
+      const dir = p1.clone().sub(p0);
+      const len = dir.length();
+      const rib = new THREE.BoxGeometry(0.28, len, 0.2);
+      rib.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(ribUp, dir.normalize()));
+      rib.translate(mid.x, domeY + mid.y, domeZ + mid.z);
+      add(g, rib, bundPlain);
+    }
   }
   add(g, new THREE.CylinderGeometry(1.15, 1.7, 2.8 * s, 12).translate(0, domeY + domeR + 1.1 * s, domeZ), bundPlain);
   add(g, new THREE.SphereGeometry(0.7, 10, 8).translate(0, domeY + domeR + 2.8 * s, domeZ), bundPlain);
