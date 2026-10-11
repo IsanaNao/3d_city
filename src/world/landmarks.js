@@ -9,22 +9,24 @@ import { cityUniforms } from './materials.js';
 
 const steel = new THREE.MeshStandardMaterial({ color: 0xd5d9de, metalness: 0.72, roughness: 0.34 });
 const dark = new THREE.MeshStandardMaterial({ color: 0x3a4148, metalness: 0.45, roughness: 0.5 });
-// Pink-red glass. The night grid is drawn in the shader from each panel's UV,
-// so the sphere reads as panes by day and as dots and bands after dark.
+// Pink-red glass. The sphere mesh is a closed shell. Mullions and the night
+// cells are painted from the panel UV, so nothing is cut out of the skin.
 const pearlMat = new THREE.MeshStandardMaterial({
   color: 0xc4374e, metalness: 0.74, roughness: 0.16,
   emissive: new THREE.Color(0xff2040), emissiveIntensity: 0,
+  transparent: false, opacity: 1, depthWrite: true, side: THREE.FrontSide,
 });
 pearlMat.onBeforeCompile = (shader) => {
   shader.uniforms.uNight = cityUniforms.uNight;
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nattribute float aLat;\nvarying vec2 vPane;\nvarying float vLat;')
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPane = uv;\nvLat = aLat;');
+    .replace('#include <common>', '#include <common>\nattribute float aLat;\nattribute vec2 aGrid;\nvarying vec2 vPane;\nvarying float vLat;\nvarying vec2 vGrid;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPane = uv;\nvLat = aLat;\nvGrid = aGrid;');
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec2 vPane;\nvarying float vLat;')
+    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec2 vPane;\nvarying float vLat;\nvarying vec2 vGrid;')
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-      float edge = min(min(vPane.x, 1.0 - vPane.x), min(vPane.y, 1.0 - vPane.y));
-      float glass = smoothstep(0.045, 0.13, edge);
+      vec2 pane = fract(vPane * vGrid);
+      float edge = min(min(pane.x, 1.0 - pane.x), min(pane.y, 1.0 - pane.y));
+      float glass = smoothstep(0.012, 0.04, edge);
       diffuseColor.rgb = mix(vec3(0.78, 0.80, 0.82), diffuseColor.rgb, glass);
       float belt = max(
         smoothstep(0.45, 0.48, vLat) * (1.0 - smoothstep(0.52, 0.55, vLat)),
@@ -33,14 +35,14 @@ pearlMat.onBeforeCompile = (shader) => {
           smoothstep(0.62, 0.65, vLat) * (1.0 - smoothstep(0.69, 0.72, vLat))
         )
       );
-      vec2 cell = abs(fract(vPane * vec2(2.0, 3.0)) - 0.5);
+      vec2 cell = abs(fract(pane * vec2(2.0, 3.0)) - 0.5);
       float dotCore = smoothstep(0.42, 0.16, max(cell.x, cell.y));
       vec3 cellCol = mix(vec3(1.0, 0.10, 0.22), vec3(1.0, 0.64, 0.74), belt);
       totalEmissiveRadiance += cellCol * glass * dotCore * uNight * (3.6 + belt * 2.6);
       totalEmissiveRadiance += vec3(1.0, 0.86, 0.72) * belt * uNight * 0.7;
     `);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-grid';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-solid';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
@@ -125,41 +127,20 @@ function tag(mesh, part, angle) {
   return mesh;
 }
 
-// A sphere of separate glass panels, with a gap around the equator for the
-// observation belt. Each panel's UV is 0..1 so the night shader can light the pane.
-function paneledSphere(group, radius, centerY, latN, lonN, mat, part, equatorGap = 0) {
-  const pos = [];
-  const uv = [];
-  const lat = [];
-  const idx = [];
-  const inset = 0.14;
-  for (let i = 0; i < latN; i++) {
-    const v = (i + 0.5) / latN;
-    if (equatorGap > 0 && Math.abs(v - 0.5) < equatorGap) continue;
-    for (let j = 0; j < lonN; j++) {
-      const lat0 = Math.PI * (i + inset) / latN;
-      const lat1 = Math.PI * (i + 1 - inset) / latN;
-      const lon0 = Math.PI * 2 * (j + inset) / lonN;
-      const lon1 = Math.PI * 2 * (j + 1 - inset) / lonN;
-      const base = pos.length / 3;
-      const corners = [[lat0, lon0, 0, 0], [lat0, lon1, 1, 0], [lat1, lon1, 1, 1], [lat1, lon0, 0, 1]];
-      for (const [la, lo, u, vv] of corners) {
-        const sx = Math.sin(la) * Math.cos(lo);
-        const sy = Math.cos(la);
-        const sz = Math.sin(la) * Math.sin(lo);
-        pos.push(sx * radius, centerY + sy * radius, sz * radius);
-        uv.push(u, vv);
-        lat.push(v);
-      }
-      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
-    }
+// A closed glass shell. latN and lonN only divide the painted mullion grid.
+function paneledSphere(group, radius, centerY, latN, lonN, mat, part) {
+  const geo = new THREE.SphereGeometry(radius, lonN * 2, latN * 2);
+  geo.translate(0, centerY, 0);
+  const uv = geo.getAttribute('uv');
+  const lat = new Float32Array(uv.count);
+  const grid = new Float32Array(uv.count * 2);
+  for (let i = 0; i < uv.count; i++) {
+    lat[i] = 1 - uv.getY(i);
+    grid[i * 2] = lonN;
+    grid[i * 2 + 1] = latN;
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   geo.setAttribute('aLat', new THREE.Float32BufferAttribute(lat, 1));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
+  geo.setAttribute('aGrid', new THREE.Float32BufferAttribute(grid, 2));
   return tag(add(group, geo, mat), part);
 }
 
@@ -221,7 +202,7 @@ function pearl(h) {
     tube(g, [foot, knee, legEnd], m.legR, legMat, 'leg', angle);
 
     const pod = foot.clone().lerp(legEnd, 0.42);
-    const podMesh = paneledSphere(g, 6.2 * m.s, 0, 8, 12, pearlMat, 'pod', 0);
+    const podMesh = paneledSphere(g, 6.2 * m.s, 0, 8, 12, pearlMat, 'pod');
     podMesh.position.set(pod.x, pod.y, pod.z);
 
     const emerge = along(angle, 15 * m.s, m.lowerC + 8 * m.s);
@@ -236,7 +217,7 @@ function pearl(h) {
     const angle = angles[i % 3] + (i >= 3 ? 0.22 : 0);
     const y = m.lowerC + m.lowerR + (m.upperC - m.upperR - (m.lowerC + m.lowerR)) * t;
     const radial = (15 - 5 * t) * m.s;
-    const bead = paneledSphere(g, 6 * m.s, 0, 6, 10, pearlMat, 'bead', 0);
+    const bead = paneledSphere(g, 6 * m.s, 0, 6, 10, pearlMat, 'bead');
     bead.position.set(Math.cos(angle) * radial, y, Math.sin(angle) * radial);
     bead.userData.angle = angle;
   });
@@ -253,17 +234,17 @@ function pearl(h) {
     for (let i = 0; i < ring.length; i++) tube(g, [ring[i], ring[(i + 1) % ring.length]], 1.3 * m.s, columnMat, 'brace');
   }
 
-  paneledSphere(g, m.lowerR, m.lowerC, 18, 36, pearlMat, 'lower-sphere', 0.034);
+  paneledSphere(g, m.lowerR, m.lowerC, 18, 36, pearlMat, 'lower-sphere');
   sphereRing(g, m.lowerR, m.lowerC, 0, 1.8 * m.s);
   sphereRing(g, m.lowerR, m.lowerC, m.lowerR * 0.42, 0.48 * m.s);
   sphereRing(g, m.lowerR, m.lowerC, -m.lowerR * 0.42, 0.48 * m.s);
-  paneledSphere(g, m.upperR, m.upperC, 16, 32, pearlMat, 'upper-sphere', 0.034);
+  paneledSphere(g, m.upperR, m.upperC, 16, 32, pearlMat, 'upper-sphere');
   sphereRing(g, m.upperR, m.upperC, 0, 1.55 * m.s);
   sphereRing(g, m.upperR, m.upperC, m.upperR * 0.4, 0.42 * m.s);
   sphereRing(g, m.upperR, m.upperC, -m.upperR * 0.4, 0.42 * m.s);
 
   tube(g, [along(0, 0, m.upperC + m.upperR * 0.35), along(0, 0, m.capsuleC + m.capsuleR * 0.4)], 2.4 * m.s, columnMat, 'mast');
-  paneledSphere(g, m.capsuleR, m.capsuleC, 8, 16, pearlMat, 'capsule', 0.05);
+  paneledSphere(g, m.capsuleR, m.capsuleC, 8, 16, pearlMat, 'capsule');
   sphereRing(g, m.capsuleR, m.capsuleC, 0, 0.55 * m.s);
   const antennaH = h - (m.capsuleC + m.capsuleR);
   const antenna = new THREE.CylinderGeometry(0.22 * m.s, 1.15 * m.s, antennaH, 8);

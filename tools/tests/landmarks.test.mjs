@@ -225,18 +225,46 @@ test('parametric towers stand their full height', () => {
   }
 });
 
-test('pearl spheres are a faceted glass grid, not a solid ball', () => {
+test('pearl spheres are a closed glass skin, with the panel grid only in the shader', () => {
   const model = createLandmarks([{ id: 'pearl', x: 0, z: 0, y: 0, h: 468, yaw: 0 }]).children[0];
   let panels = 0;
+  let area = 0;
   model.traverse((obj) => {
     if (obj.userData?.part !== 'lower-sphere') return;
     const pos = obj.geometry.getAttribute('position');
     const lat = obj.geometry.getAttribute('aLat');
+    const index = obj.geometry.getIndex();
     assert.ok(pos.count > 1500, `lower sphere has ${pos.count} vertices`);
     assert.equal(lat.count, pos.count);
+    assert.equal(obj.material.transparent, false);
+    assert.equal(obj.material.depthWrite, true);
+    assert.equal(obj.material.opacity, 1);
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const ab = new THREE.Vector3();
+    const ac = new THREE.Vector3();
+    for (let i = 0; i < index.count; i += 3) {
+      a.fromBufferAttribute(pos, index.getX(i));
+      b.fromBufferAttribute(pos, index.getX(i + 1));
+      c.fromBufferAttribute(pos, index.getX(i + 2));
+      ab.subVectors(b, a);
+      ac.subVectors(c, a);
+      area += ab.cross(ac).length() * 0.5;
+    }
+    const center = new THREE.Vector3(0, 93, 0);
+    let minR = Infinity;
+    let maxR = 0;
+    for (let i = 0; i < pos.count; i++) {
+      const r = new THREE.Vector3().fromBufferAttribute(pos, i).distanceTo(center);
+      if (r < minR) minR = r;
+      if (r > maxR) maxR = r;
+    }
+    assert.ok(Math.abs(minR - 25) < 0.05 && Math.abs(maxR - 25) < 0.05, `shell radius ${minR}..${maxR}`);
     panels += 1;
   });
   assert.equal(panels, 1);
+  assert.ok(area > 4 * Math.PI * 25 * 25 * 0.92, `lower sphere area ${area} is open`);
   let rings = 0;
   model.traverse((obj) => {
     if (obj.geometry?.type === 'TorusGeometry') rings += 1;
