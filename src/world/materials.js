@@ -704,7 +704,7 @@ export function createWaterMaterial() {
         vec3 col = mix(body, seen, max(fresnel, mix(0.4, 0.9, uDark) * thing));
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);
-        col = mix(col, hazeSeen, uHaze * (1.0 - uDark) * 0.72);
+        col = mix(col, max(hazeSeen, vec3(0.55, 0.60, 0.66)), uHaze * (1.0 - uDark) * 0.82);
         gl_FragColor = vec4(col, 1.0);
       }
     `,
