@@ -904,10 +904,14 @@ function jinmao(h) {
 
 const STONE_I = WALL_LAYERS.findIndex((l) => l.key === 'stone');
 // Sandstone Blocks 08 (Poly Haven, CC0), divided by its mean so the warm buff
-// tint stays ours. UVs are metres. Shared by every Bund stone material.
+// tint stays ours. UVs are metres, repeated 1.5× so the courses are finer than
+// the 3 m photo tile, and the joint contrast fades with distance. Night flood
+// sits just above the extruded Bund row: uFlood marks columns, cornices, the
+// dome drum and tower piers. Shared by every Bund stone material.
 const STONE_SHADE = /* glsl */`
 uniform float uNight;
 uniform float uPhotoOn;
+uniform float uFlood;
 uniform sampler2DArray uWallAlb;
 uniform sampler2DArray uWallNor;
 uniform vec3 uWallMean[${WALL_LAYERS.length}];
@@ -915,6 +919,7 @@ uniform vec2 uWallScale[${WALL_LAYERS.length}];
 varying vec3 vCpos;
 varying vec3 vCnorm;
 const int STONE_I = ${STONE_I};
+const float STONE_REPEAT = 1.5;
 vec3 stoneTbn(vec3 n, vec3 eye, vec2 uv, vec3 m) {
   vec3 q0 = dFdx(eye), q1 = dFdy(eye);
   vec2 st0 = dFdx(uv), st1 = dFdy(uv);
@@ -934,10 +939,11 @@ const STONE_VERT = /* glsl */`#include <begin_vertex>
   vCpos = position;
   vCnorm = normal;
 #endif`;
-function shadeBundStone(mat, key) {
+function shadeBundStone(mat, key, flood) {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNight = cityUniforms.uNight;
     shader.uniforms.uPhotoOn = photoUniforms.uPhotoOn;
+    shader.uniforms.uFlood = { value: flood };
     shader.uniforms.uWallAlb = photoUniforms.uWallAlb;
     shader.uniforms.uWallNor = photoUniforms.uWallNor;
     shader.uniforms.uWallMean = photoUniforms.uWallMean;
@@ -950,41 +956,52 @@ function shadeBundStone(mat, key) {
       .replace('#include <color_fragment>', `#include <color_fragment>
         vec3 sn = normalize(vCnorm);
         vec2 suv = abs(sn.y) > 0.65 ? vCpos.xz : (abs(sn.x) > abs(sn.z) ? vec2(vCpos.z, vCpos.y) : vec2(vCpos.x, vCpos.y));
+        float dist = length(vViewPosition);
+        float fade = smoothstep(22.0, 145.0, dist);
+        float keep = mix(1.0, 0.14, fade);
         vec3 stoneCol = diffuseColor.rgb;
         if (uPhotoOn > 0.5) {
-          vec2 mapUv = suv * uWallScale[STONE_I];
+          vec2 mapUv = suv * uWallScale[STONE_I] * STONE_REPEAT;
           vec3 tex = texture(uWallAlb, vec3(mapUv, float(STONE_I))).rgb / max(uWallMean[STONE_I], vec3(0.02));
           float luma = dot(tex, vec3(0.3, 0.59, 0.11));
-          tex = mix(vec3(luma), tex, 0.8);
+          tex = mix(vec3(luma), tex, mix(0.8, 0.12, fade));
           stoneCol = tex * vec3(1.18, 0.98, 0.68);
         }
-        float vary = fract(sin(dot(floor(suv / vec2(1.2, 0.48)), vec2(19.1, 7.7))) * 43758.5);
-        stoneCol *= 0.91 + 0.14 * vary;
+        float vary = fract(sin(dot(floor(suv / vec2(0.85, 0.34)), vec2(19.1, 7.7))) * 43758.5);
+        stoneCol *= mix(1.0, 0.93 + 0.1 * vary, keep);
         float base = 1.0 - smoothstep(6.4, 9.0, vCpos.y);
-        float course = smoothstep(0.72, 0.94, fract(vCpos.y / 0.46));
-        float vj = smoothstep(0.88, 0.98, fract(suv.x / 1.2));
-        stoneCol *= mix(1.0, 0.58, base * max(course, vj * 0.8));
+        float course = smoothstep(0.72, 0.94, fract(vCpos.y / 0.32));
+        float vj = smoothstep(0.88, 0.98, fract(suv.x / 0.9));
+        stoneCol *= mix(1.0, 0.58, base * max(course, vj * 0.8) * mix(1.0, 0.2, fade));
         float soffit = smoothstep(0.08, 0.72, -sn.y);
         stoneCol *= mix(1.0, 0.4, soffit);
         float axis = max(abs(sn.x), max(abs(sn.y), abs(sn.z)));
         float curved = (1.0 - smoothstep(0.9, 0.995, axis)) * (1.0 - smoothstep(0.2, 0.55, abs(sn.y)));
         float flute = smoothstep(0.12, 0.62, abs(sin(atan(sn.z, sn.x) * 7.0)));
-        stoneCol *= mix(1.0, mix(0.58, 1.0, flute), curved);
+        stoneCol *= mix(1.0, mix(0.58, 1.0, flute), curved * keep);
         stoneCol *= 1.0 - (1.0 - smoothstep(0.0, 0.65, vCpos.y)) * 0.16;
         diffuseColor.rgb = stoneCol;
       `)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         if (uPhotoOn > 0.5) {
-          vec2 mapUv = (abs(normalize(vCnorm).y) > 0.65 ? vCpos.xz : (abs(vCnorm.x) > abs(vCnorm.z) ? vec2(vCpos.z, vCpos.y) : vec2(vCpos.x, vCpos.y))) * uWallScale[STONE_I];
+          vec3 nn = normalize(vCnorm);
+          vec2 suvN = abs(nn.y) > 0.65 ? vCpos.xz : (abs(nn.x) > abs(nn.z) ? vec2(vCpos.z, vCpos.y) : vec2(vCpos.x, vCpos.y));
+          vec2 mapUv = suvN * uWallScale[STONE_I] * STONE_REPEAT;
           vec3 tm = texture(uWallNor, vec3(mapUv, float(STONE_I))).xyz * 2.0 - 1.0;
           tm.y = -tm.y;
-          normal = stoneTbn(normal, -vViewPosition, mapUv, normalize(mix(vec3(0.0, 0.0, 1.0), tm, 0.85)));
+          float keepN = mix(0.85, 0.08, smoothstep(22.0, 145.0, length(vViewPosition)));
+          normal = stoneTbn(normal, -vViewPosition, mapUv, normalize(mix(vec3(0.0, 0.0, 1.0), tm, keepN)));
         }
       `)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        float sup = smoothstep(0.4, 0.92, normalize(vCnorm).y);
-        float sGraze = pow(clamp(vCpos.y / 72.0, 0.0, 1.0), 1.35);
-        totalEmissiveRadiance += vec3(1.0, 0.64, 0.3) * uNight * (0.045 + 0.14 * sGraze + 0.8 * sup);
+        float uplight = pow(1.0 - smoothstep(0.0, 36.0, max(vCpos.y, 0.0)), 1.1);
+        float wallMag = 0.52 + 0.36 * uplight;
+        float proj = max(uFlood, smoothstep(0.42, 0.88, sn.y));
+        float mag = wallMag + proj * 0.78;
+        mag *= mix(1.0, 0.18, smoothstep(0.12, 0.7, -sn.y));
+        mag *= mix(1.0, mix(0.74, 1.0, flute), curved);
+        mag += smoothstep(33.0, 50.0, vCpos.y) * (1.0 - uFlood) * 0.26;
+        totalEmissiveRadiance += vec3(1.06, 0.62, 0.24) * uNight * mag;
       `);
   };
   mat.customProgramCacheKey = () => key;
@@ -993,17 +1010,17 @@ const bundStone = new THREE.MeshStandardMaterial({
   color: 0xe4d2b4, roughness: 0.78, metalness: 0.03,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-shadeBundStone(bundStone, 'lm-bund-stone-8');
+shadeBundStone(bundStone, 'lm-bund-stone-9', 0);
 const bundPlain = new THREE.MeshStandardMaterial({
   color: 0xeadcc4, roughness: 0.64, metalness: 0.04,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-shadeBundStone(bundPlain, 'lm-bund-plain-8');
+shadeBundStone(bundPlain, 'lm-bund-plain-9', 1);
 const customsWall = new THREE.MeshStandardMaterial({
   color: 0xe6d4b6, roughness: 0.76, metalness: 0.03,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-shadeBundStone(customsWall, 'lm-customs-wall-4');
+shadeBundStone(customsWall, 'lm-customs-wall-5', 0);
 const recessMat = new THREE.MeshStandardMaterial({ color: 0x12181e, roughness: 0.72, metalness: 0.06 });
 const jointMat = new THREE.MeshStandardMaterial({ color: 0x6e6558, roughness: 0.84, metalness: 0.02 });
 const mullionMat = new THREE.MeshStandardMaterial({ color: 0x2a3136, roughness: 0.4, metalness: 0.4 });
@@ -1031,10 +1048,10 @@ bundGlass.onBeforeCompile = (shader) => {
       float gid = floor(vGpos.x * 0.28) + floor(vGpos.y * 0.32) * 19.0 + floor(vGpos.z * 0.28) * 7.0;
       float gh = fract(sin(gid * 17.13) * 43758.5);
       float tier = step(0.38, gh) + step(0.74, gh);
-      totalEmissiveRadiance += vec3(1.0, 0.68, 0.34) * tier * uNight * 0.5;
+      totalEmissiveRadiance += vec3(1.02, 0.74, 0.4) * tier * uNight * 0.78;
     `);
 };
-bundGlass.customProgramCacheKey = () => 'lm-bund-glass-1';
+bundGlass.customProgramCacheKey = () => 'lm-bund-glass-2';
 const marbleBase = new THREE.MeshStandardMaterial({ color: 0x2c3136, roughness: 0.38, metalness: 0.22 });
 const soffitMat = new THREE.MeshStandardMaterial({ color: 0x6f685c, roughness: 0.9, metalness: 0.02 });
 const flagMat = new THREE.MeshStandardMaterial({
