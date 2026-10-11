@@ -252,11 +252,33 @@ function frontageKind(mx, mz, ox) {
   return null;
 }
 
+// A one-vertex jog out and back reads as a notch in the wall. Drop that point.
+function despike(pts) {
+  if (pts.length < 3) return pts;
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = out[out.length - 1];
+    const b = pts[i];
+    const c = pts[i + 1];
+    const abx = b.x - a.x;
+    const abz = b.z - a.z;
+    const bcx = c.x - b.x;
+    const bcz = c.z - b.z;
+    const lab = Math.hypot(abx, abz) || 1;
+    const lbc = Math.hypot(bcx, bcz) || 1;
+    const dot = abx * bcx + abz * bcz;
+    if (dot < -0.2 * lab * lbc && Math.min(lab, lbc) < 45) continue;
+    out.push(b);
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+
 function stitchBank(segments) {
   const pool = segments.map((seg) => ({ ...seg, used: false }));
   const lines = [];
   // A dropped corner step leaves a gap of about one sample. Bridge that, not a dock mouth.
-  const near = (p, q) => Math.hypot(p.x - q.x, p.z - q.z) < 18;
+  const near = (p, q) => Math.hypot(p.x - q.x, p.z - q.z) < 36;
   for (const seed of pool) {
     if (seed.used) continue;
     seed.used = true;
@@ -284,10 +306,11 @@ function stitchBank(segments) {
       const prev = slim[slim.length - 1];
       if (Math.hypot(line[i].x - prev.x, line[i].z - prev.z) >= 10 || i === line.length - 1) slim.push(line[i]);
     }
-    if (slim.length >= 2) {
+    const shore = despike(slim);
+    if (shore.length >= 2) {
       let length = 0;
-      for (let i = 1; i < slim.length; i++) length += Math.hypot(slim[i].x - slim[i - 1].x, slim[i].z - slim[i - 1].z);
-      if (length >= 40) lines.push({ id: seed.id, width: seed.id === 'bund' ? 46 : 22, points: slim });
+      for (let i = 1; i < shore.length; i++) length += Math.hypot(shore[i].x - shore[i - 1].x, shore[i].z - shore[i - 1].z);
+      if (length >= 40) lines.push({ id: seed.id, width: seed.id === 'bund' ? 46 : 22, points: shore });
     }
   }
   return lines;

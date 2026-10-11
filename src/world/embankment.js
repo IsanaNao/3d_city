@@ -21,6 +21,31 @@ function addQuad(pos, a, b, c, d) {
   pushTri(pos, a, c, d);
 }
 
+// Keep the face that looks toward (tx, tz). The shore is walked either way,
+// and a back face is invisible from the river.
+function faceToward(pos, a, b, c, d, tx, tz) {
+  const e1x = b.x - a.x;
+  const e1y = b.y - a.y;
+  const e1z = b.z - a.z;
+  const e2x = d.x - a.x;
+  const e2y = d.y - a.y;
+  const e2z = d.z - a.z;
+  const nx = e1y * e2z - e1z * e2y;
+  const nz = e1x * e2y - e1y * e2x;
+  if (nx * tx + nz * tz < 0) addQuad(pos, a, d, c, b);
+  else addQuad(pos, a, b, c, d);
+}
+
+function faceUp(pos, a, b, c, d) {
+  const e1x = b.x - a.x;
+  const e1z = b.z - a.z;
+  const e2x = d.x - a.x;
+  const e2z = d.z - a.z;
+  const ny = e1z * e2x - e1x * e2z;
+  if (ny < 0) addQuad(pos, a, d, c, b);
+  else addQuad(pos, a, b, c, d);
+}
+
 // length runs along (dx, dz), depth across it, height up. Origin is the box center.
 function addBox(pos, cx, cy, cz, length, height, depth, dx, dz) {
   const span = Math.hypot(dx, dz) || 1;
@@ -101,28 +126,26 @@ export function createEmbankments(lines, grid, waterLevel) {
       const b = new THREE.Vector3(p1.x, low, p1.z);
       const c = new THREE.Vector3(p1.x, y1 + 0.2, p1.z);
       const d = new THREE.Vector3(p0.x, y0 + 0.2, p0.z);
-      addQuad(wall, a, b, c, d);
+      faceToward(wall, a, b, c, d, -nx, -nz);
       const inset = 0.85;
-      addQuad(
-        wall,
-        new THREE.Vector3(p0.x + nx * inset, low, p0.z + nz * inset),
-        d.clone(),
-        c.clone(),
-        new THREE.Vector3(p1.x + nx * inset, low, p1.z + nz * inset),
-      );
+      const i0 = new THREE.Vector3(p0.x + nx * inset, low, p0.z + nz * inset);
+      const i1 = new THREE.Vector3(p1.x + nx * inset, low, p1.z + nz * inset);
+      faceToward(wall, i0, d.clone(), c.clone(), i1, nx, nz);
       const d0 = new THREE.Vector3(p0.x + nx * 0.4, y0 + 0.28, p0.z + nz * 0.4);
       const d1 = new THREE.Vector3(p1.x + nx * 0.4, y1 + 0.28, p1.z + nz * 0.4);
       const d2 = new THREE.Vector3(p1.x + nx * width, y1 + 0.28, p1.z + nz * width);
       const d3 = new THREE.Vector3(p0.x + nx * width, y0 + 0.28, p0.z + nz * width);
-      addQuad(deck, d0, d1, d2, d3);
+      faceUp(deck, d0, d1, d2, d3);
       // Solid parapet, then a dark rail and posts, on the water side of the walk.
       const parapet = 0.9;
-      addQuad(
+      faceToward(
         wall,
         d.clone(),
         c.clone(),
         new THREE.Vector3(p1.x, y1 + parapet, p1.z),
         new THREE.Vector3(p0.x, y0 + parapet, p0.z),
+        -nx,
+        -nz,
       );
       const railOut = 0.35;
       for (const lift of [0.62, 1.2]) {
