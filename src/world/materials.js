@@ -382,13 +382,14 @@ const FACADE_MAIN = /* glsl */`
         : vec3(0.35, 0.85, 1.0);
       gEmissive = mix(gEmissive, gEmissive * accentCol * 1.25 + accentCol * pane * 0.4, accent);
     }
-    if (tall > 0.35 && vWall.y > 0.0) {
+    // A minority of the tall frontage carries a thin show-tinted edge. The rest stay warm floor bands.
+    if (tall > 0.55 && fract(sf * 19.7) > 0.8 && vWall.y > 0.0) {
       float edgeDist = min(vWall.x, max(vWall.y - vWall.x, 0.0));
-      float side = 1.0 - smoothstep(0.25, 1.6, edgeDist);
-      float crownLine = smoothstep(0.84, 0.92, v / height) * (1.0 - smoothstep(0.975, 0.998, v / height));
+      float side = 1.0 - smoothstep(0.15, 0.7, edgeDist);
+      float crownLine = smoothstep(0.9, 0.95, v / height) * (1.0 - smoothstep(0.985, 0.998, v / height));
       float led = fract(sf * 2.7 + uShowScheme / 7.0 + uShowPhase * 0.2);
-      vec3 line = mix(vec3(1.0, 0.76, 0.4), hue(led), 0.7);
-      gEmissive += line * uNight * (side * 0.55 + crownLine * 1.2);
+      vec3 line = mix(vec3(1.0, 0.82, 0.55), hue(led), 0.35);
+      gEmissive += line * uNight * (side * 0.16 + crownLine * 0.4);
     }
     // the lintel shades the top of the opening
     if (!usePhoto) diffuseColor.rgb *= 1.0 - 0.35 * inWin * (1.0 - smoothstep(0.0, 0.18, wmax.y - pm.y)) * (1.0 - far);
@@ -439,7 +440,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-10';
+  material.customProgramCacheKey = () => 'sh-facade-11';
   return material;
 }
 
@@ -642,6 +643,7 @@ export function createWaterMaterial() {
     fragmentShader: /* glsl */`
       uniform float uTime;
       uniform float uDark;
+      uniform float uHaze;
       uniform float uSkyGain;
       uniform vec3 uSky;
       uniform vec3 uHorizon;
@@ -674,7 +676,10 @@ export function createWaterMaterial() {
         float fresnel = 0.05 + 0.95 * pow(1.0 - max(dot(-wv, n), 0.0), 4.0);
         // the Huangpu is silty: a dull olive brown seen straight down
         vec3 body = vec3(0.06, 0.11, 0.13) * (0.28 + 0.72 * (1.0 - uDark));
+        body = mix(body, vec3(0.58, 0.62, 0.66), uHaze * 0.7);
         vec3 seen = mix(uHorizon, uSky, pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * uSkyGain * 0.9;
+        vec3 hazeSeen = mix(vec3(0.78, 0.74, 0.70), vec3(0.64, 0.70, 0.78), pow(clamp(wr.y, 0.0, 1.0), 0.45)) * uSkyGain;
+        seen = mix(seen, hazeSeen, uHaze);
         float thing = 0.0;
         if (uMirrorOn > 0.5) {
           vec4 mc = uMirrorMatrix * vec4(vWorld, 1.0);
@@ -696,7 +701,7 @@ export function createWaterMaterial() {
           vec3 lights = max(m.rgb - vec3(0.06), 0.0);
           seen = mix(seen, m.rgb * vec3(0.9, 0.93, 0.95) + lights * uDark * 2.6, thing);
         }
-        vec3 col = mix(body, seen, max(fresnel, mix(0.4, 0.9, uDark) * thing));
+        vec3 col = mix(body, seen, max(fresnel, mix(0.4, 0.9, max(uDark, uHaze * 0.85)) * thing));
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);
         gl_FragColor = vec4(col, 1.0);

@@ -74,11 +74,11 @@ pearlMat.onBeforeCompile = (shader) => {
       float edge = min(min(pane.x, 1.0 - pane.x), min(pane.y, 1.0 - pane.y));
       float glass = smoothstep(0.0025, 0.009, edge);
       float panelId = dot(floor(vPane * max(vGrid, vec2(1.0))), vec2(1.0, 17.0));
-      float vary = 0.78 + 0.32 * fract(sin(panelId * 12.9898) * 43758.5453);
+      float vary = 0.90 + 0.12 * fract(sin(panelId * 12.9898) * 43758.5453);
       float bottom = smoothstep(0.28, 0.92, vLat);
-      vec3 rose = vec3(0.78, 0.10, 0.18) * vary * mix(1.15, 0.38, bottom);
+      vec3 rose = vec3(0.72, 0.07, 0.14) * vary * mix(1.12, 0.34, bottom);
       diffuseColor.rgb = mix(vec3(0.32, 0.24, 0.26), rose, glass);
-      roughnessFactor = mix(0.46, 0.16 + 0.06 * fract(panelId * 0.37), glass);
+      roughnessFactor = mix(0.5, 0.24 + 0.06 * fract(panelId * 0.37), glass);
       vec3 show = showColor(vLat, pane.x);
       diffuseColor.rgb = mix(diffuseColor.rgb, show * 0.11, uNight);
       float belt = max(
@@ -103,11 +103,11 @@ pearlMat.onBeforeCompile = (shader) => {
       float fres = pow(1.0 - max(dot(V, N), 0.0), 2.6);
       float day = 1.0 - uNight;
       float sunSpec = pow(max(dot(R, normalize(uSunDir)), 0.0), 80.0);
-      totalEmissiveRadiance += skyCol * glass * day * fres * 0.7;
-      totalEmissiveRadiance += uSunGlint * glass * day * sunSpec * 0.28;
+      totalEmissiveRadiance += skyCol * glass * day * fres * 0.45;
+      totalEmissiveRadiance += uSunGlint * glass * day * sunSpec * 0.05;
     `);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-5';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-6';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
@@ -152,12 +152,12 @@ columnMat.onBeforeCompile = (shader) => {
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       float band = smoothstep(0.62, 0.82, fract(vColUv.y * 11.0));
       vec3 show = showColor(vColUv.y, vColUv.x);
-      vec3 warm = mix(vec3(1.0, 0.74, 0.30), show, 0.82);
+      vec3 warm = mix(vec3(1.0, 0.74, 0.30), show, 0.48);
       warm = mix(warm, show * vec3(1.0, 0.28, 0.22), band);
       totalEmissiveRadiance += warm * uNight * (0.7 + band * 1.05);
     `);
 };
-columnMat.customProgramCacheKey = () => 'lm-pearl-column-3';
+columnMat.customProgramCacheKey = () => 'lm-pearl-column-4';
 const legMat = new THREE.MeshStandardMaterial({
   color: 0xe0ddd6, metalness: 0.16, roughness: 0.58,
   emissive: new THREE.Color(0xff1c18), emissiveIntensity: 0,
