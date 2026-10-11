@@ -676,10 +676,8 @@ export function createWaterMaterial() {
         float fresnel = 0.05 + 0.95 * pow(1.0 - max(dot(-wv, n), 0.0), 4.0);
         // the Huangpu is silty: a dull olive brown seen straight down
         vec3 body = vec3(0.06, 0.11, 0.13) * (0.28 + 0.72 * (1.0 - uDark));
-        body = mix(body, vec3(0.58, 0.62, 0.66), uHaze * 0.7);
+        body = mix(body, uHorizon * 0.42, uHaze * 0.28);
         vec3 seen = mix(uHorizon, uSky, pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * uSkyGain * 0.9;
-        vec3 hazeSeen = mix(vec3(0.78, 0.74, 0.70), vec3(0.64, 0.70, 0.78), pow(clamp(wr.y, 0.0, 1.0), 0.45)) * uSkyGain;
-        seen = mix(seen, hazeSeen, uHaze);
         float thing = 0.0;
         if (uMirrorOn > 0.5) {
           vec4 mc = uMirrorMatrix * vec4(vWorld, 1.0);
@@ -701,10 +699,9 @@ export function createWaterMaterial() {
           vec3 lights = max(m.rgb - vec3(0.06), 0.0);
           seen = mix(seen, m.rgb * vec3(0.9, 0.93, 0.95) + lights * uDark * 2.6, thing);
         }
-        vec3 col = mix(body, seen, max(fresnel, mix(0.4, 0.9, uDark) * thing));
+        vec3 col = mix(body, seen, max(fresnel, mix(0.42, 0.9, max(uDark, uHaze * 0.2)) * thing));
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);
-        col = mix(col, max(hazeSeen, vec3(0.55, 0.60, 0.66)), uHaze * (1.0 - uDark) * 0.82);
         gl_FragColor = vec4(col, 1.0);
       }
     `,

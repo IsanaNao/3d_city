@@ -13,8 +13,8 @@ const dark = new THREE.MeshStandardMaterial({ color: 0x3a4148, metalness: 0.45, 
 // Rose-silver glass. The shell is closed; mullions and the night cells are paint.
 // Sky reflection is added here because the shared env-map term is disabled.
 const pearlMat = new THREE.MeshStandardMaterial({
-  color: 0xc42a48, metalness: 0.12, roughness: 0.38,
-  emissive: new THREE.Color(0xff1830), emissiveIntensity: 0,
+  color: 0xc42a48, metalness: 0.46, roughness: 0.22,
+  emissive: new THREE.Color(0x000000), emissiveIntensity: 0,
   transparent: false, opacity: 1, depthWrite: true, side: THREE.FrontSide,
 });
 pearlMat.onBeforeCompile = (shader) => {
@@ -74,13 +74,15 @@ pearlMat.onBeforeCompile = (shader) => {
       float edge = min(min(pane.x, 1.0 - pane.x), min(pane.y, 1.0 - pane.y));
       float glass = smoothstep(0.0025, 0.009, edge);
       float panelId = dot(floor(vPane * max(vGrid, vec2(1.0))), vec2(1.0, 17.0));
-      float vary = 0.90 + 0.12 * fract(sin(panelId * 12.9898) * 43758.5453);
+      float hash = fract(sin(panelId * 12.9898) * 43758.5453);
+      float vary = 0.58 + 0.62 * hash;
       float bottom = smoothstep(0.28, 0.92, vLat);
-      vec3 rose = vec3(0.72, 0.07, 0.14) * vary * mix(1.12, 0.34, bottom);
-      diffuseColor.rgb = mix(vec3(0.32, 0.24, 0.26), rose, glass);
-      roughnessFactor = mix(0.55, 0.4, glass);
+      vec3 rose = vec3(0.74, 0.08, 0.16) * vary * mix(1.2, 0.4, bottom);
+      diffuseColor.rgb = mix(vec3(0.28, 0.22, 0.24), rose, glass);
+      roughnessFactor = mix(0.55, 0.14 + 0.28 * fract(panelId * 0.37), glass);
+      metalnessFactor = mix(0.2, 0.62, glass);
       vec3 show = showColor(vLat, pane.x);
-      diffuseColor.rgb = mix(diffuseColor.rgb, show * 0.11, uNight);
+      diffuseColor.rgb = mix(diffuseColor.rgb, show * 0.28, uNight);
       float belt = max(
         smoothstep(0.46, 0.485, vLat) * (1.0 - smoothstep(0.515, 0.54, vLat)),
         max(
@@ -88,27 +90,34 @@ pearlMat.onBeforeCompile = (shader) => {
           smoothstep(0.63, 0.655, vLat) * (1.0 - smoothstep(0.675, 0.70, vLat))
         )
       );
+      float sweep = smoothstep(0.46, 0.04, abs(fract(vLat * 2.4 + pane.x * 0.2 - uShowPhase) - 0.5));
+      vec3 glow = show * mix(0.62, 1.15, vary) * mix(1.05, 0.78, bottom);
+      glow = mix(glow, min(show * 1.45, vec3(1.2)), max(belt, sweep * 0.6));
+      totalEmissiveRadiance += glow * mix(0.3, 1.0, glass) * uNight;
       vec2 micro = fract(pane * vec2(3.0, 3.0));
       vec2 cell = abs(micro - 0.5);
-      float dotCore = smoothstep(0.16, 0.02, max(cell.x, cell.y));
-      float chase = 0.5 + 0.5 * smoothstep(0.38, 0.02, abs(fract(vLat * 5.0 - pane.x * 0.4 + uShowPhase * 2.0) - 0.5));
-      float pulse = 0.7 + 0.3 * sin(uShowPhase * 12.566 + panelId * 0.05);
-      vec3 cellCol = mix(show, min(show + vec3(0.25), vec3(1.0)), belt);
-      totalEmissiveRadiance += cellCol * glass * dotCore * chase * pulse * uNight * 2.35;
-      totalEmissiveRadiance += vec3(1.0, 0.62, 0.38) * belt * uNight * 0.16;
+      float dotCore = smoothstep(0.11, 0.015, max(cell.x, cell.y));
+      float pulse = 0.65 + 0.35 * sin(uShowPhase * 12.566 + panelId * 0.05);
+      totalEmissiveRadiance += min(show + vec3(0.4), vec3(1.35)) * glass * dotCore * pulse * uNight * 0.85;
       vec3 N = normalize(vPearlN);
       vec3 V = normalize(cameraPosition - vPearlW);
       vec3 R = reflect(-V, N);
-      vec3 skyCol = mix(uHorizon, uSky, pow(clamp(R.y, 0.0, 1.0), 0.45)) * uSkyGain;
-      float fres = pow(1.0 - max(dot(V, N), 0.0), 2.6);
+      float up = clamp(R.y, -1.0, 1.0);
+      vec3 skyRef = mix(uHorizon, uSky, pow(clamp(up, 0.0, 1.0), 0.5)) * uSkyGain;
+      vec3 cityRef = mix(vec3(0.42, 0.36, 0.30), vec3(0.12, 0.11, 0.12), pow(clamp(-up, 0.0, 1.0), 0.65));
+      float cityWin = step(0.86, fract(sin(dot(R.xz, vec2(27.1, 49.7))) * 913.1));
+      cityRef += vec3(0.7, 0.55, 0.32) * cityWin * 0.45 * clamp(-up, 0.0, 1.0);
+      vec3 envRef = mix(cityRef, skyRef, smoothstep(-0.2, 0.28, up));
+      float fres = pow(1.0 - max(dot(V, N), 0.0), 2.1);
       float day = 1.0 - uNight;
-      totalEmissiveRadiance += skyCol * glass * day * fres * 0.35;
+      float panelRef = 0.45 + 0.9 * hash;
+      totalEmissiveRadiance += envRef * glass * day * panelRef * (0.28 + 0.62 * fres);
     `)
-    .replace('#include <opaque_fragment>', `reflectedLight.directSpecular *= 0.18;
-      reflectedLight.indirectSpecular *= 0.18;
+    .replace('#include <opaque_fragment>', `reflectedLight.directSpecular *= 0.55;
+      reflectedLight.indirectSpecular *= 0.55;
       #include <opaque_fragment>`);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-7';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-8';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
@@ -153,12 +162,12 @@ columnMat.onBeforeCompile = (shader) => {
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       float band = smoothstep(0.62, 0.82, fract(vColUv.y * 11.0));
       vec3 show = showColor(vColUv.y, vColUv.x);
-      vec3 warm = mix(vec3(1.0, 0.74, 0.30), show, 0.48);
-      warm = mix(warm, show * vec3(1.0, 0.28, 0.22), band);
-      totalEmissiveRadiance += warm * uNight * (0.7 + band * 1.05);
+      vec3 warm = mix(vec3(1.0, 0.78, 0.42), show, 0.82);
+      warm = mix(warm, min(show * 1.25, vec3(1.2)), band);
+      totalEmissiveRadiance += warm * uNight * (0.9 + band * 0.65);
     `);
 };
-columnMat.customProgramCacheKey = () => 'lm-pearl-column-4';
+columnMat.customProgramCacheKey = () => 'lm-pearl-column-5';
 const legMat = new THREE.MeshStandardMaterial({
   color: 0xe0ddd6, metalness: 0.16, roughness: 0.58,
   emissive: new THREE.Color(0xff1c18), emissiveIntensity: 0,
@@ -291,50 +300,41 @@ const beamMat = new THREE.ShaderMaterial({
   },
   vertexShader: `
     varying vec2 vUv;
+    varying vec3 vWorld;
     void main() {
       vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      vec4 w = modelMatrix * vec4(position, 1.0);
+      vWorld = w.xyz;
+      gl_Position = projectionMatrix * viewMatrix * w;
     }
   `,
   fragmentShader: `
     uniform float uNight;
     uniform vec3 uColor;
     varying vec2 vUv;
+    varying vec3 vWorld;
     void main() {
       float along = vUv.y;
       float across = abs(fract(vUv.x) - 0.5) * 2.0;
-      float core = pow(1.0 - across, 1.7);
-      float fade = smoothstep(0.0, 0.08, along) * (1.0 - smoothstep(0.4, 1.0, along));
-      float a = core * fade * uNight * 0.5;
-      if (a < 0.012) discard;
+      float core = exp(-across * across * 7.0);
+      float fade = smoothstep(0.0, 0.04, along) * (1.0 - smoothstep(0.15, 0.92, along));
+      float dist = distance(cameraPosition, vWorld);
+      float far = smoothstep(80.0, 1400.0, dist);
+      float a = core * fade * uNight * mix(0.16, 0.045, far);
+      if (a < 0.008) discard;
       gl_FragColor = vec4(uColor, a);
     }
   `,
 });
-let beamFan = null;
 
-// Searchlights sit on the antenna: one vertical beam and three that sweep.
-// The 2014 lighting fit includes steerable high-power searchlights.
+// One soft beam above the antenna. A fan of solid cones read as an arrow.
 function addSearchlights(g, h) {
-  const pivot = new THREE.Group();
-  pivot.position.y = h;
-  const up = new THREE.CylinderGeometry(0.3, 2.6, 150, 8, 1, true);
-  up.translate(0, 75, 0);
-  const upMesh = new THREE.Mesh(up, beamMat);
-  upMesh.frustumCulled = false;
-  pivot.add(upMesh);
-  beamFan = new THREE.Group();
-  for (let i = 0; i < 3; i++) {
-    const geo = new THREE.CylinderGeometry(0.18, 4.8, 96, 8, 1, true);
-    geo.translate(0, 48, 0);
-    const mesh = new THREE.Mesh(geo, beamMat);
-    mesh.rotation.z = 0.42;
-    mesh.rotation.y = (i / 3) * Math.PI * 2;
-    mesh.frustumCulled = false;
-    beamFan.add(mesh);
-  }
-  pivot.add(beamFan);
-  g.add(pivot);
+  const geo = new THREE.CylinderGeometry(0.22, 2.4, 280, 12, 1, true);
+  geo.translate(0, 140, 0);
+  const mesh = new THREE.Mesh(geo, beamMat);
+  mesh.position.y = h;
+  mesh.frustumCulled = false;
+  g.add(mesh);
 }
 
 function pearl(h) {
@@ -1083,18 +1083,18 @@ export function syncPearlShow(hour, pin) {
   const nxt = SCHEME_RGB[show.next];
   const mix = (i) => rgb[i] * (1 - show.fade) + nxt[i] * show.fade;
   beamMat.uniforms.uColor.value.setRGB(mix(0), mix(1), mix(2));
-  if (beamFan) beamFan.rotation.y = show.pattern * Math.PI * 2;
-  legMat.emissive.setRGB(mix(0) * 0.9, mix(1) * 0.35, mix(2) * 0.4);
-  beaconMat.emissive.setRGB(mix(0), mix(1) * 0.4, mix(2) * 0.35);
+  legMat.emissive.setRGB(mix(0) * 0.8, mix(1) * 0.8, mix(2) * 0.8);
+  pearlBand.emissive.setRGB(mix(0), mix(1), mix(2));
+  beaconMat.emissive.setRGB(mix(0), mix(1), mix(2));
   const crown = CROWN_RGB[show.scheme];
   shanghaiCrownMat.emissive.setRGB(crown[0], crown[1], crown[2]);
   swfcEdgeMat.emissive.setRGB(0.72 + rgb[0] * 0.22, 0.88, 1);
 }
 
 export function syncLandmarkNight(night) {
-  pearlMat.emissiveIntensity = night * 0.08;
-  pearlBand.emissiveIntensity = 0.02 + night * 0.7;
-  columnMat.emissiveIntensity = night * 0.55;
+  pearlMat.emissiveIntensity = 0;
+  pearlBand.emissiveIntensity = 0.02 + night * 1.35;
+  columnMat.emissiveIntensity = night * 1.15;
   legMat.emissiveIntensity = night * 1.7;
   shanghaiCrownMat.emissiveIntensity = night * 2.8;
   swfcEdgeMat.emissiveIntensity = night * 2.2;
