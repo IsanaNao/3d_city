@@ -990,6 +990,7 @@ customsWall.onBeforeCompile = (shader) => {
 };
 customsWall.customProgramCacheKey = () => 'lm-customs-wall-1';
 const recessMat = new THREE.MeshStandardMaterial({ color: 0x12181e, roughness: 0.72, metalness: 0.06 });
+const soffitMat = new THREE.MeshStandardMaterial({ color: 0x6f685c, roughness: 0.9, metalness: 0.02 });
 const flagMat = new THREE.MeshStandardMaterial({
   color: 0xc4372f, roughness: 0.62, metalness: 0.04, side: THREE.DoubleSide,
 });
@@ -1031,8 +1032,8 @@ function placeClocks(g, y, half, r, oz = 0) {
     bezel.rotateY(s.ry);
     bezel.translate(s.x + s.nx * 0.08, y, s.z + s.nz * 0.08);
     add(g, bezel, bundPlain);
-    const frame = r * 1.62;
-    const bar = Math.max(0.22, r * 0.09);
+    const frame = r * 1.38;
+    const bar = Math.max(0.16, r * 0.055);
     for (const vertical of [false, true]) {
       for (const side of [-1, 1]) {
         const w = vertical ? bar : frame * 2;
@@ -1098,6 +1099,7 @@ function customs(h) {
   putBox(g, W + 0.55 * s, beltH, D + 0.45 * s, 0, podiumH, 0, bundPlain);
   const cornice = putBox(g, W + 2.3 * s, corniceH, D + 2.1 * s, 0, corniceY, 0, bundPlain);
   cornice.userData.part = 'customs-cornice';
+  putBox(g, W + 0.2 * s, 0.7 * s, D + 0.15 * s, 0, corniceY - 0.55 * s, 0, soffitMat);
   putBox(g, W + 0.35 * s, parapetH, D + 0.3 * s, 0, corniceY + corniceH, 0, customsWall);
 
   const bayCenters = [-2, -1, 0, 1, 2].map((i) => i * (W * 0.184));
@@ -1204,12 +1206,12 @@ function customs(h) {
       putBox(g, pw, shaft.h * 0.92, pd, px, shaft.y + shaft.h * 0.04, pz, bundPlain);
     }
     for (const slot of [-1, 0, 1]) {
-      for (const band of [0.38, 0.68]) {
+      for (const band of [0.22, 0.55]) {
         const wx = face.ax === 'x' ? slot * 2.7 * s : face.x - (face.x > 0 ? 0.12 * s : face.x < 0 ? -0.12 * s : 0);
         const wz = face.ax === 'z' ? slot * 2.7 * s : face.z - Math.sign(face.z - tz) * 0.12 * s;
         const ww = face.ax === 'x' ? 1.05 * s : 0.22 * s;
         const wd = face.ax === 'x' ? 0.22 * s : 1.05 * s;
-        putBox(g, ww, 2.8 * s, wd, wx, shaft.y + shaft.h * band, wz, recessMat);
+        putBox(g, ww, 4.6 * s, wd, wx, shaft.y + shaft.h * band, wz, recessMat);
       }
     }
   }
