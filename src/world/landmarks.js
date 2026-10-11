@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { cityUniforms } from './materials.js';
+import { photoUniforms } from './textures.js';
+import { WALL_LAYERS } from '../shared/textures.js';
 import { CROWN_RGB, SCHEME_RGB, pearlShow } from '../shared/show.js';
 
 // Self-made stand-ins for towers an extruded footprint cannot describe.
@@ -900,96 +902,135 @@ function jinmao(h) {
   return g;
 }
 
+const STONE_I = WALL_LAYERS.findIndex((l) => l.key === 'stone');
+// Sandstone Blocks 08 (Poly Haven, CC0), divided by its mean so the warm buff
+// tint stays ours. UVs are metres. Shared by every Bund stone material.
+const STONE_SHADE = /* glsl */`
+uniform float uNight;
+uniform float uPhotoOn;
+uniform sampler2DArray uWallAlb;
+uniform sampler2DArray uWallNor;
+uniform vec3 uWallMean[${WALL_LAYERS.length}];
+uniform vec2 uWallScale[${WALL_LAYERS.length}];
+varying vec3 vCpos;
+varying vec3 vCnorm;
+const int STONE_I = ${STONE_I};
+vec3 stoneTbn(vec3 n, vec3 eye, vec2 uv, vec3 m) {
+  vec3 q0 = dFdx(eye), q1 = dFdy(eye);
+  vec2 st0 = dFdx(uv), st1 = dFdy(uv);
+  vec3 q1p = cross(q1, n), q0p = cross(n, q0);
+  vec3 T = q1p * st0.x + q0p * st1.x;
+  vec3 B = q1p * st0.y + q0p * st1.y;
+  float det = max(dot(T, T), dot(B, B));
+  float s = det == 0.0 ? 0.0 : inversesqrt(det);
+  return normalize(T * (m.x * s) + B * (m.y * s) + n * m.z);
+}
+`;
+const STONE_VERT = /* glsl */`#include <begin_vertex>
+#ifdef USE_INSTANCING
+  vCpos = (instanceMatrix * vec4(position, 1.0)).xyz;
+  vCnorm = normalize(mat3(instanceMatrix) * normal);
+#else
+  vCpos = position;
+  vCnorm = normal;
+#endif`;
+function shadeBundStone(mat, key) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uNight = cityUniforms.uNight;
+    shader.uniforms.uPhotoOn = photoUniforms.uPhotoOn;
+    shader.uniforms.uWallAlb = photoUniforms.uWallAlb;
+    shader.uniforms.uWallNor = photoUniforms.uWallNor;
+    shader.uniforms.uWallMean = photoUniforms.uWallMean;
+    shader.uniforms.uWallScale = photoUniforms.uWallScale;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vCpos;\nvarying vec3 vCnorm;')
+      .replace('#include <begin_vertex>', STONE_VERT);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\n${STONE_SHADE}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        vec3 sn = normalize(vCnorm);
+        vec2 suv = abs(sn.y) > 0.65 ? vCpos.xz : (abs(sn.x) > abs(sn.z) ? vec2(vCpos.z, vCpos.y) : vec2(vCpos.x, vCpos.y));
+        vec3 stoneCol = diffuseColor.rgb;
+        if (uPhotoOn > 0.5) {
+          vec2 mapUv = suv * uWallScale[STONE_I];
+          vec3 tex = texture(uWallAlb, vec3(mapUv, float(STONE_I))).rgb / max(uWallMean[STONE_I], vec3(0.02));
+          float luma = dot(tex, vec3(0.3, 0.59, 0.11));
+          tex = mix(vec3(luma), tex, 0.62);
+          stoneCol = tex * vec3(0.9, 0.84, 0.72);
+        }
+        float vary = fract(sin(dot(floor(suv / vec2(1.2, 0.48)), vec2(19.1, 7.7))) * 43758.5);
+        stoneCol *= 0.91 + 0.14 * vary;
+        float base = 1.0 - smoothstep(6.4, 9.0, vCpos.y);
+        float course = smoothstep(0.72, 0.94, fract(vCpos.y / 0.46));
+        float vj = smoothstep(0.88, 0.98, fract(suv.x / 1.2));
+        stoneCol *= mix(1.0, 0.58, base * max(course, vj * 0.8));
+        float soffit = smoothstep(0.08, 0.72, -sn.y);
+        stoneCol *= mix(1.0, 0.4, soffit);
+        stoneCol *= 1.0 - (1.0 - smoothstep(0.0, 0.65, vCpos.y)) * 0.16;
+        diffuseColor.rgb = stoneCol;
+      `)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        if (uPhotoOn > 0.5) {
+          vec2 mapUv = (abs(normalize(vCnorm).y) > 0.65 ? vCpos.xz : (abs(vCnorm.x) > abs(vCnorm.z) ? vec2(vCpos.z, vCpos.y) : vec2(vCpos.x, vCpos.y))) * uWallScale[STONE_I];
+          vec3 tm = texture(uWallNor, vec3(mapUv, float(STONE_I))).xyz * 2.0 - 1.0;
+          tm.y = -tm.y;
+          normal = stoneTbn(normal, -vViewPosition, mapUv, normalize(mix(vec3(0.0, 0.0, 1.0), tm, 0.85)));
+        }
+      `)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        float sup = smoothstep(0.4, 0.92, normalize(vCnorm).y);
+        float sGraze = pow(clamp(vCpos.y / 72.0, 0.0, 1.0), 1.35);
+        totalEmissiveRadiance += vec3(1.0, 0.64, 0.3) * uNight * (0.045 + 0.14 * sGraze + 0.8 * sup);
+      `);
+  };
+  mat.customProgramCacheKey = () => key;
+}
 const bundStone = new THREE.MeshStandardMaterial({
-  color: 0xd2c8b8, roughness: 0.74, metalness: 0.04,
+  color: 0xe4d2b4, roughness: 0.78, metalness: 0.03,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-bundStone.onBeforeCompile = (shader) => {
-  shader.uniforms.uNight = cityUniforms.uNight;
-  shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying vec2 vStoneUv;\nvarying vec3 vStoneN;')
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvStoneUv = uv;\nvStoneN = normal;');
-  shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec2 vStoneUv;\nvarying vec3 vStoneN;')
-    .replace('#include <color_fragment>', `#include <color_fragment>
-      if (abs(vStoneN.y) < 0.65) {
-        float v = vStoneUv.y;
-        float course = smoothstep(0.72, 0.9, fract(v * 16.0));
-        float podium = 1.0 - smoothstep(0.0, 0.22, v);
-        diffuseColor.rgb *= mix(1.0, 0.76, podium * (0.4 + 0.6 * course));
-        float corn = smoothstep(0.88, 0.96, fract(v * 7.0));
-        diffuseColor.rgb *= 1.0 - corn * 0.32;
-        diffuseColor.rgb += vec3(0.06, 0.045, 0.03) * corn;
-        float fx = fract(vStoneUv.x * 5.0);
-        float fy = fract(v * 7.0);
-        float win = smoothstep(0.2, 0.3, fx) * (1.0 - smoothstep(0.7, 0.8, fx));
-        win *= smoothstep(0.22, 0.34, fy) * (1.0 - smoothstep(0.7, 0.82, fy));
-        win *= smoothstep(0.1, 0.18, v);
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.22, 0.26, 0.3), win * 0.88);
-      }`)
-    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-      if (abs(vStoneN.y) < 0.65) {
-        float v = vStoneUv.y;
-        float graze = pow(1.0 - clamp(v, 0.0, 1.0), 1.7);
-        float corn = smoothstep(0.84, 0.96, fract(v * 7.0));
-        float ledge = smoothstep(0.86, 1.0, v);
-        float fx = fract(vStoneUv.x * 5.0);
-        float fy = fract(v * 7.0);
-        float win = smoothstep(0.2, 0.3, fx) * (1.0 - smoothstep(0.7, 0.8, fx));
-        win *= smoothstep(0.22, 0.34, fy) * (1.0 - smoothstep(0.7, 0.82, fy));
-        win *= smoothstep(0.1, 0.18, v);
-        float flood = (0.16 + 0.28 * graze + 1.05 * corn + 0.72 * ledge) * (1.0 - win * 0.94);
-        totalEmissiveRadiance += vec3(1.0, 0.62, 0.28) * uNight * flood;
-        totalEmissiveRadiance += vec3(0.45, 0.26, 0.1) * uNight * win * 0.07;
-      }`);
-};
-bundStone.customProgramCacheKey = () => 'lm-bund-stone-5';
+shadeBundStone(bundStone, 'lm-bund-stone-6');
 const bundPlain = new THREE.MeshStandardMaterial({
-  color: 0xddd4c6, roughness: 0.58, metalness: 0.06,
+  color: 0xeadcc4, roughness: 0.64, metalness: 0.04,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-bundPlain.onBeforeCompile = (shader) => {
-  shader.uniforms.uNight = cityUniforms.uNight;
-  shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying float vPlainV;')
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPlainV = uv.y;');
-  shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying float vPlainV;')
-    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-      float v = clamp(vPlainV, 0.0, 1.0);
-      float graze = pow(1.0 - v, 1.55);
-      float cap = smoothstep(0.62, 1.0, v);
-      totalEmissiveRadiance += vec3(1.0, 0.66, 0.32) * uNight * (0.2 + 0.32 * graze + 0.95 * cap);
-    `);
-};
-bundPlain.customProgramCacheKey = () => 'lm-bund-plain-5';
-// Customs granite. Courses and the night wash use the baked local position, so a
-// cornice lights up without the generic five-bay window stamp.
+shadeBundStone(bundPlain, 'lm-bund-plain-6');
 const customsWall = new THREE.MeshStandardMaterial({
-  color: 0xd2c8b8, roughness: 0.78, metalness: 0.03,
+  color: 0xe6d4b6, roughness: 0.76, metalness: 0.03,
   emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
-customsWall.onBeforeCompile = (shader) => {
+shadeBundStone(customsWall, 'lm-customs-wall-2');
+const recessMat = new THREE.MeshStandardMaterial({ color: 0x12181e, roughness: 0.72, metalness: 0.06 });
+const jointMat = new THREE.MeshStandardMaterial({ color: 0x6e6558, roughness: 0.84, metalness: 0.02 });
+const mullionMat = new THREE.MeshStandardMaterial({ color: 0x2a3136, roughness: 0.4, metalness: 0.4 });
+const bundGlass = new THREE.MeshStandardMaterial({
+  color: 0xc5d2dc, roughness: 0.14, metalness: 0.46,
+  emissive: new THREE.Color(0xffc07a), emissiveIntensity: 0,
+});
+bundGlass.onBeforeCompile = (shader) => {
   shader.uniforms.uNight = cityUniforms.uNight;
+  shader.uniforms.uHorizon = cityUniforms.uHorizon;
+  shader.uniforms.uSky = cityUniforms.uSky;
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vCpos;\nvarying vec3 vCnorm;')
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCpos = position;\nvCnorm = normal;');
+    .replace('#include <common>', '#include <common>\nvarying vec3 vGpos;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGpos = position;');
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec3 vCpos;\nvarying vec3 vCnorm;')
+    .replace('#include <common>', `#include <common>
+      uniform float uNight;
+      uniform vec3 uHorizon;
+      uniform vec3 uSky;
+      varying vec3 vGpos;`)
     .replace('#include <color_fragment>', `#include <color_fragment>
-      float cBand = smoothstep(0.55, 0.9, fract(vCpos.y * 0.72));
-      float cBase = 1.0 - smoothstep(8.0, 12.5, vCpos.y);
-      diffuseColor.rgb *= mix(1.0, 0.8, cBase * cBand);
+      diffuseColor.rgb = mix(diffuseColor.rgb, uHorizon * 0.72 + uSky * 0.28, 0.34 * (1.0 - uNight));
     `)
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-      float cUp = smoothstep(0.45, 0.92, clamp(vCnorm.y, 0.0, 1.0));
-      float cYN = clamp(vCpos.y / 79.0, 0.0, 1.0);
-      float cGraze = pow(cYN, 1.35);
-      totalEmissiveRadiance += vec3(1.0, 0.64, 0.3) * uNight * (0.08 + 0.2 * cGraze + 0.7 * cUp);
+      float gid = floor(vGpos.x * 0.28) + floor(vGpos.y * 0.32) * 19.0 + floor(vGpos.z * 0.28) * 7.0;
+      float gh = fract(sin(gid * 17.13) * 43758.5);
+      float tier = step(0.38, gh) + step(0.74, gh);
+      totalEmissiveRadiance += vec3(1.0, 0.68, 0.34) * tier * uNight * 0.5;
     `);
 };
-customsWall.customProgramCacheKey = () => 'lm-customs-wall-1';
-const recessMat = new THREE.MeshStandardMaterial({ color: 0x12181e, roughness: 0.72, metalness: 0.06 });
+bundGlass.customProgramCacheKey = () => 'lm-bund-glass-1';
 const marbleBase = new THREE.MeshStandardMaterial({ color: 0x2c3136, roughness: 0.38, metalness: 0.22 });
 const soffitMat = new THREE.MeshStandardMaterial({ color: 0x6f685c, roughness: 0.9, metalness: 0.02 });
 const flagMat = new THREE.MeshStandardMaterial({
@@ -1008,6 +1049,115 @@ function putBox(g, w, hgt, d, x, y, z, mat) {
   const geo = new THREE.BoxGeometry(w, hgt, d);
   geo.translate(x, y + hgt / 2, z);
   return add(g, geo, mat);
+}
+
+// Framed opening. (x, y, z) is the bottom centre of the hole on the wall face.
+// ax 'z' runs the width along X; ax 'x' runs it along Z. sign is the exterior direction.
+function putWindow(g, w, h, x, y, z, opt = {}) {
+  const ax = opt.ax || 'z';
+  const sign = opt.sign ?? 1;
+  const reveal = opt.reveal ?? 0.34;
+  const arch = !!opt.arch && ax === 'z';
+  const ped = !!opt.pediment && !arch;
+  const frame = Math.min(0.16, Math.max(0.07, w * 0.07));
+  const face = ax === 'z' ? z : x;
+  const glassAt = face + sign * 0.045;
+  const midAt = face + sign * (reveal * 0.5);
+  const ft = Math.max(reveal, 0.12);
+  const gw = Math.max(0.2, w - frame * 2.2);
+  const bodyH = arch ? Math.max(0.35, h - w * 0.46) : h * 0.8;
+  const gy = y + (arch ? frame * 0.4 : (h - bodyH) * 0.45);
+  if (arch) {
+    const shape = new THREE.Shape();
+    const hw = gw * 0.5;
+    shape.moveTo(-hw, 0);
+    shape.lineTo(-hw, bodyH);
+    shape.absarc(0, bodyH, hw, Math.PI, 0, false);
+    shape.lineTo(hw, 0);
+    shape.lineTo(-hw, 0);
+    const geo = new THREE.ShapeGeometry(shape);
+    geo.translate(x, gy, glassAt);
+    const glass = add(g, geo, bundGlass);
+    glass.userData.part = 'bund-glass';
+    const torus = new THREE.TorusGeometry(hw + frame * 0.15, frame * 0.55, 6, 16, Math.PI);
+    torus.translate(x, gy + bodyH, midAt);
+    add(g, torus, bundPlain);
+    putBox(g, frame, bodyH, ft, x - w / 2 + frame / 2, y, midAt, bundPlain);
+    putBox(g, frame, bodyH, ft, x + w / 2 - frame / 2, y, midAt, bundPlain);
+    putBox(g, w, frame, ft, x, y, midAt, bundPlain);
+    putBox(g, 0.055, bodyH * 0.85, 0.05, x, y + frame, glassAt + sign * 0.03, mullionMat);
+  } else if (ax === 'z') {
+    const glass = putBox(g, gw, bodyH, 0.045, x, gy, glassAt, bundGlass);
+    glass.userData.part = 'bund-glass';
+    putBox(g, frame, h, ft, x - w / 2 + frame / 2, y, midAt, bundPlain);
+    putBox(g, frame, h, ft, x + w / 2 - frame / 2, y, midAt, bundPlain);
+    putBox(g, w, frame, ft, x, y, midAt, bundPlain);
+    putBox(g, w, frame, ft, x, y + h - frame, midAt, bundPlain);
+    putBox(g, 0.05, bodyH * 0.92, 0.04, x - gw * 0.22, gy, glassAt + sign * 0.03, mullionMat);
+    putBox(g, 0.05, bodyH * 0.92, 0.04, x + gw * 0.22, gy, glassAt + sign * 0.03, mullionMat);
+    putBox(g, gw * 0.7, 0.045, 0.04, x, gy + bodyH * 0.55, glassAt + sign * 0.03, mullionMat);
+    putBox(g, 0.05, bodyH, ft * 0.85, x - w / 2 + frame + 0.03, y + frame, midAt, jointMat);
+    putBox(g, 0.05, bodyH, ft * 0.85, x + w / 2 - frame - 0.03, y + frame, midAt, jointMat);
+  } else {
+    const glass = putBox(g, 0.045, bodyH, gw, glassAt, gy, z, bundGlass);
+    glass.userData.part = 'bund-glass';
+    putBox(g, ft, h, frame, midAt, y, z - w / 2 + frame / 2, bundPlain);
+    putBox(g, ft, h, frame, midAt, y, z + w / 2 - frame / 2, bundPlain);
+    putBox(g, ft, frame, w, midAt, y, z, bundPlain);
+    putBox(g, ft, frame, w, midAt, y + h - frame, z, bundPlain);
+    putBox(g, 0.04, bodyH * 0.92, 0.05, glassAt + sign * 0.03, gy, z - gw * 0.22, mullionMat);
+    putBox(g, 0.04, bodyH * 0.92, 0.05, glassAt + sign * 0.03, gy, z + gw * 0.22, mullionMat);
+    putBox(g, 0.04, 0.045, gw * 0.7, glassAt + sign * 0.03, gy + bodyH * 0.55, z, mullionMat);
+  }
+  if (ped && ax === 'z') {
+    const tri = new THREE.Shape();
+    tri.moveTo(-w * 0.62, 0);
+    tri.lineTo(w * 0.62, 0);
+    tri.lineTo(0, Math.min(0.85, w * 0.32));
+    const geo = new THREE.ExtrudeGeometry(tri, { depth: 0.22, bevelEnabled: false });
+    geo.translate(x, y + h + 0.02, midAt - 0.05);
+    add(g, geo, bundPlain);
+  }
+}
+
+function putFlutes(g, x, y, z, r, h) {
+  const n = 12;
+  const geo = new THREE.BoxGeometry(r * 0.12, h * 0.97, r * 0.15);
+  const mesh = new THREE.InstancedMesh(geo, jointMat, n);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.frustumCulled = false;
+  const dummy = new THREE.Object3D();
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    dummy.position.set(x + Math.sin(a) * r * 0.92, y + h / 2, z + Math.cos(a) * r * 0.92);
+    dummy.lookAt(x, y + h / 2, z);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  g.add(mesh);
+}
+
+function putCorniceRun(g, width, y, z, s = 1) {
+  putBox(g, width, 0.14 * s, 0.42 * s, 0, y - 0.12 * s, z, bundPlain);
+  const pitch = 0.48 * s;
+  const n = Math.max(8, Math.floor(width / pitch));
+  const geo = new THREE.BoxGeometry(0.2 * s, 0.28 * s, 0.26 * s);
+  const mesh = new THREE.InstancedMesh(geo, bundPlain, n);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.frustumCulled = false;
+  const dummy = new THREE.Object3D();
+  const span = width * 0.97;
+  for (let i = 0; i < n; i++) {
+    dummy.position.set(-span / 2 + (i + 0.5) * (span / n), y + 0.1 * s, z + 0.04 * s);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  g.add(mesh);
+  putBox(g, width + 0.3 * s, 0.18 * s, 0.62 * s, 0, y + 0.32 * s, z + 0.06 * s, bundPlain);
 }
 
 // Four round faces. `half` is the tower half-width; `oz` shifts the tower toward the river.
@@ -1101,6 +1251,7 @@ function customs(h) {
   putBox(g, W + 0.55 * s, beltH, D + 0.45 * s, 0, podiumH, 0, bundPlain);
   const cornice = putBox(g, W + 2.3 * s, corniceH, D + 2.1 * s, 0, corniceY, 0, bundPlain);
   cornice.userData.part = 'customs-cornice';
+  putCorniceRun(g, W + 1.4 * s, corniceY, (D + 1.6 * s) / 2, s);
   putBox(g, W + 0.2 * s, 0.7 * s, D + 0.15 * s, 0, corniceY - 0.55 * s, 0, soffitMat);
   putBox(g, W + 0.35 * s, parapetH, D + 0.3 * s, 0, corniceY + corniceH, 0, customsWall);
 
@@ -1114,11 +1265,10 @@ function customs(h) {
       const rowH = orderH / 4;
       const winH = rowH * 0.62;
       const y = orderY + row * rowH + rowH * 0.2;
-      putBox(g, 3.15 * s, winH, 0.28 * s, x, y, wallFront + 0.02 * s, recessMat);
-      putBox(g, 3.7 * s, 0.2 * s, 0.85 * s, x, y - 0.02 * s, wallFront + 0.22 * s, customsWall);
+      putWindow(g, 3.15 * s, winH, x, y, wallFront, { reveal: 0.42 * s, pediment: row === 2 });
     }
     if (Math.abs(x) > 4 * s) {
-      putBox(g, 2.35 * s, 2.35 * s, 0.26 * s, x, podiumH * 0.34, D / 2 + 0.02 * s, recessMat);
+      putWindow(g, 2.2 * s, 2.5 * s, x, podiumH * 0.28, D / 2, { reveal: 0.36 * s });
     }
   }
   const sideZs = [-1.5, -0.5, 0.5, 1.5].map((i) => i * (D * 0.2));
@@ -1131,7 +1281,7 @@ function customs(h) {
       for (let row = 0; row < 4; row++) {
         const rowH = orderH / 4;
         const y = orderY + row * rowH + rowH * 0.2;
-        putBox(g, 0.26 * s, rowH * 0.58, 2.35 * s, sign * (wallSide + 0.04 * s), y, z, recessMat);
+        putWindow(g, 2.15 * s, rowH * 0.58, sign * wallSide, y, z, { ax: 'x', sign, reveal: 0.36 * s });
       }
     }
   }
@@ -1149,6 +1299,11 @@ function customs(h) {
     shaft.translate(x, colY + shaftH / 2, colZ);
     const shaftMesh = add(g, shaft, bundPlain);
     shaftMesh.userData.part = 'customs-portico';
+    putFlutes(g, x, colY, colZ, colR, shaftH);
+    const neck = new THREE.TorusGeometry(colR * 0.98, colR * 0.07, 6, 14);
+    neck.rotateX(Math.PI / 2);
+    neck.translate(x, colY + shaftH - colR * 0.05, colZ);
+    add(g, neck, bundPlain);
     const ech = new THREE.CylinderGeometry(colR * 1.2, colR * 0.92, colR * 0.46, 16);
     ech.translate(x, colY + shaftH + colR * 0.23, colZ);
     add(g, ech, bundPlain);
@@ -1161,8 +1316,8 @@ function customs(h) {
   putBox(g, entW + 1.5 * s, 0.38 * s, 3.6 * s, 0, entY + 1.25 * s, colZ, customsWall);
   for (let i = 0; i < 3; i++) {
     const x = (colXs[i] + colXs[i + 1]) / 2;
-    putBox(g, 1.55 * s, 5.4 * s, 0.35 * s, x - 0.55 * s, 1.35 * s, D / 2 + 0.15 * s, recessMat);
-    putBox(g, 1.55 * s, 5.4 * s, 0.35 * s, x + 0.55 * s, 1.35 * s, D / 2 + 0.15 * s, recessMat);
+    putWindow(g, 1.35 * s, 5.2 * s, x - 0.55 * s, 1.25 * s, D / 2, { reveal: 0.4 * s });
+    putWindow(g, 1.35 * s, 5.2 * s, x + 0.55 * s, 1.25 * s, D / 2, { reveal: 0.4 * s });
   }
   for (let step = 0; step < 3; step++) {
     const grow = (3 - step) * 0.7 * s;
@@ -1207,14 +1362,15 @@ function customs(h) {
       const pd = face.ax === 'x' ? 1.15 * s : 1.45 * s;
       putBox(g, pw, shaft.h * 0.92, pd, px, shaft.y + shaft.h * 0.04, pz, bundPlain);
     }
+    const depthAx = face.ax === 'x' ? 'z' : 'x';
+    const sign = depthAx === 'z' ? Math.sign(face.z - tz) || 1 : Math.sign(face.x) || 1;
     for (const slot of [-1, 0, 1]) {
       for (const band of [0.22, 0.55]) {
-        const sink = 0.62 * s;
-        const wx = face.ax === 'x' ? slot * 2.7 * s : face.x - Math.sign(face.x || 1) * sink;
-        const wz = face.ax === 'z' ? slot * 2.7 * s : face.z - Math.sign(face.z - tz) * sink;
-        const ww = face.ax === 'x' ? 1.05 * s : 0.42 * s;
-        const wd = face.ax === 'x' ? 0.42 * s : 1.05 * s;
-        putBox(g, ww, 4.6 * s, wd, wx, shaft.y + shaft.h * band, wz, recessMat);
+        const wx = depthAx === 'z' ? slot * 2.7 * s : face.x;
+        const wz = depthAx === 'x' ? slot * 2.7 * s : face.z;
+        putWindow(g, 1.15 * s, 4.3 * s, wx, shaft.y + shaft.h * band, wz, {
+          ax: depthAx, sign, reveal: 0.72 * s,
+        });
       }
     }
   }
@@ -1227,12 +1383,14 @@ function customs(h) {
     { x: belfry.w / 2 + 0.05 * s, z: tz, ax: 'z' },
     { x: -belfry.w / 2 - 0.05 * s, z: tz, ax: 'z' },
   ]) {
+    const depthAx = face.ax === 'x' ? 'z' : 'x';
+    const sign = depthAx === 'z' ? Math.sign(face.z - tz) || 1 : Math.sign(face.x) || 1;
     for (const slot of [-1, 0, 1]) {
-      const wx = face.ax === 'x' ? slot * 1.7 * s : face.x;
-      const wz = face.ax === 'z' ? slot * 1.7 * s : face.z;
-      const ww = face.ax === 'x' ? 0.7 * s : 0.28 * s;
-      const wd = face.ax === 'x' ? 0.28 * s : 0.7 * s;
-      putBox(g, ww, belfry.h * 0.46, wd, wx, belfry.y + belfry.h * 0.28, wz, recessMat);
+      const wx = depthAx === 'z' ? slot * 1.7 * s : face.x;
+      const wz = depthAx === 'x' ? slot * 1.7 * s : face.z;
+      putWindow(g, 0.85 * s, belfry.h * 0.5, wx, belfry.y + belfry.h * 0.24, wz, {
+        ax: depthAx, sign, reveal: 0.4 * s,
+      });
     }
   }
 
@@ -1301,6 +1459,7 @@ function hsbc(h) {
   block.userData.part = 'hsbc-block';
   const cornice = putBox(g, W + 2.4, corniceH, D + 2.2, 0, corniceY, zc + 0.4, bundPlain);
   cornice.userData.part = 'hsbc-cornice';
+  putCorniceRun(g, W * 0.98, corniceY, front + 0.15, s);
   putBox(g, W + 0.4, Math.max(0.8 * s, parapetTop - (corniceY + corniceH)), D + 0.4, 0, corniceY + corniceH, zc, customsWall);
 
   const bayW = 32;
@@ -1331,21 +1490,26 @@ function hsbc(h) {
     putBox(g, 1.15, orderH, 1.05, x, baseH, front + 0.15, bundPlain);
     for (let row = 0; row < 3; row++) {
       const rowH = orderH / 3;
-      putBox(g, 3.1, rowH * 0.62, 0.4, x, baseH + row * rowH + rowH * 0.2, front - 0.05, recessMat);
+      putWindow(g, 2.7, rowH * 0.62, x, baseH + row * rowH + rowH * 0.2, front, { reveal: 0.4, pediment: row === 0 });
     }
-    putBox(g, 2.4, 2.6 * s, 0.35, x, baseH * 0.32, front + 0.02, recessMat);
-    putBox(g, 2.5, fifthH * 0.62, 0.35, x, baseH + orderH + fifthH * 0.2, front - 0.05, recessMat);
-    putBox(g, 2.2, 1.5 * s, 0.35, x, corniceY + corniceH + 0.3 * s, front + 0.02, recessMat);
+    putWindow(g, 2.15, 2.4 * s, x, baseH * 0.22, front, { reveal: 0.32 });
+    putWindow(g, 2.2, fifthH * 0.62, x, baseH + orderH + fifthH * 0.18, front, { reveal: 0.28 });
+    putWindow(g, 1.9, 1.35 * s, x, corniceY + corniceH + 0.25 * s, front, { reveal: 0.22 });
+  }
+  for (let side = 0; side < 4; side++) {
+    const zz = zc - D * 0.32 + side * (D * 0.2);
+    putWindow(g, 2.2, 3.4 * s, W / 2, baseH + 1.2 * s, zz, { ax: 'x', sign: 1, reveal: 0.3 });
+    putWindow(g, 2.2, 3.4 * s, -W / 2, baseH + 1.2 * s, zz, { ax: 'x', sign: -1, reveal: 0.3 });
   }
   for (const x of [-10.5, -3.5, 3.5, 10.5]) {
     for (let row = 0; row < 3; row++) {
       const rowH = orderH / 3;
-      putBox(g, 2.4, rowH * 0.58, 0.35, x, baseH + row * rowH + rowH * 0.22, bayFront - 0.02, recessMat);
+      putWindow(g, 2.15, rowH * 0.58, x, baseH + row * rowH + rowH * 0.2, bayFront, { reveal: 0.4, arch: row === 0 });
     }
-    putBox(g, 2.1, fifthH * 0.55, 0.32, x, baseH + orderH + fifthH * 0.24, bayFront - 0.02, recessMat);
+    putWindow(g, 1.9, fifthH * 0.55, x, baseH + orderH + fifthH * 0.22, bayFront, { reveal: 0.28 });
   }
   for (const x of [-8.2, 0, 8.2]) {
-    putBox(g, 3.4, 5.2 * s, 0.55, x, 0.9 * s, bayFront - 0.2, recessMat);
+    putWindow(g, 3.2, 5.4 * s, x, 0.7 * s, bayFront, { reveal: 0.45, arch: true });
   }
 
   // Three pairs of Corinthian columns, second to fourth storey.
@@ -1362,10 +1526,16 @@ function hsbc(h) {
       shaft.translate(x, colY + shaftH / 2, colZ);
       const mesh = add(g, shaft, bundPlain);
       mesh.userData.part = 'hsbc-column';
-      const ech = new THREE.CylinderGeometry(colR * 1.45, colR * 0.95, 0.9 * s, 14);
-      ech.translate(x, colY + shaftH + 0.45 * s, colZ);
-      add(g, ech, bundPlain);
-      putBox(g, 1.9, 0.42 * s, 1.9, x, colY + shaftH + 0.9 * s, colZ, bundPlain);
+      putFlutes(g, x, colY, colZ, colR, shaftH);
+      const bell = new THREE.CylinderGeometry(colR * 1.7, colR * 0.95, 1.15 * s, 12);
+      bell.translate(x, colY + shaftH + 0.5 * s, colZ);
+      add(g, bell, bundPlain);
+      putBox(g, 2.15, 0.38 * s, 2.15, x, colY + shaftH + 1.05 * s, colZ, bundPlain);
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          add(g, new THREE.SphereGeometry(0.22, 8, 6).translate(x + sx * 0.82, colY + shaftH + 0.85 * s, colZ + sz * 0.82), bundPlain);
+        }
+      }
     }
   }
   const entY = colY + colH;
@@ -1420,8 +1590,21 @@ function hsbc(h) {
       add(g, rib, bundPlain);
     }
   }
-  add(g, new THREE.CylinderGeometry(1.15, 1.7, 2.8 * s, 12).translate(0, domeY + domeR + 1.1 * s, domeZ), bundPlain);
-  add(g, new THREE.SphereGeometry(0.7, 10, 8).translate(0, domeY + domeR + 2.8 * s, domeZ), bundPlain);
+  const lanY = domeY + domeR * 0.96;
+  const lanR = 1.55;
+  add(g, new THREE.CylinderGeometry(lanR * 1.15, lanR * 1.35, 0.4 * s, 14).translate(0, lanY, domeZ), bundPlain);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    putBox(g, 0.16, 1.85 * s, 0.18, Math.sin(a) * lanR, lanY + 0.15 * s, Math.cos(a) * lanR + domeZ, bundPlain);
+  }
+  const lantern = add(g, new THREE.CylinderGeometry(lanR * 0.82, lanR * 0.82, 1.55 * s, 12).translate(0, lanY + 0.95 * s, domeZ), bundGlass);
+  lantern.userData.part = 'bund-glass';
+  add(g, new THREE.CylinderGeometry(lanR * 1.3, lanR * 0.95, 0.42 * s, 14).translate(0, lanY + 1.9 * s, domeZ), bundPlain);
+  add(g, new THREE.SphereGeometry(0.48, 10, 8).translate(0, lanY + 2.4 * s, domeZ), bundPlain);
+  const finial = new THREE.ConeGeometry(0.14, 1.05 * s, 8);
+  finial.translate(0, lanY + 3.15 * s, domeZ);
+  const finialMesh = add(g, finial, bundPlain);
+  finialMesh.userData.part = 'hsbc-finial';
   return g;
 }
 
@@ -1437,6 +1620,13 @@ function peace(h) {
     putBox(g, 0.7, wall - 8, 0.85, i * 3.3, 6.2, 9.4, bundPlain);
     putBox(g, 0.7, wall - 8, 0.85, i * 3.3, 6.2, -9.4, bundPlain);
   }
+  const peaceRows = Math.max(4, Math.floor((wall - 16) / 3.6));
+  for (let row = 0; row < peaceRows; row++) {
+    for (let i = -2; i <= 2; i++) {
+      putWindow(g, 1.7, 2.15, i * 3.3, 8.2 + row * 3.55, 9.05, { reveal: 0.32, pediment: row === 1 && i === 0 });
+    }
+  }
+  putCorniceRun(g, 26, wall - 0.4, 12.2, 1);
   putBox(g, 30, 1.4, 24, 0, wall - 0.2, 0, bundStone);
   const roof = new THREE.CylinderGeometry(0.45, 13.2, roofH, 4);
   roof.rotateY(Math.PI / 4);
@@ -1454,12 +1644,13 @@ function boc(h) {
   putBox(g, 32, body * 0.48, 26, 0, 0, 0, bundStone);
   putBox(g, 26, body * 0.28, 21, 0, body * 0.48, 0, bundStone);
   putBox(g, 20, body * 0.24, 16, 0, body * 0.76, 0, bundStone);
-  const bayH = body * 0.84;
-  for (let i = -2; i <= 2; i++) {
-    const bay = new THREE.BoxGeometry(1.15, bayH, 0.28);
-    bay.translate(i * 4.2, 3.2 + bayH / 2, 13.15);
-    add(g, bay, dark);
+  const bocRows = Math.max(5, Math.floor(body / 4.4));
+  for (let row = 0; row < bocRows; row++) {
+    for (let i = -2; i <= 2; i++) {
+      putWindow(g, 1.7, 2.3, i * 4.2, 2.4 + row * (body * 0.78 / bocRows), 13.05, { reveal: 0.3 });
+    }
   }
+  putCorniceRun(g, 30, body - 0.5, 13.4, 1);
   putBox(g, 28, 1.15, 22, 0, body - 0.3, 0, glazeRoof);
   const hip = new THREE.CylinderGeometry(3.6, 11, roofH * 0.62, 4);
   hip.rotateY(Math.PI / 4);
@@ -1482,16 +1673,35 @@ function bundFront(g, spec) {
   putBox(g, w, h * 0.16, d, 0, 0, 0, bundStone);
   putBox(g, w * 0.96, h * 0.84, d * 0.92, 0, h * 0.16, 0, spec.body || bundStone);
   putBox(g, w * 1.05, 1.35, d * 1.04, 0, h - 1.15, 0, bundPlain);
+  putCorniceRun(g, w * 0.96, h - 1.2, d * 0.5, 1);
+  const rows = Math.max(3, (spec.floors || 5) - 1);
+  const bays = Math.max(3, Math.round(w / 4.4));
+  const y0 = h * 0.2;
+  const rowH = (h * 0.62) / rows;
+  for (let row = 0; row < rows; row++) {
+    for (let b = 0; b < bays; b++) {
+      const x = -w * 0.38 + (w * 0.76 * (b + 0.5)) / bays;
+      putWindow(g, Math.min(2.3, (w * 0.7) / bays), rowH * 0.62, x, y0 + row * rowH, d * 0.47, {
+        reveal: 0.3,
+        pediment: row === 1 && b === Math.floor((bays - 1) / 2),
+      });
+    }
+  }
   const cols = spec.cols || 0;
   if (cols > 0) {
-    const y0 = h * (spec.colFrom || 0.2);
+    const y0c = h * (spec.colFrom || 0.2);
     const colH = h * ((spec.colTo || 0.78) - (spec.colFrom || 0.2));
     const xs = cols === 2
       ? [-2.4, 2.4]
       : Array.from({ length: cols }, (_, i) => -w * 0.36 + (w * 0.72 * i) / Math.max(1, cols - 1));
     for (const x of xs) {
-      add(g, new THREE.CylinderGeometry(0.48, 0.58, colH, 10).translate(x, y0 + colH / 2, d * 0.5), bundPlain);
-      putBox(g, 1.15, 0.45, 1.15, x, y0 + colH - 0.15, d * 0.5, bundPlain);
+      const r = 0.52;
+      add(g, new THREE.CylinderGeometry(r * 0.9, r, colH * 0.86, 12).translate(x, y0c + colH * 0.43, d * 0.52), bundPlain);
+      putFlutes(g, x, y0c, d * 0.52, r, colH * 0.86);
+      const bell = new THREE.CylinderGeometry(r * 1.45, r * 0.95, r * 1.1, 10);
+      bell.translate(x, y0c + colH * 0.86 + r * 0.4, d * 0.52);
+      add(g, bell, bundPlain);
+      putBox(g, r * 2.5, r * 0.36, r * 2.5, x, y0c + colH * 0.86 + r * 0.95, d * 0.52, bundPlain);
     }
   }
   if (spec.fins) {
@@ -1582,7 +1792,7 @@ function bocom(h) {
       const wx = -W * 0.46 + (W * 0.92 * (i + 0.5)) / (fins - 1);
       for (let row = 0; row < 5; row++) {
         const rowH = shaftH / 5;
-        putBox(g, 1.35, rowH * 0.55, 0.4, wx, baseH + row * rowH + rowH * 0.22, front - 0.08, recessMat);
+        putWindow(g, 1.25, rowH * 0.55, wx, baseH + row * rowH + rowH * 0.2, front, { reveal: 0.28 });
       }
     }
   }
@@ -1592,7 +1802,8 @@ function bocom(h) {
       putBox(g, 0.7, shaftH * 0.92, 0.38, sign * (W / 2 + 0.15), baseH, z, bundPlain);
     }
   }
-  putBox(g, 6.2, 4.4 * s, 0.5, 0, 0.4 * s, front + 0.15, recessMat);
+  putWindow(g, 5.4, 4.2 * s, 0, 0.35 * s, front, { reveal: 0.4, arch: true });
+  putCorniceRun(g, W * 0.94, bodyTop - 0.15 * s, front, s);
 
   const towerW = 13.5;
   const tower = putBox(g, towerW, 5.4 * s, 14, 0, bodyTop, front - 8, customsWall);

@@ -423,6 +423,36 @@ test('HSBC takes the development-bank frontage and Bund 14 steps in the centre',
   assert.deepEqual(marks.map((m) => m.id), ['hsbc']);
 });
 
+test('bund openings are framed glass and the HSBC dome keeps a finial', () => {
+  const count = (id, h, part) => {
+    const model = createLandmarks([{ id, x: 0, z: 0, y: 0, h, yaw: 0 }]).children[0];
+    let n = 0;
+    model.traverse((obj) => {
+      if (obj.userData?.part === part) n += 1;
+    });
+    return { model, n };
+  };
+  const customs = count('customs', 90, 'bund-glass');
+  const hsbc = count('hsbc', 52, 'bund-glass');
+  const bocom = count('bocom', 38, 'bund-glass');
+  assert.ok(customs.n > 16, `customs glass ${customs.n}`);
+  assert.ok(hsbc.n > 20, `hsbc glass ${hsbc.n}`);
+  assert.ok(bocom.n > 10, `bund 14 glass ${bocom.n}`);
+  let arches = 0;
+  let finial = 0;
+  hsbc.model.traverse((obj) => {
+    if (obj.geometry?.type === 'TorusGeometry') arches += 1;
+    if (obj.userData?.part === 'hsbc-finial') finial += 1;
+  });
+  assert.ok(arches >= 3, `arched openings ${arches}`);
+  assert.equal(finial, 1);
+  let cones = 0;
+  customs.model.traverse((obj) => {
+    if (obj.geometry?.type === 'ConeGeometry') cones += 1;
+  });
+  assert.equal(cones, 0);
+});
+
 test('named crossings become a truss and two cable-stayed bridges', () => {
   assert.equal(deckLift({ name: '南浦大桥' }, [[0, 0], [10, 0]], true, 3), 34);
   assert.equal(deckLift({ name: '南浦大桥' }, [[0, 0], [10, 0]], true, 1), 12);
