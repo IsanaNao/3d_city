@@ -212,6 +212,10 @@ const glassBlue = glassMaterial(0x9eb4c6);
 const glassSilver = glassMaterial(0xb7c3ce);
 glassBlue.side = THREE.DoubleSide;
 glassSilver.side = THREE.DoubleSide;
+const swfcGlass = glassMaterial(0x5f7c96);
+swfcGlass.side = THREE.DoubleSide;
+swfcGlass.metalness = 0.42;
+swfcGlass.roughness = 0.34;
 
 function add(group, geo, mat) {
   const mesh = new THREE.Mesh(geo, mat);
@@ -654,7 +658,7 @@ function swfc(h) {
   const yOf = (t) => t * h * 0.992;
   const openHalf = (t) => {
     const u = Math.min(1, Math.max(0, (t - hole0) / (hole1 - hole0)));
-    return 24 * (1 - 0.5 * u);
+    return 25 * (1 - 0.58 * u);
   };
   const ts = [0, hole0, hole1, 1];
   for (let i = 1; i < 42; i++) ts.push(i / 42);
@@ -733,7 +737,7 @@ function swfc(h) {
       wall(frame, p(x0, y0, d0), p(x0, y0, -d0), p(x1, y1, d1), p(x1, y1, -d1));
     }
   }
-  quadsMesh(g, glass, glassBlue);
+  quadsMesh(g, glass, swfcGlass);
   quadsMesh(g, frame, swfcEdgeMat);
   // Deck and soffit sit inside the opening so the portal has a thick frame
   // you can see through the hole, not a paper edge.
