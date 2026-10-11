@@ -8,10 +8,22 @@ export const LANDMARK_SPECS = [
   { id: 'shanghai', test: /上海中心大厦|shanghai tower/i, h: 632, minH: 250, radius: 42 },
   { id: 'swfc', test: /环球金融中心|world financial center/i, h: 492, minH: 200, radius: 40 },
   { id: 'jinmao', test: /金茂大厦|jin mao tower/i, h: 421, minH: 200, radius: 40 },
-  { id: 'customs', test: /(?<!浦东)上海海关|江海关|外滩海关|customs house/i, h: 79, minH: 10, maxH: 120, radius: 28 },
+  { id: 'customs', test: /(?<!浦东)上海海关|江海关|外滩海关|customs house/i, h: 90, minH: 10, maxH: 120, radius: 28 },
   { id: 'hsbc', test: /外滩汇丰/i, h: 52, minH: 12, maxH: 80, radius: 46 },
   { id: 'peace', test: /和平饭店(?!南)|fairmont peace hotel/i, h: 77, minH: 12, maxH: 120, radius: 30 },
-  { id: 'boc', test: /中国银行大楼/i, h: 68, minH: 15, maxH: 120, radius: 32 },
+  { id: 'boc', test: /中国银行大楼/i, h: 70, minH: 15, maxH: 120, radius: 32 },
+  { id: 'asia', test: /中国太平洋保险公司/, h: 32, minH: 8, maxH: 50, radius: 30 },
+  { id: 'club', test: /华尔道夫|waldorf-astoria/i, h: 34, minH: 8, maxH: 60, radius: 30 },
+  { id: 'union', test: /有利大楼|union building/i, h: 32, minH: 8, maxH: 50, radius: 40 },
+  { id: 'nisshin', test: /外滩五号|five on the bund/i, h: 32, minH: 8, maxH: 50, radius: 34 },
+  { id: 'bund18', test: /外滩18号|^bund\s*18$/i, h: 30, minH: 8, maxH: 50, radius: 32 },
+  { id: 'peaceSouth', test: /和平饭店南楼|peace hotel south/i, h: 32, minH: 8, maxH: 50, radius: 46 },
+  { id: 'bocom', test: /上海市总工会/, h: 38, minH: 8, maxH: 60, radius: 28 },
+  { id: 'russo', test: /上海外汇交易中心/, h: 26, minH: 8, maxH: 45, radius: 28 },
+  { id: 'merchants', test: /^招商银行$/, h: 28, minH: 8, maxH: 45, radius: 22 },
+  { id: 'yokohama', test: /^中国工商银行$/, h: 32, minH: 8, maxH: 40, radius: 30 },
+  { id: 'jardine', test: /外滩27|house of roosevelt|罗斯福/i, h: 38, minH: 8, maxH: 55, radius: 30 },
+  { id: 'indochine', test: /^中国光大银行$/, h: 30, minH: 8, maxH: 45, radius: 34 },
   { id: 'magnolia', test: /白玉兰|sinar\s*mas|white magnolia|金光中心/i, h: 319.5, minH: 180, radius: 40 },
 ];
 
@@ -79,7 +91,7 @@ export function hiddenByLandmark(building, landmarks) {
     const spec = LANDMARK_SPECS.find((s) => s.id === lm.id);
     const height = building.topY - building.baseY;
     const named = spec.test.test(building.name || '');
-    if (named && height >= spec.minH) return true;
+    if (named && height >= spec.minH && !(spec.maxH && height > spec.maxH)) return true;
     const c = building.centroid;
     if (!c) continue;
     // A named neighbour that merely stands nearby stays an extrusion.

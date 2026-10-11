@@ -75,12 +75,12 @@ pearlMat.onBeforeCompile = (shader) => {
       float glass = smoothstep(0.0025, 0.009, edge);
       float panelId = dot(floor(vPane * max(vGrid, vec2(1.0))), vec2(1.0, 17.0));
       float hash = fract(sin(panelId * 12.9898) * 43758.5453);
-      float vary = 0.58 + 0.62 * hash;
+      float vary = 0.88 + 0.2 * hash;
       float bottom = smoothstep(0.28, 0.92, vLat);
-      vec3 rose = vec3(0.74, 0.08, 0.16) * vary * mix(1.2, 0.4, bottom);
+      vec3 rose = vec3(0.74, 0.08, 0.16) * vary * mix(1.15, 0.48, bottom);
       diffuseColor.rgb = mix(vec3(0.28, 0.22, 0.24), rose, glass);
-      roughnessFactor = mix(0.55, 0.14 + 0.28 * fract(panelId * 0.37), glass);
-      metalnessFactor = mix(0.2, 0.62, glass);
+      roughnessFactor = mix(0.52, 0.28 + 0.14 * hash, glass);
+      metalnessFactor = mix(0.16, 0.4, glass);
       vec3 show = showColor(vLat, pane.x);
       diffuseColor.rgb = mix(diffuseColor.rgb, show * 0.28, uNight);
       float belt = max(
@@ -103,21 +103,20 @@ pearlMat.onBeforeCompile = (shader) => {
       vec3 V = normalize(cameraPosition - vPearlW);
       vec3 R = reflect(-V, N);
       float up = clamp(R.y, -1.0, 1.0);
-      vec3 skyRef = mix(uHorizon, uSky, pow(clamp(up, 0.0, 1.0), 0.5)) * uSkyGain;
+      vec3 skyRef = mix(uHorizon, uSky, pow(clamp(up, 0.0, 1.0), 0.55)) * uSkyGain * 0.55;
       vec3 cityRef = mix(vec3(0.42, 0.36, 0.30), vec3(0.12, 0.11, 0.12), pow(clamp(-up, 0.0, 1.0), 0.65));
       float cityWin = step(0.86, fract(sin(dot(R.xz, vec2(27.1, 49.7))) * 913.1));
-      cityRef += vec3(0.7, 0.55, 0.32) * cityWin * 0.45 * clamp(-up, 0.0, 1.0);
+      cityRef += vec3(0.7, 0.55, 0.32) * cityWin * 0.35 * clamp(-up, 0.0, 1.0);
       vec3 envRef = mix(cityRef, skyRef, smoothstep(-0.2, 0.28, up));
       float fres = pow(1.0 - max(dot(V, N), 0.0), 2.1);
       float day = 1.0 - uNight;
-      float panelRef = 0.45 + 0.9 * hash;
-      totalEmissiveRadiance += envRef * glass * day * panelRef * (0.28 + 0.62 * fres);
+      totalEmissiveRadiance += envRef * glass * day * (0.16 + 0.14 * hash) * (0.4 + 0.28 * fres);
     `)
-    .replace('#include <opaque_fragment>', `reflectedLight.directSpecular *= 0.55;
-      reflectedLight.indirectSpecular *= 0.55;
+    .replace('#include <opaque_fragment>', `reflectedLight.directSpecular *= 0.18;
+      reflectedLight.indirectSpecular *= 0.32;
       #include <opaque_fragment>`);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-8';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-9';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
@@ -327,16 +326,6 @@ const beamMat = new THREE.ShaderMaterial({
   `,
 });
 
-// One soft beam above the antenna. A fan of solid cones read as an arrow.
-function addSearchlights(g, h) {
-  const geo = new THREE.CylinderGeometry(0.22, 2.4, 280, 12, 1, true);
-  geo.translate(0, 140, 0);
-  const mesh = new THREE.Mesh(geo, beamMat);
-  mesh.position.y = h;
-  mesh.frustumCulled = false;
-  g.add(mesh);
-}
-
 function pearl(h) {
   const g = new THREE.Group();
   const m = pearlMeasures(h);
@@ -402,7 +391,6 @@ function pearl(h) {
   antenna.translate(0, m.capsuleC + m.capsuleR + antennaH / 2, 0);
   tag(add(g, antenna, columnMat), 'antenna');
   add(g, new THREE.SphereGeometry(1.1 * m.s, 10, 8).translate(0, h * 0.998, 0), beaconMat);
-  addSearchlights(g, h);
   pearlPlinth(g, m, angles);
   return g;
 }
@@ -627,16 +615,32 @@ function shanghai(h) {
   return g;
 }
 
-// KPF: 58 m square prism. Two arcs, starting about a third of the way up, bevel
-// opposite corners until the plan is a narrow rectangle — a single sharp edge.
-// The aperture is the trapezoid that replaced the 46 m circle, about 50 m wide
-// at the 94th-floor deck (423 m) and narrowing toward the 100th (474 m).
+// KPF: a 58 m square cut by two arcs from about a third of the way up.
+// The arcs meet in one long roof edge, but the trapezoid (decks at 423 m
+// and 474 m) is cut through a mass that is still tens of metres deep.
+// Only the last few metres close down to a flat edge, not a knife.
 function swfcSection(t) {
-  const u = Math.max(0, (t - 0.30) / 0.70);
-  const arc = u ** 0.72;
-  const w = 58 * (1 - 0.16 * (arc ** 1.05));
-  const d = Math.max(1.2, 58 * (1 - 0.979 * (arc ** 0.52)));
-  const chamfer = Math.min(w * 0.07, d * 0.42) * Math.min(1, arc * 1.5);
+  const u = Math.max(0, (t - 0.28) / 0.72);
+  const w = 58 * (1 - 0.06 * u);
+  const holeTop = 470 / 492;
+  const uHole = Math.max(0, (holeTop - 0.28) / 0.72);
+  const atHole = 58 * (1 - 0.52 * (uHole ** 1.15));
+  let d;
+  if (t <= holeTop) {
+    const uH = t <= 0.28 ? 0 : (t - 0.28) / (holeTop - 0.28);
+    d = 58 - (58 - atHole) * (uH ** 1.15);
+  } else {
+    const knee = 0.978;
+    if (t < knee) {
+      const k = (t - holeTop) / (knee - holeTop);
+      d = atHole + (11.2 - atHole) * k;
+    } else {
+      const k = (t - knee) / (1 - knee);
+      d = 11.2 + (10.4 - 11.2) * k;
+    }
+  }
+  d = Math.max(10.2, d);
+  const chamfer = Math.min(w * 0.05, d * 0.2) * Math.min(1, u * 3);
   return { w, d, chamfer };
 }
 
@@ -658,7 +662,7 @@ function swfc(h) {
   const yOf = (t) => t * h * 0.992;
   const openHalf = (t) => {
     const u = Math.min(1, Math.max(0, (t - hole0) / (hole1 - hole0)));
-    return 22.5 * (1 - 0.5 * u);
+    return 22 * (1 - 0.36 * u);
   };
   const ts = [0, hole0, hole1, 1];
   for (let i = 1; i < 42; i++) ts.push(i / 42);
@@ -682,13 +686,14 @@ function swfc(h) {
       wall(glass, ringA[edge], ringA[e2], ringB[edge], ringB[e2]);
     }
     const open = t0 >= hole0 - 1e-6 && t1 <= hole1 + 1e-6;
+    const bridge = t0 >= hole1 - 1e-6;
     for (const face of [0, 4]) {
       const a0 = ringA[face];
       const a1 = ringA[(face + 1) % 8];
       const b0 = ringB[face];
       const b1 = ringB[(face + 1) % 8];
       if (!open) {
-        wall(glass, a0, a1, b0, b1);
+        wall(bridge ? frame : glass, a0, a1, b0, b1);
         continue;
       }
       const jamb = (p0, p1, q0, q1, x0, x1, u0, u1) => {
@@ -738,6 +743,15 @@ function swfc(h) {
   }
   quadsMesh(g, glass, glassBlue);
   quadsMesh(g, frame, swfcEdgeMat);
+  // Deck and soffit sit inside the opening so the portal has a thick frame
+  // you can see through the hole, not a paper edge.
+  const sillBar = new THREE.BoxGeometry(openHalf(hole0) * 2 * 0.98, 4.2, sill.d * 0.72);
+  sillBar.translate(0, sillY - 2.15, 0);
+  tag(add(g, sillBar, swfcEdgeMat), 'swfc-sill');
+  const lintelH = 8;
+  const lintel = new THREE.BoxGeometry(openHalf(hole1) * 2 + 2.4, lintelH, Math.max(12, head.d * 0.72));
+  lintel.translate(0, headY + lintelH / 2 + 0.3, 0);
+  tag(add(g, lintel, swfcEdgeMat), 'swfc-lintel');
   const crown = swfcRing(1, yOf(1));
   const cap = new THREE.BufferGeometry();
   const capPos = [0, crown[0].y, 0];
@@ -748,6 +762,10 @@ function swfc(h) {
   cap.setIndex(capIdx);
   cap.computeVertexNormals();
   add(g, cap, swfcEdgeMat);
+  const lip = swfcSection(1);
+  const parapet = new THREE.BoxGeometry(lip.w * 0.98, 2.2, lip.d * 0.9);
+  parapet.translate(0, yOf(1) + 1.1, 0);
+  tag(add(g, parapet, swfcEdgeMat), 'swfc-roof');
   return g;
 }
 
@@ -840,8 +858,8 @@ function jinmao(h) {
 }
 
 const bundStone = new THREE.MeshStandardMaterial({
-  color: 0xe6d3b0, roughness: 0.78, metalness: 0.02,
-  emissive: new THREE.Color(0xffc98a), emissiveIntensity: 0,
+  color: 0xd2c8b8, roughness: 0.74, metalness: 0.04,
+  emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
 bundStone.onBeforeCompile = (shader) => {
   shader.uniforms.uNight = cityUniforms.uNight;
@@ -875,14 +893,14 @@ bundStone.onBeforeCompile = (shader) => {
         float win = smoothstep(0.2, 0.3, fx) * (1.0 - smoothstep(0.7, 0.8, fx));
         win *= smoothstep(0.22, 0.34, fy) * (1.0 - smoothstep(0.7, 0.82, fy));
         win *= smoothstep(0.1, 0.18, v);
-        totalEmissiveRadiance += diffuseColor.rgb * vec3(1.15, 0.72, 0.4) * uNight * (0.28 + 0.85 * up);
-        totalEmissiveRadiance += vec3(1.0, 0.82, 0.48) * uNight * win * 0.55;
+        totalEmissiveRadiance += diffuseColor.rgb * vec3(1.35, 0.78, 0.32) * uNight * (0.55 + 1.35 * up);
+        totalEmissiveRadiance += vec3(1.0, 0.82, 0.42) * uNight * win * 0.85;
       }`);
 };
-bundStone.customProgramCacheKey = () => 'lm-bund-stone-2';
+bundStone.customProgramCacheKey = () => 'lm-bund-stone-3';
 const bundPlain = new THREE.MeshStandardMaterial({
-  color: 0xe4d0ac, roughness: 0.62, metalness: 0.04,
-  emissive: new THREE.Color(0xffc98a), emissiveIntensity: 0,
+  color: 0xddd4c6, roughness: 0.58, metalness: 0.06,
+  emissive: new THREE.Color(0xffb15a), emissiveIntensity: 0,
 });
 bundPlain.onBeforeCompile = (shader) => {
   shader.uniforms.uNight = cityUniforms.uNight;
@@ -893,10 +911,10 @@ bundPlain.onBeforeCompile = (shader) => {
     .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying float vPlainV;')
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       float up = pow(1.0 - clamp(vPlainV, 0.0, 1.0), 1.15);
-      totalEmissiveRadiance += diffuseColor.rgb * vec3(1.1, 0.7, 0.4) * uNight * (0.22 + 0.7 * up);
+      totalEmissiveRadiance += diffuseColor.rgb * vec3(1.3, 0.75, 0.32) * uNight * (0.4 + 1.15 * up);
     `);
 };
-bundPlain.customProgramCacheKey = () => 'lm-bund-plain-2';
+bundPlain.customProgramCacheKey = () => 'lm-bund-plain-3';
 const copperRoof = new THREE.MeshStandardMaterial({
   color: 0x2f8f62, roughness: 0.42, metalness: 0.38,
   emissive: new THREE.Color(0x146b40), emissiveIntensity: 0,
@@ -947,9 +965,15 @@ function customs(h) {
   const shaft = h * 0.34;
   const stage = h * 0.16;
   const cap = h - block - shaft - stage;
-  putBox(g, 54, 6.2, 32, 0, 0, 0, bundStone);
-  putBox(g, 50, block - 6.2, 28, 0, 6.2, 0, bundStone);
-  putBox(g, 56, 1.6, 34, 0, block - 1.6, 0, bundStone);
+  putBox(g, 42, 6.2, 28, 0, 0, 0, bundStone);
+  putBox(g, 38, block - 6.2, 24, 0, 6.2, 0, bundStone);
+  putBox(g, 44, 1.6, 30, 0, block - 1.6, 0, bundStone);
+  const porch = block * 0.62;
+  for (let i = -2; i <= 2; i++) {
+    if (i === 0) continue;
+    add(g, new THREE.CylinderGeometry(0.62, 0.78, porch, 8).translate(i * 6.2, 3.2 + porch / 2, 13.4), bundPlain);
+    putBox(g, 1.5, 0.7, 1.5, i * 6.2, 3.2 + porch - 0.2, 13.4, bundPlain);
+  }
   const shaftMesh = putBox(g, 12.4, shaft, 12.4, 0, block, 0, bundStone);
   shaftMesh.userData.part = 'customs-shaft';
   const stageMesh = putBox(g, 18.6, stage, 18.6, 0, block + shaft, 0, bundStone);
@@ -969,17 +993,17 @@ function customs(h) {
 function hsbc(h) {
   const g = new THREE.Group();
   const wall = Math.max(30, h * 0.6);
-  putBox(g, 76, 7.2, 44, 0, 0, 0, bundStone);
-  putBox(g, 72, wall - 7.2, 40, 0, 7.2, 0, bundStone);
+  putBox(g, 62, 7.2, 40, 0, 0, 0, bundStone);
+  putBox(g, 58, wall - 7.2, 36, 0, 7.2, 0, bundStone);
   const colH = wall * 0.58;
   const colBase = 8;
-  for (let i = -4; i <= 4; i++) {
-    const x = i * 6.6;
-    add(g, new THREE.CylinderGeometry(0.78, 0.92, colH, 12).translate(x, colBase + colH / 2, 21.2), bundPlain);
-    add(g, new THREE.CylinderGeometry(1.2, 1.25, 1.2, 10).translate(x, colBase + colH - 0.2, 21.2), bundPlain);
-    add(g, new THREE.CylinderGeometry(1.05, 1.2, 0.7, 10).translate(x, colBase, 21.2), bundPlain);
+  for (let i = -3; i <= 3; i++) {
+    const x = i * 7.4;
+    add(g, new THREE.CylinderGeometry(0.78, 0.92, colH, 12).translate(x, colBase + colH / 2, 19.2), bundPlain);
+    add(g, new THREE.CylinderGeometry(1.2, 1.25, 1.2, 10).translate(x, colBase + colH - 0.2, 19.2), bundPlain);
+    add(g, new THREE.CylinderGeometry(1.05, 1.2, 0.7, 10).translate(x, colBase, 19.2), bundPlain);
   }
-  putBox(g, 74, 2.5, 8, 0, wall - 0.3, 18.2, bundStone);
+  putBox(g, 60, 2.5, 8, 0, wall - 0.3, 16.4, bundStone);
   const drumY = wall + 2.1;
   add(g, new THREE.CylinderGeometry(10.2, 11.6, 6.4, 22).translate(0, drumY + 3.2, 4), bundPlain);
   for (let i = 0; i < 16; i++) {
@@ -987,7 +1011,7 @@ function hsbc(h) {
     add(g, new THREE.BoxGeometry(0.32, 6.2, 0.55).translate(Math.sin(a) * 11.15, drumY + 3.2, Math.cos(a) * 11.15 + 4), bundPlain);
   }
   const domeY = drumY + 6.4;
-  const domeR = 11.4;
+  const domeR = 12.6;
   add(g, new THREE.SphereGeometry(domeR, 28, 16, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, domeY, 4), bundPlain);
   for (let i = 0; i < 12; i++) {
     const a = (i / 12) * Math.PI * 2;
@@ -1006,14 +1030,14 @@ function hsbc(h) {
 // 1929 Sassoon House: a narrow stone tower under a steep green copper pyramid.
 function peace(h) {
   const g = new THREE.Group();
-  const roofH = Math.max(20, h * 0.36);
+  const roofH = Math.max(19, h * 0.28);
   const wall = h - roofH;
   putBox(g, 28, 7, 22, 0, 0, 0, bundStone);
   putBox(g, 24, Math.max(4, wall - 13), 18, 0, 7, 0, bundStone);
   putBox(g, 22, 6, 16, 0, wall - 6, 0, bundStone);
-  for (let i = -2; i <= 2; i++) {
-    putBox(g, 0.85, wall - 9, 0.7, i * 4.2, 6.5, 9.3, bundPlain);
-    putBox(g, 0.85, wall - 9, 0.7, i * 4.2, 6.5, -9.3, bundPlain);
+  for (let i = -3; i <= 3; i++) {
+    putBox(g, 0.7, wall - 8, 0.85, i * 3.3, 6.2, 9.4, bundPlain);
+    putBox(g, 0.7, wall - 8, 0.85, i * 3.3, 6.2, -9.4, bundPlain);
   }
   putBox(g, 30, 1.4, 24, 0, wall - 0.2, 0, bundStone);
   const roof = new THREE.CylinderGeometry(0.45, 13.2, roofH, 4);
@@ -1029,21 +1053,21 @@ function boc(h) {
   const g = new THREE.Group();
   const roofH = Math.max(13, h * 0.22);
   const body = h - roofH;
-  putBox(g, 44, body * 0.48, 28, 0, 0, 0, bundStone);
-  putBox(g, 36, body * 0.28, 23, 0, body * 0.48, 0, bundStone);
-  putBox(g, 28, body * 0.24, 18, 0, body * 0.76, 0, bundStone);
+  putBox(g, 32, body * 0.48, 26, 0, 0, 0, bundStone);
+  putBox(g, 26, body * 0.28, 21, 0, body * 0.48, 0, bundStone);
+  putBox(g, 20, body * 0.24, 16, 0, body * 0.76, 0, bundStone);
   const bayH = body * 0.84;
-  for (let i = -3; i <= 3; i++) {
+  for (let i = -2; i <= 2; i++) {
     const bay = new THREE.BoxGeometry(1.15, bayH, 0.28);
-    bay.translate(i * 4.4, 3.2 + bayH / 2, 14.15);
+    bay.translate(i * 4.2, 3.2 + bayH / 2, 13.15);
     add(g, bay, dark);
   }
-  putBox(g, 38, 1.15, 26, 0, body - 0.3, 0, glazeRoof);
-  const hip = new THREE.CylinderGeometry(5.2, 17.5, roofH * 0.62, 4);
+  putBox(g, 28, 1.15, 22, 0, body - 0.3, 0, glazeRoof);
+  const hip = new THREE.CylinderGeometry(3.6, 11, roofH * 0.62, 4);
   hip.rotateY(Math.PI / 4);
   hip.translate(0, body + roofH * 0.28, 0);
   add(g, hip, glazeRoof);
-  const cap = new THREE.CylinderGeometry(0.7, 5.4, roofH * 0.4, 4);
+  const cap = new THREE.CylinderGeometry(0.55, 3.8, roofH * 0.4, 4);
   cap.rotateY(Math.PI / 4);
   cap.translate(0, body + roofH * 0.78, 0);
   const capMesh = add(g, cap, glazeRoof);
@@ -1051,7 +1075,145 @@ function boc(h) {
   return g;
 }
 
-const BUILDERS = { pearl, shanghai, swfc, jinmao, customs, magnolia, hsbc, peace, boc };
+// A stone frontage: podium, shaft, cornice, and the one feature that
+// distinguishes the building from the next one along the Bund.
+function bundFront(g, spec) {
+  const floorH = spec.floorH || 4.15;
+  const h = spec.floors * floorH;
+  const { w, d } = spec;
+  putBox(g, w, h * 0.16, d, 0, 0, 0, bundStone);
+  putBox(g, w * 0.96, h * 0.84, d * 0.92, 0, h * 0.16, 0, spec.body || bundStone);
+  putBox(g, w * 1.05, 1.35, d * 1.04, 0, h - 1.15, 0, bundPlain);
+  const cols = spec.cols || 0;
+  if (cols > 0) {
+    const y0 = h * (spec.colFrom || 0.2);
+    const colH = h * ((spec.colTo || 0.78) - (spec.colFrom || 0.2));
+    const xs = cols === 2
+      ? [-2.4, 2.4]
+      : Array.from({ length: cols }, (_, i) => -w * 0.36 + (w * 0.72 * i) / Math.max(1, cols - 1));
+    for (const x of xs) {
+      add(g, new THREE.CylinderGeometry(0.48, 0.58, colH, 10).translate(x, y0 + colH / 2, d * 0.5), bundPlain);
+      putBox(g, 1.15, 0.45, 1.15, x, y0 + colH - 0.15, d * 0.5, bundPlain);
+    }
+  }
+  if (spec.fins) {
+    for (let i = 0; i < spec.fins; i++) {
+      const x = -w * 0.4 + (w * 0.8 * i) / (spec.fins - 1);
+      putBox(g, 0.42, h * 0.76, 0.7, x, h * 0.14, d * 0.48, bundPlain);
+    }
+  }
+  if (spec.raise) putBox(g, w * 0.38, spec.raise, d * 0.62, 0, h, 0, bundStone);
+  if (spec.pavilions) {
+    const spots = spec.pavilions === 1 ? [0] : [-w * 0.32, w * 0.32];
+    for (const x of spots) {
+      putBox(g, w * 0.14, 5.2, d * 0.26, x, h, 0, bundStone);
+      const cap = new THREE.ConeGeometry(w * 0.1, 3.4, 4);
+      cap.rotateY(Math.PI / 4);
+      cap.translate(x, h + 6.4, 0);
+      add(g, cap, bundPlain);
+    }
+  }
+  if (spec.dome) {
+    const r = spec.dome;
+    add(g, new THREE.CylinderGeometry(r * 0.7, r, 2.8, 16).translate(0, h + 1.4, 0), bundPlain);
+    add(g, new THREE.SphereGeometry(r, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, h + 2.8, 0), bundPlain);
+  }
+  return g;
+}
+
+// Shanghai Club, now the Waldorf: a long baroque front and two roof pavilions.
+function club(h) {
+  const g = new THREE.Group();
+  const s = h / 34;
+  return bundFront(g, { w: 36 * s, d: 22 * s, floors: 6, floorH: 4.7 * s, cols: 6, pavilions: 2 });
+}
+
+// Union Building, Bund 4: a renaissance granite block with an ionic portal.
+function union(h) {
+  const g = new THREE.Group();
+  const s = h / 32;
+  return bundFront(g, { w: 32 * s, d: 22 * s, floors: 7, floorH: 4.15 * s, cols: 4 });
+}
+
+// Nissin Building, Bund 5: horizontal courses and a heavy cornice.
+function nisshin(h) {
+  const g = new THREE.Group();
+  const s = h / 32;
+  return bundFront(g, { w: 30 * s, d: 22 * s, floors: 7, floorH: 4.2 * s });
+}
+
+// Chartered Bank, Bund 18: two giant columns in the centre of the front.
+function bund18(h) {
+  const g = new THREE.Group();
+  const s = h / 30;
+  return bundFront(g, { w: 28 * s, d: 22 * s, floors: 6, floorH: 4.4 * s, cols: 2, colFrom: 0.18, colTo: 0.82 });
+}
+
+// Peace Hotel south building: a lower renaissance block with roof pavilions.
+function peaceSouth(h) {
+  const g = new THREE.Group();
+  const s = h / 32;
+  return bundFront(g, { w: 30 * s, d: 20 * s, floors: 6, floorH: 4.5 * s, cols: 5, pavilions: 2 });
+}
+
+// Bank of Communications, now the trade-union building: vertical fins, a raised centre.
+function bocom(h) {
+  const g = new THREE.Group();
+  const s = h / 38;
+  return bundFront(g, { w: 32 * s, d: 22 * s, floors: 7, floorH: 4.3 * s, fins: 8, raise: 6 * s, body: bundPlain });
+}
+
+// Taiwan Bank, now the merchants' bank on this block: a temple front of four columns.
+function merchants(h) {
+  const g = new THREE.Group();
+  const s = h / 28;
+  return bundFront(g, { w: 24 * s, d: 20 * s, floors: 6, floorH: 4.2 * s, cols: 4 });
+}
+
+// Jardine Matheson, Bund 27: a corinthian centre and a dome on the roof screen.
+function jardine(h) {
+  const g = new THREE.Group();
+  const s = h / 38;
+  return bundFront(g, { w: 34 * s, d: 24 * s, floors: 7, floorH: 4.5 * s, cols: 4, dome: 5.2 * s });
+}
+
+// Banque de l'Indochine, Bund 29: a French front with a giant ionic order.
+function indochine(h) {
+  const g = new THREE.Group();
+  const s = h / 30;
+  return bundFront(g, { w: 22 * s, d: 24 * s, floors: 6, floorH: 4.4 * s, cols: 4 });
+}
+
+// Bund 1, the former Asia Building: a stone block with a corner dome.
+function asia(h) {
+  const g = new THREE.Group();
+  const s = h / 32;
+  bundFront(g, { w: 36 * s, d: 22 * s, floors: 6, floorH: 4.5 * s, cols: 5 });
+  const x = 13 * s;
+  add(g, new THREE.CylinderGeometry(3.1 * s, 3.5 * s, 3.6 * s, 12).translate(x, h + 1.8 * s, 5 * s), bundPlain);
+  add(g, new THREE.SphereGeometry(3.3 * s, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2).translate(x, h + 3.6 * s, 5 * s), bundPlain);
+  return g;
+}
+
+// Russo-Chinese Bank, now the foreign-exchange centre: a short block and a cupola.
+function russo(h) {
+  const g = new THREE.Group();
+  const s = h / 26;
+  return bundFront(g, { w: 32 * s, d: 22 * s, floors: 5, floorH: 4.3 * s, cols: 4, dome: 4.2 * s });
+}
+
+// Yokohama Specie Bank, the low ICBC block just north of the Bank of China.
+function yokohama(h) {
+  const g = new THREE.Group();
+  const s = h / 32;
+  return bundFront(g, { w: 34 * s, d: 22 * s, floors: 6, floorH: 4.4 * s, cols: 6 });
+}
+
+const BUILDERS = {
+  pearl, shanghai, swfc, jinmao, customs, magnolia, hsbc, peace, boc,
+  club, union, nisshin, bund18, peaceSouth, bocom, merchants, jardine, indochine,
+  asia, russo, yokohama,
+};
 
 export const landmarkNight = { pearlMat, pearlBand, beaconMat, clockMat };
 
@@ -1065,7 +1227,7 @@ export function createLandmarks(list) {
     model.position.set(item.x, item.y, item.z);
     // SWFC's footprint is nearly square, so the longest edge does not say which
     // face holds the aperture. The opening faces the river, southwest.
-    const faceRiver = item.id === 'customs' || item.id === 'hsbc' || item.id === 'peace' || item.id === 'boc';
+    const faceRiver = /^(customs|hsbc|peace|boc|club|union|nisshin|bund18|peaceSouth|bocom|merchants|jardine|indochine|asia|russo|yokohama)$/.test(item.id);
     model.rotation.y = item.id === 'swfc' ? -Math.PI / 4 : faceRiver ? Math.PI / 2 : (item.yaw || 0);
     model.userData.landmark = item;
     group.add(model);
@@ -1098,8 +1260,8 @@ export function syncLandmarkNight(night) {
   legMat.emissiveIntensity = night * 1.7;
   shanghaiCrownMat.emissiveIntensity = night * 2.8;
   swfcEdgeMat.emissiveIntensity = night * 2.2;
-  bundStone.emissiveIntensity = night * 0.16;
-  bundPlain.emissiveIntensity = night * 0.2;
+  bundStone.emissiveIntensity = night * 0.48;
+  bundPlain.emissiveIntensity = night * 0.42;
   copperRoof.emissiveIntensity = night * 0.45;
   glazeRoof.emissiveIntensity = night * 0.28;
   beaconMat.emissiveIntensity = 0.35 + night * 2;

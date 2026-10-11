@@ -164,15 +164,19 @@ test('swfc aperture is a large hole under a sharp top edge', () => {
   const top = vertexRadii(model, h * 0.97, h);
   assert.ok(top.maxR > 8, 'the ridge stays wide');
   let deep = 0;
+  let sill = 0;
   model.traverse((obj) => {
     const pos = obj.geometry?.getAttribute?.('position');
     if (!pos) return;
     for (let i = 0; i < pos.count; i++) {
-      if (pos.getY(i) < h * 0.97) continue;
-      deep = Math.max(deep, Math.abs(pos.getZ(i)));
+      const y = pos.getY(i);
+      const z = Math.abs(pos.getZ(i));
+      if (y > h * 0.97) deep = Math.max(deep, z);
+      if (y > h * 0.83 && y < h * 0.88) sill = Math.max(sill, z);
     }
   });
-  assert.ok(deep < 6, `top edge is still ${deep} m deep`);
+  assert.ok(deep > 3.5 && deep < 6, `roof edge depth ${deep}`);
+  assert.ok(sill > 9, `the aperture is cut through a mass only ${sill} m deep`);
 });
 
 test('pearl stands on a stepped circular plinth with stairs', () => {
@@ -318,7 +322,22 @@ test('bund historic row builds a clock tower, a dome and a copper roof', () => {
       centroid: [80, 0], rings: [[[70, -10], [90, -10], [90, 10]]],
     },
   ]);
-  assert.deepEqual(marks.map((m) => m.id), ['customs']);
+  assert.deepEqual(marks.map((m) => m.id), ['customs', 'peaceSouth']);
+  const row = findLandmarks([
+    { name: '华尔道夫酒店', area: 2000, topY: 30, baseY: 4, centroid: [0, 0], rings: [[[-20, -10], [20, -10], [20, 10], [-20, 10]]] },
+    { name: '有利大楼', area: 1500, topY: 28, baseY: 4, centroid: [50, 0], rings: [[[40, -8], [60, -8], [60, 8], [40, 8]]] },
+    { name: '外滩18号', area: 1200, topY: 26, baseY: 4, centroid: [100, 0], rings: [[[90, -8], [110, -8], [110, 8], [90, 8]]] },
+    { name: '罗斯福/外滩27', area: 1400, topY: 32, baseY: 4, centroid: [150, 0], rings: [[[140, -8], [160, -8], [160, 8], [140, 8]]] },
+    { name: '招商银行上海大厦', area: 8000, topY: 230, baseY: 4, centroid: [400, 0], rings: [[[380, -20], [420, -20], [420, 20], [380, 20]]] },
+  ]);
+  assert.deepEqual(row.map((m) => m.id).sort(), ['bund18', 'club', 'jardine', 'union']);
+  const named = findLandmarks([
+    { name: '中国太平洋保险公司', area: 1800, topY: 32, baseY: 4, centroid: [0, 0], rings: [[[-16, -10], [16, -10], [16, 10], [-16, 10]]] },
+    { name: '上海外汇交易中心', area: 1400, topY: 26, baseY: 4, centroid: [40, 0], rings: [[[30, -8], [50, -8], [50, 8], [30, 8]]] },
+    { name: '中国工商银行', area: 2200, topY: 28, baseY: 4, centroid: [80, 0], rings: [[[68, -12], [96, -12], [96, 12], [68, 12]]] },
+    { name: '中国工商银行', area: 3000, topY: 120, baseY: 4, centroid: [400, 0], rings: [[[370, -20], [430, -20], [430, 20], [370, 20]]] },
+  ]);
+  assert.deepEqual(named.map((m) => m.id).sort(), ['asia', 'russo', 'yokohama']);
 });
 
 test('named crossings become a truss and two cable-stayed bridges', () => {
