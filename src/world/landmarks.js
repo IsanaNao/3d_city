@@ -13,7 +13,7 @@ const dark = new THREE.MeshStandardMaterial({ color: 0x3a4148, metalness: 0.45, 
 // Rose-silver glass. The shell is closed; mullions and the night cells are paint.
 // Sky reflection is added here because the shared env-map term is disabled.
 const pearlMat = new THREE.MeshStandardMaterial({
-  color: 0xc42a48, metalness: 0.58, roughness: 0.2,
+  color: 0xc42a48, metalness: 0.12, roughness: 0.38,
   emissive: new THREE.Color(0xff1830), emissiveIntensity: 0,
   transparent: false, opacity: 1, depthWrite: true, side: THREE.FrontSide,
 });
@@ -78,7 +78,7 @@ pearlMat.onBeforeCompile = (shader) => {
       float bottom = smoothstep(0.28, 0.92, vLat);
       vec3 rose = vec3(0.72, 0.07, 0.14) * vary * mix(1.12, 0.34, bottom);
       diffuseColor.rgb = mix(vec3(0.32, 0.24, 0.26), rose, glass);
-      roughnessFactor = mix(0.5, 0.24 + 0.06 * fract(panelId * 0.37), glass);
+      roughnessFactor = mix(0.55, 0.4, glass);
       vec3 show = showColor(vLat, pane.x);
       diffuseColor.rgb = mix(diffuseColor.rgb, show * 0.11, uNight);
       float belt = max(
@@ -102,12 +102,13 @@ pearlMat.onBeforeCompile = (shader) => {
       vec3 skyCol = mix(uHorizon, uSky, pow(clamp(R.y, 0.0, 1.0), 0.45)) * uSkyGain;
       float fres = pow(1.0 - max(dot(V, N), 0.0), 2.6);
       float day = 1.0 - uNight;
-      float sunSpec = pow(max(dot(R, normalize(uSunDir)), 0.0), 80.0);
-      totalEmissiveRadiance += skyCol * glass * day * fres * 0.45;
-      totalEmissiveRadiance += uSunGlint * glass * day * sunSpec * 0.05;
-    `);
+      totalEmissiveRadiance += skyCol * glass * day * fres * 0.35;
+    `)
+    .replace('#include <opaque_fragment>', `reflectedLight.directSpecular *= 0.18;
+      reflectedLight.indirectSpecular *= 0.18;
+      #include <opaque_fragment>`);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-6';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-7';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
