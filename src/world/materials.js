@@ -294,7 +294,11 @@ const FACADE_MAIN = /* glsl */`
     if (!shop && office > 0.5 && b2 > 0.4) onRate = mix(0.05, 0.9, step(0.5, hash12(vec2(row * 3.0 + mod(seed, 37.0), mod(seed, 53.0)))));
     // a tower at night is mostly dark glass, with a few storeys lit as bands
     float tall = smoothstep(70.0, 110.0, height);
-    if (!shop) onRate = mix(onRate, 0.03 + 0.8 * step(0.88, hash12(vec2(row * 5.0 + mod(seed, 41.0), mod(seed, 59.0)))), tall);
+    if (!shop) {
+      float scatter = 0.16 + 0.36 * hash12(vec2(mod(seed, 41.0), 3.0));
+      float band = step(0.93, hash12(vec2(row * 5.0 + mod(seed, 41.0), mod(seed, 59.0))));
+      onRate = mix(onRate, scatter + band * 0.4, tall);
+    }
     onRate = clamp(onRate, 0.0, 0.95);
     float slot = floor(uTime / (90.0 + 240.0 * hash12(room + 37.0)) + hash12(room + 41.0) * 64.0);
     float fickle = step(0.6, hash12(room + 31.0));
@@ -349,18 +353,16 @@ const FACADE_MAIN = /* glsl */`
       gGlint += pane * 2.0 * uSunGlint * 0.035 * max(dot(paneN, uSunDir), 0.0) * (0.6 + 0.8 * hash12(room + 15.7));
       gEmissive += pane * 2.0 * (1.0 - uNight) * vec3(0.45, 0.6, 0.82) * (0.015 + 0.22 * graze) * (0.7 + 0.6 * hash12(room + 19.3));
     }
-    // some towers are lit in one colour throughout: blue, gold, a few cyan or violet
+    // A few towers carry a coloured crown. The rest stay warm window-light.
     {
       float pickA = fract(sf * 31.7), hu = fract(sf * 47.3);
-      float accent = tall * step(0.62, pickA) * uNight;
-      vec3 accentCol = hu < 0.22 ? vec3(0.16, 0.42, 1.0)
-        : hu < 0.42 ? vec3(1.0, 0.68, 0.16)
-        : hu < 0.58 ? vec3(0.12, 0.82, 0.32)
-        : hu < 0.74 ? vec3(1.0, 0.16, 0.2)
-        : hu < 0.88 ? vec3(0.15, 0.86, 1.0)
-        : vec3(0.7, 0.28, 1.0);
-      gEmissive *= mix(vec3(1.0), accentCol * 2.5, accent);
-      gEmissive += accentCol * accent * pane * 0.2;
+      float crown = smoothstep(0.8, 0.96, v / height);
+      float accent = tall * step(0.9, pickA) * uNight * crown;
+      vec3 accentCol = hu < 0.28 ? vec3(0.25, 0.55, 1.0)
+        : hu < 0.55 ? vec3(1.0, 0.72, 0.28)
+        : hu < 0.75 ? vec3(0.2, 0.85, 0.45)
+        : vec3(0.35, 0.85, 1.0);
+      gEmissive = mix(gEmissive, gEmissive * accentCol * 1.25 + accentCol * pane * 0.4, accent);
     }
     // the lintel shades the top of the opening
     if (!usePhoto) diffuseColor.rgb *= 1.0 - 0.35 * inWin * (1.0 - smoothstep(0.0, 0.18, wmax.y - pm.y)) * (1.0 - far);
@@ -411,7 +413,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-6';
+  material.customProgramCacheKey = () => 'sh-facade-7';
   return material;
 }
 

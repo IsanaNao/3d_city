@@ -12,8 +12,8 @@ const dark = new THREE.MeshStandardMaterial({ color: 0x3a4148, metalness: 0.45, 
 // Rose-silver glass. The shell is closed; mullions and the night cells are paint.
 // Sky reflection is added here because the shared env-map term is disabled.
 const pearlMat = new THREE.MeshStandardMaterial({
-  color: 0xc9a3a8, metalness: 0.82, roughness: 0.14,
-  emissive: new THREE.Color(0xff3050), emissiveIntensity: 0,
+  color: 0xc4b0b2, metalness: 0.9, roughness: 0.2,
+  emissive: new THREE.Color(0xff2218), emissiveIntensity: 0,
   transparent: false, opacity: 1, depthWrite: true, side: THREE.FrontSide,
 });
 pearlMat.onBeforeCompile = (shader) => {
@@ -47,37 +47,38 @@ pearlMat.onBeforeCompile = (shader) => {
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       vec2 pane = fract(vPane * max(vGrid, vec2(1.0)));
       float edge = min(min(pane.x, 1.0 - pane.x), min(pane.y, 1.0 - pane.y));
-      float glass = smoothstep(0.004, 0.016, edge);
+      float glass = smoothstep(0.003, 0.011, edge);
       float panelId = dot(floor(vPane * max(vGrid, vec2(1.0))), vec2(1.0, 17.0));
-      float vary = 0.93 + 0.09 * fract(sin(panelId * 12.9898) * 43758.5453);
-      vec3 rose = diffuseColor.rgb * vec3(1.05, 0.78, 0.8) * vary;
-      diffuseColor.rgb = mix(vec3(0.62, 0.64, 0.66), rose, glass);
-      roughnessFactor = mix(0.32, 0.1 + 0.06 * fract(panelId * 0.37), glass);
+      float vary = 0.78 + 0.34 * fract(sin(panelId * 12.9898) * 43758.5453);
+      vec3 rose = vec3(0.62, 0.42, 0.44) * vary;
+      diffuseColor.rgb = mix(vec3(0.34, 0.36, 0.38), rose, glass);
+      roughnessFactor = mix(0.48, 0.14 + 0.1 * fract(panelId * 0.37), glass);
+      diffuseColor.rgb *= mix(1.0, 0.22, uNight);
       float belt = max(
-        smoothstep(0.45, 0.48, vLat) * (1.0 - smoothstep(0.52, 0.55, vLat)),
+        smoothstep(0.46, 0.485, vLat) * (1.0 - smoothstep(0.515, 0.54, vLat)),
         max(
-          smoothstep(0.28, 0.31, vLat) * (1.0 - smoothstep(0.35, 0.38, vLat)),
-          smoothstep(0.62, 0.65, vLat) * (1.0 - smoothstep(0.69, 0.72, vLat))
+          smoothstep(0.30, 0.325, vLat) * (1.0 - smoothstep(0.345, 0.37, vLat)),
+          smoothstep(0.63, 0.655, vLat) * (1.0 - smoothstep(0.675, 0.70, vLat))
         )
       );
       vec2 cell = abs(fract(pane) - 0.5);
-      float dotCore = smoothstep(0.46, 0.18, max(cell.x, cell.y));
-      vec3 cellCol = mix(vec3(1.0, 0.16, 0.28), vec3(1.0, 0.72, 0.78), belt);
-      totalEmissiveRadiance += cellCol * glass * dotCore * uNight * (2.8 + belt * 2.2);
-      totalEmissiveRadiance += vec3(1.0, 0.86, 0.72) * belt * uNight * 0.55;
+      float dotCore = smoothstep(0.30, 0.07, max(cell.x, cell.y));
+      vec3 cellCol = mix(vec3(1.0, 0.24, 0.08), vec3(1.0, 0.55, 0.32), belt);
+      totalEmissiveRadiance += cellCol * glass * dotCore * uNight * (1.55 + belt * 0.7);
+      totalEmissiveRadiance += vec3(1.0, 0.72, 0.48) * belt * uNight * 0.18;
       vec3 N = normalize(vPearlN);
       vec3 V = normalize(cameraPosition - vPearlW);
       vec3 R = reflect(-V, N);
-      float up = pow(clamp(R.y * 0.5 + 0.5, 0.0, 1.0), 0.65);
-      vec3 skyCol = mix(uHorizon, uSky, up) * uSkyGain;
-      float fres = pow(1.0 - max(dot(V, N), 0.0), 2.4);
+      float skyAmt = smoothstep(-0.2, 0.55, R.y);
+      vec3 skyCol = mix(uHorizon, uSky, pow(clamp(R.y, 0.0, 1.0), 0.55)) * uSkyGain;
+      vec3 cityCol = vec3(0.42, 0.36, 0.34) * uSkyGain;
+      vec3 envCol = mix(cityCol, skyCol, skyAmt) * mix(vec3(1.0), vec3(1.15, 0.72, 0.74), 0.62);
+      float fres = pow(1.0 - max(dot(V, N), 0.0), 1.7);
       float day = 1.0 - uNight;
-      totalEmissiveRadiance += mix(skyCol, rose, 0.38) * glass * day * (0.22 + 0.95 * fres);
-      float sunSpec = pow(max(dot(R, normalize(uSunDir)), 0.0), 220.0);
-      totalEmissiveRadiance += uSunGlint * glass * day * sunSpec * 0.85;
+      totalEmissiveRadiance += envCol * glass * vary * day * (0.42 + 0.75 * fres);
     `);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-rose';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-2';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
@@ -269,14 +270,14 @@ function pearl(h) {
     for (let i = 0; i < ring.length; i++) tube(g, [ring[i], ring[(i + 1) % ring.length]], 1.3 * m.s, columnMat, 'brace');
   }
 
-  paneledSphere(g, m.lowerR, m.lowerC, 32, 64, pearlMat, 'lower-sphere');
-  sphereRing(g, m.lowerR, m.lowerC, 0, 1.8 * m.s);
-  sphereRing(g, m.lowerR, m.lowerC, m.lowerR * 0.42, 0.48 * m.s);
-  sphereRing(g, m.lowerR, m.lowerC, -m.lowerR * 0.42, 0.48 * m.s);
-  paneledSphere(g, m.upperR, m.upperC, 28, 56, pearlMat, 'upper-sphere');
-  sphereRing(g, m.upperR, m.upperC, 0, 1.55 * m.s);
-  sphereRing(g, m.upperR, m.upperC, m.upperR * 0.4, 0.42 * m.s);
-  sphereRing(g, m.upperR, m.upperC, -m.upperR * 0.4, 0.42 * m.s);
+  paneledSphere(g, m.lowerR, m.lowerC, 42, 84, pearlMat, 'lower-sphere');
+  sphereRing(g, m.lowerR, m.lowerC, 0, 0.95 * m.s);
+  sphereRing(g, m.lowerR, m.lowerC, m.lowerR * 0.42, 0.32 * m.s);
+  sphereRing(g, m.lowerR, m.lowerC, -m.lowerR * 0.42, 0.32 * m.s);
+  paneledSphere(g, m.upperR, m.upperC, 36, 72, pearlMat, 'upper-sphere');
+  sphereRing(g, m.upperR, m.upperC, 0, 0.82 * m.s);
+  sphereRing(g, m.upperR, m.upperC, m.upperR * 0.4, 0.28 * m.s);
+  sphereRing(g, m.upperR, m.upperC, -m.upperR * 0.4, 0.28 * m.s);
 
   tube(g, [along(0, 0, m.upperC + m.upperR * 0.35), along(0, 0, m.capsuleC + m.capsuleR * 0.4)], 2.4 * m.s, columnMat, 'mast');
   paneledSphere(g, m.capsuleR, m.capsuleC, 14, 24, pearlMat, 'capsule');
@@ -957,8 +958,8 @@ export function createLandmarks(list) {
 }
 
 export function syncLandmarkNight(night) {
-  pearlMat.emissiveIntensity = night * 0.15;
-  pearlBand.emissiveIntensity = 0.05 + night * 2.4;
+  pearlMat.emissiveIntensity = night * 0.05;
+  pearlBand.emissiveIntensity = 0.02 + night * 0.85;
   columnMat.emissiveIntensity = night * 0.4;
   legMat.emissiveIntensity = night * 1.25;
   shanghaiCrownMat.emissiveIntensity = night * 2.8;
