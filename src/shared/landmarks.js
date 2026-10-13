@@ -94,6 +94,10 @@ export function hiddenByLandmark(building, landmarks) {
     if (named && height >= spec.minH && !(spec.maxH && height > spec.maxH)) return true;
     const c = building.centroid;
     if (!c) continue;
+    if (lm.id === 'pearl') {
+      const d = Math.hypot(c[0] - lm.x, c[1] - lm.z);
+      if (d < 165 && height < 62 && !named) return true;
+    }
     // A named neighbour that merely stands nearby stays an extrusion.
     if (building.name && !named) continue;
     if (lm.ring && pointInPoly(c[0], c[1], lm.ring)) return true;
