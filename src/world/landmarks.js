@@ -165,19 +165,20 @@ function pearlMemberShader(shader, rings, metal) {
       float ring = 1.0 - smoothstep(0.015, 0.04, abs(fract(along * ${rings}.0) - 0.5));
       vec3 show = showColor(along, around);
       vec3 showN = showNorm(show, 0.48);
-      totalEmissiveRadiance += metal * 0.05 * uNight;
       totalEmissiveRadiance += showN * ring * uNight * 1.05;
       totalEmissiveRadiance += vec3(1.0, 0.9, 0.75) * ring * uNight * 0.18;
+      // Warm gold flood on the panels. The joint stays darker so the seams still read.
+      totalEmissiveRadiance += vec3(1.0, 0.68, 0.32) * uNight * (0.42 - 0.2 * seam);
     `);
 }
 columnMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 4, 'vec3(0.96, 0.97, 0.98)');
-columnMat.customProgramCacheKey = () => 'lm-pearl-column-11';
+columnMat.customProgramCacheKey = () => 'lm-pearl-column-12';
 const legMat = new THREE.MeshStandardMaterial({
   color: 0xe0ddd6, metalness: 0.16, roughness: 0.58,
   emissive: new THREE.Color(0x000000), emissiveIntensity: 0,
 });
 legMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 3, 'vec3(0.90, 0.91, 0.92)');
-legMat.customProgramCacheKey = () => 'lm-pearl-leg-5';
+legMat.customProgramCacheKey = () => 'lm-pearl-leg-6';
 const shanghaiCrownMat = new THREE.MeshStandardMaterial({
   color: 0x9eb4c6, metalness: 0.62, roughness: 0.16,
   emissive: new THREE.Color(0x3aa0ff), emissiveIntensity: 0,
