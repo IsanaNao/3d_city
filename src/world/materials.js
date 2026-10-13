@@ -713,8 +713,12 @@ export function createWaterMaterial() {
           vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + n.xz * vec2(0.35, 0.7) * near;
           float swell = 0.5 + 0.5 * sin(vWorld.x * 0.031 + vWorld.z * 0.027 + t * 0.4);
           float fg = 1.0 - smoothstep(36.0, 150.0, dist);
-          float stretch = mix(0.004, 0.16, uDark) * near * (1.0 + 0.7 * uDark * swell);
-          stretch *= mix(1.0, 0.28, fg);
+          // Night smear is long in the mirror's vertical axis, so a lamp becomes
+          // a column under its source. Across-river bands of constant easting
+          // read as horizontal stripes when the camera looks over the Huangpu.
+          float stretch = mix(0.004, 0.32, uDark) * near * (1.0 + 0.4 * uDark * swell);
+          stretch *= mix(1.0, 0.2, fg);
+          float sideways = stretch * mix(0.08, 0.012, uDark);
           vec2 wave = vec2(
             vnoise(vWorld.xz * 0.16 + t * 0.17) - 0.5,
             vnoise(vWorld.xz * 0.13 - t * 0.13) - 0.5
@@ -725,25 +729,24 @@ export function createWaterMaterial() {
           for (int i = 0; i < 9; i++) {
             float o = (float(i) - 4.0) / 4.0;
             float w = exp(-abs(o) * mix(5.0, 1.45, uDark));
-            vec2 uv = clamp(muv + vec2(o * stretch * 0.08, o * stretch), 0.001, 0.999);
+            vec2 uv = clamp(muv + vec2(o * sideways, o * stretch), 0.001, 0.999);
             m += texture2D(uMirror, uv) * w;
             wsum += w;
           }
           m /= max(wsum, 1e-4);
           thing = smoothstep(0.0, 0.2, m.a);
-          vec3 lights = min(max(m.rgb - vec3(0.08), 0.0), vec3(0.42, 0.26, 0.12));
-          // Broken vertical lanes. They stay bright near the far bank and thin
-          // out toward the camera; the gaps between them stay dark water.
-          float across = vWorld.x * 0.09
-            + vnoise(vWorld.xz * vec2(0.028, 0.021)) * 3.6
-            + vnoise(vec2(vWorld.z * 0.06, 4.2)) * 1.8;
-          float band = smoothstep(0.18, 0.55, fract(across));
-          float chip = smoothstep(0.28, 0.78, vnoise(vec2(floor(across), vWorld.z * 0.055 + t * 0.15)));
-          float streak = band * (0.28 + 0.72 * chip);
-          // The near water was resolving the reflected window grid as a dark lattice.
-          streak = mix(streak, 0.22, fg * 0.85);
-          lights = mix(lights, min(lights, vec3(0.16, 0.1, 0.05)), fg);
-          vec3 nightRefl = lights * vec3(1.15, 0.66, 0.28) * streak;
+          // Keep the source colour. Real Huangpu columns are the colour of the
+          // lamp above them, broken into dashes along their length.
+          vec3 src = max(m.rgb - vec3(0.045), 0.0);
+          float srcL = dot(src, vec3(0.2126, 0.7152, 0.0722));
+          float along = dist * 0.09 + vnoise(vWorld.xz * 0.03) * 1.8;
+          float dash = smoothstep(0.06, 0.32, fract(along));
+          dash *= 0.4 + 0.6 * smoothstep(0.22, 0.78, vnoise(vec2(floor(along), vWorld.z * 0.02 + t * 0.12)));
+          float gate = smoothstep(0.04, 0.16, srcL);
+          vec3 nightRefl = src * (0.45 + 1.05 * gate) * mix(0.22, 1.0, dash);
+          // Near the camera the columns shorten and the water stays dark,
+          // so a window grid does not print on the foreground.
+          nightRefl *= mix(1.0, 0.16, fg);
           if (reach < 0.9) {
             vec3 viewH = vec3(wv.x, 0.0, wv.z);
             float viewLen = length(viewH);
@@ -757,18 +760,19 @@ export function createWaterMaterial() {
                 float farW = 0.0;
                 for (int k = 0; k < 5; k++) {
                   float o = (float(k) - 2.0) / 2.0;
-                  float w = exp(-abs(o) * 0.85);
-                  vec2 uv = clamp(fuv + vec2(o * 0.006, o * 0.028), 0.001, 0.999);
+                  float w = exp(-abs(o) * 0.7);
+                  vec2 uv = clamp(fuv + vec2(o * 0.003, o * 0.05), 0.001, 0.999);
                   farRgb += texture2D(uMirror, uv).rgb * w;
                   farW += w;
                 }
                 farRgb /= max(farW, 1e-4);
-                vec3 farLights = min(max(farRgb - vec3(0.08), 0.0), vec3(0.4, 0.24, 0.11));
-                nightRefl = max(nightRefl, farLights * vec3(1.05, 0.62, 0.24) * streak * mix(0.45, 1.0, reach));
+                vec3 farLights = max(farRgb - vec3(0.05), 0.0);
+                float farL = dot(farLights, vec3(0.2126, 0.7152, 0.0722));
+                nightRefl = max(nightRefl, farLights * smoothstep(0.05, 0.18, farL) * mix(0.4, 1.0, dash) * mix(0.5, 1.15, reach));
               }
             }
           }
-          nightRefl *= mix(0.4, 1.0, reach);
+          nightRefl *= mix(0.5, 1.05, reach);
           vec3 refl = mix(m.rgb, nightRefl, uDark);
           seen = mix(seen, refl, thing);
         }

@@ -274,10 +274,10 @@ swfcGlass.onBeforeCompile = (shader) => {
       float rowE = floor(vSwfcL.y / 4.2);
       float paneE = smoothstep(0.08, 0.16, min(min(fract(alongE / 3.2), 1.0 - fract(alongE / 3.2)), min(fract(vSwfcL.y / 4.2), 1.0 - fract(vSwfcL.y / 4.2))));
       float onE = step(0.58, fract(sin(rowE * 12.9 + colE * 7.1) * 43758.5));
-      totalEmissiveRadiance += vec3(1.0, 0.78, 0.46) * paneE * onE * uNight * 0.42;
+        totalEmissiveRadiance += vec3(1.0, 0.86, 0.62) * paneE * onE * uNight * 0.72;
     `);
 };
-swfcGlass.customProgramCacheKey = () => 'lm-swfc-glass-3';
+swfcGlass.customProgramCacheKey = () => 'lm-swfc-glass-4';
 
 function add(group, geo, mat) {
   const mesh = new THREE.Mesh(geo, mat);
@@ -837,13 +837,14 @@ function jinmaoMaterial() {
         float row = floor(vLm.y / 4.2);
         float col = floor(vGrid.x * 9.0);
         float on = step(0.62, fract(sin(row * 12.1 + col * 7.7) * 43758.5));
-        totalEmissiveRadiance += vec3(1.0, 0.78, 0.42) * uNight * 0.16;
-        totalEmissiveRadiance += vec3(1.0, 0.84, 0.58) * pane * on * uNight * 0.85;
-        float crown = smoothstep(250.0, 360.0, vLm.y);
-        totalEmissiveRadiance += vec3(1.0, 0.68, 0.16) * crown * uNight * (1.1 + frame * 1.6);
+        // Cool silver flood on the lattice, warm windows, gold only on the crown.
+        totalEmissiveRadiance += vec3(0.72, 0.80, 0.92) * frame * uNight * 0.28;
+        totalEmissiveRadiance += vec3(1.0, 0.84, 0.58) * pane * on * uNight * 0.55;
+        float crown = smoothstep(280.0, 370.0, vLm.y);
+        totalEmissiveRadiance += vec3(1.0, 0.72, 0.22) * crown * uNight * (1.05 + frame * 1.5);
       `);
   };
-  jinGrid.customProgramCacheKey = () => 'lm-jin-grid';
+  jinGrid.customProgramCacheKey = () => 'lm-jin-grid-2';
   return jinGrid;
 }
 
@@ -1927,7 +1928,7 @@ export function syncLandmarkNight(night) {
   columnMat.emissiveIntensity = night * 1.15;
   legMat.emissiveIntensity = night * 1.7;
   shanghaiCrownMat.emissiveIntensity = night * 2.8;
-  swfcEdgeMat.emissiveIntensity = night * 0.22;
+  swfcEdgeMat.emissiveIntensity = night * 0.48;
   bundStone.emissiveIntensity = 0;
   bundPlain.emissiveIntensity = 0;
   customsWall.emissiveIntensity = 0;
