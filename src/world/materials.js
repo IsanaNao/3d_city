@@ -745,7 +745,7 @@ export function createWaterMaterial() {
       void main() {
         float t = uTime, e = 0.12;
         float dist = distance(cameraPosition, vWorld);
-        float amp = mix(0.06, 0.2, uDark) * clamp(180.0 / dist - 0.05, 0.2, 1.0);
+        float amp = mix(0.012, 0.04, uDark) * clamp(180.0 / dist - 0.05, 0.15, 1.0);
         vec2 slope = vec2(ripple(vWorld.xz + vec2(e, 0.0), t) - ripple(vWorld.xz - vec2(e, 0.0), t),
                           ripple(vWorld.xz + vec2(0.0, e), t) - ripple(vWorld.xz - vec2(0.0, e), t)) * (amp / (2.0 * e));
         // long swells that survive into the distance and break up the mirror a little
@@ -759,85 +759,18 @@ export function createWaterMaterial() {
         body = mix(body, uHorizon * 0.42, uHaze * 0.28);
         vec3 seen = mix(uHorizon, uSky, pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * uSkyGain * 0.9;
         float thing = 0.0;
-        float reach = smoothstep(40.0, 340.0, dist);
         if (uMirrorOn > 0.5) {
           vec4 mc = uMirrorMatrix * vec4(vWorld, 1.0);
-          float near = clamp(70.0 / dist, 0.12, 1.8);
-          vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + n.xz * vec2(0.35, 0.7) * near;
-          float swell = 0.5 + 0.5 * sin(vWorld.x * 0.031 + vWorld.z * 0.027 + t * 0.4);
-          float fg = 1.0 - smoothstep(36.0, 150.0, dist);
-          // Night smear is long in the mirror's vertical axis, so a lamp becomes
-          // a column under its source. Across-river bands of constant easting
-          // read as horizontal stripes when the camera looks over the Huangpu.
-          float stretch = mix(0.004, 0.32, uDark) * near * (1.0 + 0.4 * uDark * swell);
-          stretch *= mix(1.0, 0.2, fg);
-          float sideways = stretch * mix(0.08, 0.012, uDark);
-          vec2 wave = vec2(
-            vnoise(vWorld.xz * 0.16 + t * 0.17) - 0.5,
-            vnoise(vWorld.xz * 0.13 - t * 0.13) - 0.5
-          );
-          muv += wave * mix(0.0, 0.028, uDark) * near;
-          vec4 m = vec4(0.0);
-          float wsum = 0.0;
-          for (int i = 0; i < 9; i++) {
-            float o = (float(i) - 4.0) / 4.0;
-            float w = exp(-abs(o) * mix(5.0, 1.45, uDark));
-            vec2 uv = clamp(muv + vec2(o * sideways, o * stretch), 0.001, 0.999);
-            m += texture2D(uMirror, uv) * w;
-            wsum += w;
-          }
-          m /= max(wsum, 1e-4);
-          thing = smoothstep(0.0, 0.2, m.a);
-          // Keep the source colour. Real Huangpu columns are the colour of the
-          // lamp above them, broken into dashes along their length.
-          vec3 src = max(m.rgb - vec3(0.045), 0.0);
-          float srcL = dot(src, vec3(0.2126, 0.7152, 0.0722));
-          // Breaks run along each column. A phase that depends only on distance
-          // from the camera lines the gaps up into horizontal stripes.
-          float vhLen = length(vec2(wv.x, wv.z));
-          vec2 vh = vhLen > 1e-4 ? vec2(wv.x, wv.z) / vhLen : vec2(1.0, 0.0);
-          float alongCol = vWorld.x * vh.x + vWorld.z * vh.y;
-          float acrossCol = -vWorld.x * vh.y + vWorld.z * vh.x;
-          float along = alongCol * 0.11 + vnoise(vec2(acrossCol * 0.045, 2.7)) * 3.4;
-          float dash = smoothstep(0.02, 0.42, fract(along));
-          dash *= 0.5 + 0.5 * smoothstep(0.2, 0.75, vnoise(vec2(floor(along + acrossCol * 0.07), 1.7 + t * 0.08)));
-          float gate = smoothstep(0.04, 0.16, srcL);
-          vec3 nightRefl = src * (0.45 + 1.05 * gate) * mix(0.22, 1.0, dash);
-          // Near the camera the columns shorten and the water stays dark,
-          // so a window grid does not print on the foreground.
-          nightRefl *= mix(1.0, 0.16, fg);
-          if (reach < 0.9) {
-            vec3 viewH = vec3(wv.x, 0.0, wv.z);
-            float viewLen = length(viewH);
-            if (viewLen > 1e-4) {
-              viewH /= viewLen;
-              float hop = mix(460.0, 48.0, reach);
-              vec4 fc = uMirrorMatrix * vec4(vWorld + viewH * hop, 1.0);
-              if (fc.w > 0.05) {
-                vec2 fuv = fc.xy / fc.w * 0.5 + 0.5;
-                vec3 farRgb = vec3(0.0);
-                float farW = 0.0;
-                for (int k = 0; k < 5; k++) {
-                  float o = (float(k) - 2.0) / 2.0;
-                  float w = exp(-abs(o) * 0.7);
-                  vec2 uv = clamp(fuv + vec2(o * 0.003, o * 0.05), 0.001, 0.999);
-                  farRgb += texture2D(uMirror, uv).rgb * w;
-                  farW += w;
-                }
-                farRgb /= max(farW, 1e-4);
-                vec3 farLights = max(farRgb - vec3(0.05), 0.0);
-                float farL = dot(farLights, vec3(0.2126, 0.7152, 0.0722));
-                nightRefl = max(nightRefl, farLights * smoothstep(0.05, 0.18, farL) * mix(0.4, 1.0, dash) * mix(0.5, 1.15, reach));
-              }
-            }
-          }
-          nightRefl *= mix(0.5, 1.05, reach);
-          vec3 refl = mix(m.rgb, nightRefl, uDark);
-          seen = mix(seen, refl, thing);
+          float near = clamp(50.0 / dist, 0.04, 0.55);
+          vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + n.xz * vec2(0.02, 0.035) * near;
+          vec2 feather = smoothstep(0.0, 0.03, muv) * (1.0 - smoothstep(0.97, 1.0, muv));
+          float inside = feather.x * feather.y;
+          vec3 refl = texture2D(uMirror, clamp(muv, 0.002, 0.998)).rgb;
+          seen = mix(seen, refl, inside);
+          thing = inside;
         }
-        float dayCover = max(fresnel, mix(0.42, 0.8, uHaze * 0.2) * thing);
-        float nightCover = thing * mix(0.08, 0.68, smoothstep(0.08, 0.72, reach));
-        vec3 col = mix(body, seen, mix(dayCover, nightCover, uDark));
+        float cover = mix(fresnel, 0.55 + 0.4 * fresnel, thing);
+        vec3 col = mix(body, seen, cover);
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);
         gl_FragColor = vec4(col, 1.0);

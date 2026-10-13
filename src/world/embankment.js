@@ -121,6 +121,43 @@ function deckY(grid, waterLevel, x, z, ox, oz) {
   return y;
 }
 
+// Sharp shoreline corners leave a triangular gap and a knife edge. Pull the
+// corner back and fill it with a short curve so the wall stays one strip.
+function roundBank(pts) {
+  if (!pts || pts.length < 3) return pts || [];
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const c = pts[i + 1];
+    const d1x = b.x - a.x;
+    const d1z = b.z - a.z;
+    const d2x = c.x - b.x;
+    const d2z = c.z - b.z;
+    const l1 = Math.hypot(d1x, d1z) || 1;
+    const l2 = Math.hypot(d2x, d2z) || 1;
+    const dot = (d1x / l1) * (d2x / l2) + (d1z / l1) * (d2z / l2);
+    if (dot > 0.9) { out.push(b); continue; }
+    const pull = Math.min(10, l1 * 0.4, l2 * 0.4);
+    const pA = { x: b.x - (d1x / l1) * pull, z: b.z - (d1z / l1) * pull, ox: b.ox, oz: b.oz };
+    const pC = { x: b.x + (d2x / l2) * pull, z: b.z + (d2z / l2) * pull, ox: b.ox, oz: b.oz };
+    out.push(pA);
+    for (let k = 1; k <= 3; k++) {
+      const t = k / 4;
+      const u = 1 - t;
+      out.push({
+        x: u * u * pA.x + 2 * u * t * b.x + t * t * pC.x,
+        z: u * u * pA.z + 2 * u * t * b.z + t * t * pC.z,
+        ox: b.ox,
+        oz: b.oz,
+      });
+    }
+    out.push(pC);
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+
 export function createEmbankments(lines, grid, waterLevel) {
   const group = new THREE.Group();
   group.name = 'embankments';
@@ -132,7 +169,7 @@ export function createEmbankments(lines, grid, waterLevel) {
   const level = Number.isFinite(waterLevel) ? waterLevel : 0;
   let lampAcc = 0;
   for (const line of lines || []) {
-    const pts = line.points || [];
+    const pts = roundBank(line.points || []);
     const width = line.width || 24;
     for (let i = 1; i < pts.length; i++) {
       const p0 = pts[i - 1];
