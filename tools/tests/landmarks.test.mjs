@@ -54,6 +54,11 @@ test('unnamed parts inside a named footprint are not extruded', () => {
   assert.equal(hiddenByLandmark(outline, marks), true);
   assert.equal(hiddenByLandmark(part, marks), true);
   assert.equal(hiddenByLandmark(neighbour, marks), false);
+  const slab = {
+    name: '', area: 180, topY: 36, baseY: 4,
+    centroid: [62, 8], rings: [[[55, 2], [70, 2], [70, 16]]],
+  };
+  assert.equal(hiddenByLandmark(slab, marks), true);
 });
 
 function partBox(model, part) {
@@ -104,8 +109,24 @@ test('pearl legs and columns meet the spheres with no gap', () => {
   const legBox = partBox(model, 'leg');
   const shaftBox = partBox(model, 'shaft');
   assert.ok(legBox.max.y > lowerC - lowerR + 6, `legs stop at ${legBox.max.y}, short of the lower sphere`);
-  assert.ok(shaftBox.min.y < lowerC + lowerR - 6, `columns start at ${shaftBox.min.y}, above the lower sphere`);
+  assert.ok(shaftBox.min.y < lowerC + lowerR - 2, `columns start at ${shaftBox.min.y}, above the lower sphere`);
   assert.ok(shaftBox.max.y > upperC - upperR, `columns stop at ${shaftBox.max.y}, short of the upper sphere`);
+  const nearest = (part, center) => {
+    let min = Infinity;
+    model.traverse((obj) => {
+      if (obj.userData?.part !== part) return;
+      const pos = obj.geometry?.getAttribute?.('position');
+      if (!pos) return;
+      for (let i = 0; i < pos.count; i++) {
+        const d = new THREE.Vector3().fromBufferAttribute(pos, i).distanceTo(center);
+        if (d < min) min = d;
+      }
+    });
+    return min;
+  };
+  const lowerCenter = new THREE.Vector3(0, lowerC, 0);
+  assert.ok(nearest('shaft', lowerCenter) > lowerR * 0.55, `a column runs through the lower sphere (${nearest('shaft', lowerCenter)})`);
+  assert.ok(nearest('leg', lowerCenter) > lowerR * 0.55, `a leg runs through the lower sphere (${nearest('leg', lowerCenter)})`);
   const angles = new Set(legs.map((leg) => leg.userData.angle.toFixed(3)));
   assert.equal(angles.size, 3);
 });

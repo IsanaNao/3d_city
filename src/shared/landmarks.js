@@ -100,6 +100,9 @@ export function hiddenByLandmark(building, landmarks) {
     if (!building.name) {
       const d = Math.hypot(c[0] - lm.x, c[1] - lm.z);
       if (d < lm.radius * 0.55 && height > 25) return true;
+      // The Pearl's stepped plinth is wider than its OSM footprint. Low blocks
+      // inside that circle hide the legs, so they come out.
+      if (lm.id === 'pearl' && d < 90 && height < 70) return true;
     }
   }
   return false;
