@@ -940,15 +940,18 @@ export function createWaterMaterial() {
               : stripe < 2.0 ? vec3(344.0, 0.0, 194.0)
               : stripe < 3.0 ? vec3(499.0, 0.0, 269.0)
               : vec3(330.0, 0.0, 382.0);
-            float markH = stripe < 1.0 ? mix(140.0, 470.0, band) : mix(160.0, 600.0, band);
+            // Hold each tower's own coloured band. A shared height sweep painted
+            // horizontal stripes; the column stays one landmark down the river.
+            float markH = stripe < 1.0 ? 340.0 : stripe < 2.0 ? 320.0 : stripe < 3.0 ? 300.0 : 560.0;
+            markH += chop * 36.0;
             vec4 mm = uMirrorMatrix * vec4(mark.x, markH, mark.z, 1.0);
             vec2 muv = mm.xy / max(mm.w, 1e-3) * 0.5 + 0.5 + wob2;
             float minSide = min(min(muv.x, 1.0 - muv.x), min(muv.y, 1.0 - muv.y));
             float markOk = step(0.0, mm.w) * step(0.03, minSide);
             vec3 markCol = texture2D(uMirror, clamp(muv, 0.02, 0.98)).rgb;
             if (markOk > 0.5 && dot(markCol, vec3(0.3)) > 0.04) seen = markCol;
-            float dash = 0.5 + 0.5 * sin(travel * 8.0 + chop * 2.4 + vnoise(vWorld.xz * 0.07) * 4.0);
-            thing = 0.38 + 0.62 * smoothstep(0.2, 0.62, dash);
+            float dash = 0.5 + 0.5 * sin(travel * 7.0 + stripe * 1.9 + chop * 2.0 + vnoise(vWorld.xz * 0.06) * 3.0);
+            thing = 0.22 + 0.78 * smoothstep(0.28, 0.66, dash);
           } else {
             vec4 mc = uMirrorMatrix * vec4(vWorld, 1.0);
             float near = clamp(70.0 / dist, 0.05, 0.65);
