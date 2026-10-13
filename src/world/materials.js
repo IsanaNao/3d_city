@@ -27,10 +27,6 @@ export const cityUniforms = {
   uMirror: { value: null },
   uMirrorMatrix: { value: new THREE.Matrix4() },
   uMirrorOn: { value: 0 },
-  // Horizontal view direction. Night water folds the river onto the lit fan
-  // in front of the camera so a bearing that misses the skyline still streaks.
-  uCamDir: { value: new THREE.Vector2(0, -1) },
-  uViewMatrix: { value: new THREE.Matrix4() },
 };
 
 const NOISE = /* glsl */`
@@ -818,8 +814,6 @@ export function createWaterMaterial() {
       uniform sampler2D uMirror;
       uniform mat4 uMirrorMatrix;
       uniform float uMirrorOn;
-      uniform vec2 uCamDir;
-      uniform mat4 uViewMatrix;
       varying vec3 vWorld;
       ${NOISE}
       float ripple(vec2 p, float t) {
@@ -842,131 +836,30 @@ export function createWaterMaterial() {
         vec3 wv = normalize(vWorld - cameraPosition);
         vec3 wr = reflect(wv, n);
         float fresnel = 0.05 + 0.95 * pow(1.0 - max(dot(-wv, n), 0.0), 4.0);
-        // the Huangpu is silty: a dull olive brown seen straight down
-        vec3 body = vec3(0.06, 0.11, 0.13) * (0.28 + 0.72 * (1.0 - uDark));
+        // the Huangpu is silty. At night it is a dark base; the mirror sits on top by Fresnel.
+        vec3 body = vec3(0.04, 0.055, 0.062) * (0.2 + 0.8 * (1.0 - uDark));
         body = mix(body, uHorizon * 0.42, uHaze * 0.28);
         vec3 seen = mix(uHorizon, uSky, pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * uSkyGain * 0.9;
         float thing = 0.0;
         if (uMirrorOn > 0.5) {
-          vec2 wob = n.xz * vec2(0.028, 0.04) * mix(0.35, 1.0, uDark);
-          if (uDark > 0.5) {
-            // The river is wider than the skyline. Find the bearings that
-            // actually hit lit towers, then lay that whole fan down every
-            // part of the water as a rippled column.
-            vec2 bear = vWorld.xz - cameraPosition.xz;
-            float distH = max(length(bear), 1.0);
-            vec2 dir = bear / distH;
-            vec2 fwd = uCamDir;
-            float fl = length(fwd);
-            fwd = fl > 1e-4 ? fwd / fl : vec2(0.0, -1.0);
-            float fang = atan(fwd.y, fwd.x);
-            float ang = atan(dir.y, dir.x);
-            float leftA = fang;
-            float rightA = fang;
-            float found = 0.0;
-            for (int i = 0; i < 15; i++) {
-              float a = fang + mix(-0.72, 0.72, float(i) / 14.0);
-              vec2 sd = vec2(cos(a), sin(a));
-              float lum = 0.0;
-              for (int k = 0; k < 2; k++) {
-                float hh = k == 0 ? 460.0 : 660.0;
-                vec3 sp = vec3(cameraPosition.x, hh, cameraPosition.z) + vec3(sd.x, 0.0, sd.y) * 1000.0;
-                vec4 sm = uMirrorMatrix * vec4(sp, 1.0);
-                vec2 suv = sm.xy / max(sm.w, 1e-3) * 0.5 + 0.5;
-                float inside = step(0.0, sm.w) * step(0.02, suv.x) * step(suv.x, 0.98) * step(0.02, suv.y) * step(suv.y, 0.98);
-                lum = max(lum, dot(texture2D(uMirror, clamp(suv, 0.02, 0.98)).rgb, vec3(0.299, 0.587, 0.114)) * inside);
-              }
-              if (lum > 0.08) {
-                if (found < 0.5) { leftA = a; rightA = a; found = 1.0; }
-                leftA = min(leftA, a);
-                rightA = max(rightA, a);
-              }
-            }
-            // Screen-left water takes the leftmost lit tower (Pearl), screen-right
-            // the far end of the cluster. Snap onto a lit bearing so the gaps
-            // between towers still carry that tower's column.
-            vec4 vc = uViewMatrix * vec4(vWorld, 1.0);
-            float tAcross = clamp(vc.x / max(vc.w, 1e-3) * 0.5 + 0.5, 0.0, 1.0);
-            float want = mix(leftA, rightA, tAcross);
-            float snapped = want;
-            float snapD = 2.0;
-            if (found > 0.5) {
-              for (int i = 0; i < 15; i++) {
-                float a = fang + mix(-0.72, 0.72, float(i) / 14.0);
-                vec2 sd = vec2(cos(a), sin(a));
-                float lum = 0.0;
-                for (int k = 0; k < 2; k++) {
-                  float hh = k == 0 ? 460.0 : 660.0;
-                  vec3 sp = vec3(cameraPosition.x, hh, cameraPosition.z) + vec3(sd.x, 0.0, sd.y) * 1000.0;
-                  vec4 sm = uMirrorMatrix * vec4(sp, 1.0);
-                  vec2 suv = sm.xy / max(sm.w, 1e-3) * 0.5 + 0.5;
-                  float inside = step(0.0, sm.w) * step(0.02, suv.x) * step(suv.x, 0.98) * step(0.02, suv.y) * step(suv.y, 0.98);
-                  lum = max(lum, dot(texture2D(uMirror, clamp(suv, 0.02, 0.98)).rgb, vec3(0.299, 0.587, 0.114)) * inside);
-                }
-                float d = abs(a - want);
-                if (lum > 0.08 && d < snapD) { snapD = d; snapped = a; }
-              }
-            }
-            float travel = distH * 0.0032;
-            float chop = sin(dot(vWorld.xz, vec2(0.27, 0.19)) + t * 0.85);
-            float column = found > 0.5 ? snapped : ang;
-            column += (vnoise(vWorld.xz * 0.05) - 0.5) * 0.02;
-            vec2 cd = vec2(cos(column), sin(column));
-            vec2 wob2 = wob * vec2(0.45, 0.16);
-            float band = fract(travel * 1.15 + chop * 0.07);
-            vec3 shaft = vec3(0.0);
-            float shaftS = -1.0;
-            vec3 crown = vec3(0.0);
-            float crownL = 0.0;
-            for (int s = 0; s < 3; s++) {
-              float u = fract(band * (s == 0 ? 1.0 : s == 1 ? 1.6 : 2.1) + float(s) * 0.27);
-              float hh = s == 2 ? mix(400.0, 660.0, u) : mix(36.0, 320.0, u);
-              vec3 sp = vec3(cameraPosition.x, hh, cameraPosition.z) + vec3(cd.x, 0.0, cd.y) * 1000.0;
-              vec4 sm = uMirrorMatrix * vec4(sp, 1.0);
-              vec2 suv = sm.xy / max(sm.w, 1e-3) * 0.5 + 0.5 + wob2;
-              vec3 sc = texture2D(uMirror, clamp(suv, 0.012, 0.988)).rgb;
-              float l = dot(sc, vec3(0.299, 0.587, 0.114));
-              if (s == 2) { crown = sc; crownL = l; }
-              else if (l > shaftS) { shaftS = l; shaft = sc; }
-            }
-            // The crown tap is where Pearl's spheres and the supertall tops sit.
-            // Keep it in the streak whenever it is actually lit.
-            seen = mix(shaft, crown, step(0.05, crownL) * 0.86);
-            // Four named lights, left to right: Pearl, Jin Mao, SWFC, Shanghai.
-            // A stripe of the river samples that tower directly when the mirror
-            // can see it, so the pink spheres and the crowns are not skipped.
-            float stripe = clamp(tAcross, 0.0, 0.999) * 4.0;
-            vec3 mark = stripe < 1.0 ? vec3(-242.0, 0.0, -321.0)
-              : stripe < 2.0 ? vec3(344.0, 0.0, 194.0)
-              : stripe < 3.0 ? vec3(499.0, 0.0, 269.0)
-              : vec3(330.0, 0.0, 382.0);
-            // Hold each tower's own coloured band. A shared height sweep painted
-            // horizontal stripes; the column stays one landmark down the river.
-            float markH = stripe < 1.0 ? 340.0 : stripe < 2.0 ? 320.0 : stripe < 3.0 ? 300.0 : 560.0;
-            markH += chop * 36.0;
-            vec4 mm = uMirrorMatrix * vec4(mark.x, markH, mark.z, 1.0);
-            vec2 muv = mm.xy / max(mm.w, 1e-3) * 0.5 + 0.5 + wob2;
-            float minSide = min(min(muv.x, 1.0 - muv.x), min(muv.y, 1.0 - muv.y));
-            float markOk = step(0.0, mm.w) * step(0.03, minSide);
-            vec3 markCol = texture2D(uMirror, clamp(muv, 0.02, 0.98)).rgb;
-            if (markOk > 0.5 && dot(markCol, vec3(0.3)) > 0.04) seen = markCol;
-            float dash = 0.5 + 0.5 * sin(travel * 7.0 + stripe * 1.9 + chop * 2.0 + vnoise(vWorld.xz * 0.06) * 3.0);
-            thing = 0.22 + 0.78 * smoothstep(0.28, 0.66, dash);
-          } else {
-            vec4 mc = uMirrorMatrix * vec4(vWorld, 1.0);
-            float near = clamp(70.0 / dist, 0.05, 0.65);
-            float w = max(mc.w, 1e-3);
-            vec2 muv = mc.xy / w * 0.5 + 0.5 + wob * near;
-            float outside = mc.w < 0.0 ? 1.0 : smoothstep(0.0, 0.12, max(
-              max(-muv.x, muv.x - 1.0), max(-muv.y, muv.y - 1.0)));
-            vec2 uv = clamp(muv, 0.02, 0.98);
-            uv = clamp(uv + wob * outside * 1.6, 0.02, 0.98);
-            seen = texture2D(uMirror, uv).rgb;
-            thing = 1.0;
-          }
+          // One planar reflection. The matrix already has the Reflector bias.
+          // At night the mirrored image is upside down, so a shift toward
+          // smaller v walks from the waterline up the tower. Ripples are
+          // wider on that axis than across it.
+          vec4 mc = uMirrorMatrix * vec4(vWorld, 1.0);
+          vec2 uv = mc.xy / max(mc.w, 1e-4);
+          vec2 rip = n.xz * vec2(0.008, 0.01);
+          float distH = length(vWorld.xz - cameraPosition.xz);
+          float toward = 1.0 - smoothstep(70.0, 760.0, distH);
+          uv.y -= toward * uDark * 0.2;
+          uv += vec2(rip.x * mix(0.45, 0.7, uDark), rip.y * mix(0.6, 3.2, uDark));
+          float edge = max(max(-uv.x, uv.x - 1.0), max(-uv.y, uv.y - 1.0));
+          float outside = mc.w < 0.0 ? 1.0 : smoothstep(-0.02, 0.08, edge);
+          seen = texture2D(uMirror, clamp(uv, 0.002, 0.998)).rgb;
+          thing = 1.0 - outside;
         }
-        float cover = mix(fresnel * 0.8, 0.6 + 0.3 * fresnel, uDark);
-        vec3 col = mix(body, seen, cover * thing + fresnel * (1.0 - thing) * 0.35);
+        float cover = mix(fresnel * 0.82, 0.26 + 0.62 * fresnel, uDark);
+        vec3 col = mix(body, seen, cover * thing);
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);
         gl_FragColor = vec4(col, 1.0);

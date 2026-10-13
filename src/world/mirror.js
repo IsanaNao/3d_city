@@ -1,27 +1,41 @@
 import * as THREE from 'three';
 import { cityUniforms } from './materials.js';
 
-const SCALE = 0.5;
-// Keep a little of the bank; discard the river bed. A world clip, not an
-// oblique near plane: Lengyel's projection threw Pearl and the supertalls
-// out of the mirror when the camera looked along the water.
+// Full drawing-buffer resolution. A half-size target turned the towers into blocks.
+const SCALE = 1;
+// Drop the river bed. A world clip, not an oblique near plane: Lengyel's
+// projection threw the skyline out of the mirror when the camera looked
+// along the water.
 const CLIP = 0.35;
 // Water meshes live on this layer only, so the mirror camera never sees them.
 export const WATER_LAYER = 1;
+// Night keeps the view's horizontal field and opens the vertical one so the
+// mirrored camera holds each tower from the waterline to its crown.
+const NIGHT_Y_FOV = 118;
 
 const _rot = new THREE.Matrix4();
 const _up = new THREE.Vector3(0, 1, 0);
 const _pos = new THREE.Vector3();
 const _look = new THREE.Vector3();
-const _fwd = new THREE.Vector3();
-const _aim = new THREE.Vector3();
 const _waterClip = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const _clipList = [_waterClip];
+const _bias = new THREE.Matrix4().set(
+  0.5, 0.0, 0.0, 0.5,
+  0.0, 0.5, 0.0, 0.5,
+  0.0, 0.0, 0.5, 0.5,
+  0.0, 0.0, 0.0, 1.0,
+);
+const _projView = new THREE.Matrix4();
 
 export class WaterMirror {
   constructor(renderer) {
     this.renderer = renderer;
-    this.target = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    this.target = new THREE.WebGLRenderTarget(4, 4, {
+      type: THREE.HalfFloatType,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      generateMipmaps: false,
+    });
     this.camera = new THREE.PerspectiveCamera();
     this.camera.layers.set(0);
     this.blank = new THREE.DataTexture(new Uint8Array(4), 1, 1);
@@ -48,32 +62,26 @@ export class WaterMirror {
     cam.near = camera.near;
     cam.far = camera.far;
     cam.aspect = camera.aspect;
-    const night = cityUniforms.uDark.value > 0.5;
-    _fwd.copy(_look).sub(_pos);
-    _fwd.y = 0;
-    if (_fwd.lengthSq() < 1e-8) _fwd.set(0, 0, -1);
-    _fwd.normalize();
-    cityUniforms.uCamDir.value.set(_fwd.x, _fwd.z);
-    cityUniforms.uViewMatrix.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    if (night) {
-      // The reflected look points down into the river, so Pearl and the
-      // supertalls sit on the edge of the mirror and the far bank samples
-      // sky. Aim up the skyline from the reflected eye; the water shader
-      // then stretches that picture into streaks.
-      _aim.copy(cam.position);
-      _aim.y += 230;
-      _aim.addScaledVector(_fwd, 900);
-      cam.up.set(0, 1, 0);
-      cam.lookAt(_aim);
-      cam.fov = 74;
-    } else {
-      cam.fov = camera.fov;
-    }
+    cam.fov = camera.fov;
     cam.updateProjectionMatrix();
+    const night = cityUniforms.uDark.value > 0.5;
+    if (night) {
+      cam.projectionMatrix.elements[5] = 1 / Math.tan(THREE.MathUtils.degToRad(NIGHT_Y_FOV) * 0.5);
+    }
     cam.updateMatrixWorld();
 
-    cityUniforms.uMirrorMatrix.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
-    const state = { target: r.getRenderTarget(), shadows: r.shadowMap.autoUpdate, clear: r.getClearColor(new THREE.Color()), alpha: r.getClearAlpha(), planes: r.clippingPlanes };
+    // Bias is folded in before anything else, matching Reflector. The clip
+    // plane does not touch this matrix, so the sample has no oblique seam.
+    _projView.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    cityUniforms.uMirrorMatrix.value.multiplyMatrices(_bias, _projView);
+
+    const state = {
+      target: r.getRenderTarget(),
+      shadows: r.shadowMap.autoUpdate,
+      clear: r.getClearColor(new THREE.Color()),
+      alpha: r.getClearAlpha(),
+      planes: r.clippingPlanes,
+    };
     cityUniforms.uMirror.value = this.blank;
     cityUniforms.uMirrorOn.value = 0;
     _waterClip.normal.set(0, 1, 0);
