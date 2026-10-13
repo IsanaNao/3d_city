@@ -148,10 +148,10 @@ export function createBoatFleet(count) {
   lampMat.onBeforeCompile = (shader) => {
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <emissivemap_fragment>',
-      '#include <emissivemap_fragment>\n#ifdef USE_COLOR\ntotalEmissiveRadiance *= vColor;\n#endif',
+      '#include <emissivemap_fragment>\n#ifdef USE_COLOR\ntotalEmissiveRadiance *= vColor.rgb;\n#endif',
     );
   };
-  lampMat.customProgramCacheKey = () => 'boat-nav-1';
+  lampMat.customProgramCacheKey = () => 'boat-nav-2';
   const lamps = new THREE.InstancedMesh(lampsGeo, lampMat, count);
   lamps.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   lamps.frustumCulled = false;
