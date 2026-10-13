@@ -9,30 +9,28 @@ function midpoint(edge) {
   return p || { x: 0, z: 0 };
 }
 
-export function createCrowd(graph, { count = 420, seed = 11 } = {}) {
+export function createCrowd(graph, { seed = 11 } = {}) {
   const edges = (graph.edges || []).filter((edge) => edge.length > 28 && !SKIP.has(edge.cls));
   if (!edges.length) return { people: [] };
   const rng = mulberry32(seed);
   const people = [];
-  const push = (edge, side) => {
-    const offset = edge.cls <= 2 ? 7.4 : 4.6;
-    people.push({
-      edge,
-      dist: rng() * edge.length,
-      speed: 0.85 + rng() * 0.7,
-      side,
-      offset: offset + rng() * 0.8,
-      phase: rng() * Math.PI * 2,
-    });
-  };
-  const hero = edges.filter((edge) => {
+  for (const edge of edges) {
     const mid = midpoint(edge);
-    return (mid.x < -1000 && mid.x > -1400) || (mid.x > -450 && mid.x < 700 && Math.abs(mid.z) < 700);
-  });
-  const pool = hero.length > 12 ? hero : edges;
-  while (people.length < count) {
-    const edge = pool[Math.floor(rng() * pool.length)];
-    push(edge, people.length % 2 === 0 ? 1 : -1);
+    const central = mid.x > -1500 && mid.x < 900 && Math.abs(mid.z) < 1100;
+    if (!central || edge.cls > 3) continue;
+    const step = edge.cls <= 2 ? 24 : 42;
+    const offset = edge.cls <= 2 ? 6.2 : 4.2;
+    for (let dist = 6 + rng() * 8; dist < edge.length && people.length < 1600; dist += step) {
+      people.push({
+        edge,
+        dist,
+        speed: 0.85 + rng() * 0.7,
+        side: people.length % 2 === 0 ? 1 : -1,
+        offset: offset + rng() * 0.6,
+        phase: rng() * Math.PI * 2,
+      });
+    }
+    if (people.length >= 1600) break;
   }
   return { people };
 }

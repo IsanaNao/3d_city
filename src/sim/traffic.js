@@ -63,7 +63,7 @@ function spawn(sim, rng) {
   let pick = 0;
   let total = 0;
   const weights = edges.map((edge) => {
-    const w = edge.length * (edge.cls === 5 ? 0.25 : 1);
+    const w = edge.length * (edge.cls <= 2 ? 6 : edge.cls === 5 ? 0.15 : 1);
     total += w;
     return w;
   });

@@ -221,12 +221,12 @@ async function boot() {
   beyond.position.y = Math.min(waterLevel, city.terrain.heights.reduce((a, b) => Math.min(a, b), Infinity)) - 1.5;
 
   const graph = prepareGraph(city.roads);
-  const count = Math.min(180, Math.max(12, Math.round(graph.edges.reduce((s, e) => s + e.length, 0) / 45)));
+  const count = Math.min(2800, Math.max(12, Math.round(graph.edges.reduce((s, e) => s + e.length, 0) / 180)));
   sim = graph.edges.length ? createSim(graph, { count, seed: 7 }) : null;
   if (sim) {
     cars = createCarFleet(sim.cars.length);
     scene.add(cars.body, cars.glass, cars.lamps);
-    crowd = createCrowd(graph, { count: 420, seed: 11 });
+    crowd = createCrowd(graph, { seed: 11 });
     people = createPersonFleet(crowd.people.length);
     scene.add(people.mesh, people.heads);
   }
