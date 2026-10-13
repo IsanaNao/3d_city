@@ -106,10 +106,10 @@ export class Environment {
     const skyK = 0.95 * step(deg, -10, 22) + 0.05 * step(deg, -14, -2);
     const zen = SKY.zenith.clone().lerp(SKY.setZenith, this.warmth * 0.7);
     const hor = SKY.horizon.clone().lerp(SKY.setHorizon, this.warmth * (1 - this.dark * 0.6));
-    this.sky.color.copy(zen).lerp(hor, 0.35).multiplyScalar(skyK * 1.15);
-    this.sky.groundColor.copy(hor).multiplyScalar(skyK * 0.4);
+    this.sky.color.copy(zen).lerp(hor, 0.35).multiplyScalar(skyK * 0.62);
+    this.sky.groundColor.copy(hor).multiplyScalar(skyK * 0.18);
     // Sunlight sent on by the city: most of it reaches what faces down and sideways.
-    const sent = sunUp ? 0.3 * SUN * Math.max(sun.y, 0) * 2.5 : 0;
+    const sent = sunUp ? 0.12 * SUN * Math.max(sun.y, 0) * 2.5 : 0;
     this.bounce.groundColor.copy(this.sunColor).multiplyScalar(0.8 * sent * 0.3);
     this.bounce.color.copy(this.sunColor).multiplyScalar(0.2 * sent * 0.3);
     this.glow.intensity = GLOW.strength * this.dark;

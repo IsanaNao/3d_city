@@ -249,12 +249,13 @@ export function instanceProps(kind, props, geometry, material) {
     dummy.position.set(prop.x, prop.y, prop.z);
     dummy.rotation.set(0, prop.rot || 0, 0);
     const s = prop.scale || 1;
-    if (kind === PROP.TREE) dummy.scale.set(s, 0.85 + (prop.variant || 0) * 0.12, s);
+    const treeN = Math.abs(Math.round(prop.x * 0.13 + prop.z * 0.07));
+    if (kind === PROP.TREE) dummy.scale.set(s * (0.72 + (treeN % 5) * 0.1), 0.7 + (treeN % 4) * 0.14, s * (0.8 + (treeN % 3) * 0.12));
     else dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);
     if (kind === PROP.TREE) {
-      color.setHex(prop.variant === 1 ? 0xc8d2a4 : prop.variant === 2 ? 0xb7c48a : 0xffffff);
+      color.setHex([0xffffff, 0xe4efc0, 0xb7c96e, 0x8eae58, 0xd5e2a4][treeN % 5]);
       mesh.setColorAt(i, color);
     }
   });

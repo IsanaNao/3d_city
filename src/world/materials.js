@@ -226,10 +226,21 @@ const FACADE_MAIN = /* glsl */`
       bundTop = smoothstep(height - 2.4, height - 0.35, v);
     }
   }
-  if (!isRoof && height > 85.0 && kind > 1.5 && kind < 4.5) {
-    wall = mix(wall, vec3(0.42, 0.50, 0.58), 0.7);
-    gRough = 0.28;
-    gMetal = 0.62;
+  if (!isRoof && height > 80.0 && kind > 1.5 && kind < 5.5) {
+    float style = mod(seed, 3.0);
+    if (style < 0.5) {
+      wall = mix(wall, vec3(0.40, 0.52, 0.60), 0.78);
+      gRough = 0.2;
+      gMetal = 0.58;
+    } else if (style < 1.5) {
+      wall = mix(wall, vec3(0.58, 0.46, 0.36), 0.74);
+      gRough = 0.62;
+      gMetal = 0.04;
+    } else {
+      wall = mix(wall, vec3(0.50, 0.52, 0.50), 0.76);
+      gRough = 0.48;
+      gMetal = 0.12;
+    }
   }
   diffuseColor.rgb = wall;
 
@@ -243,7 +254,7 @@ const FACADE_MAIN = /* glsl */`
     else if (kind < 3.5) { floorH = 3.8; pitch = 3.6; r = vec4(0.12, 0.88, 0.3, 0.82); office = 1.0; }
     else if (kind < 4.5) { floorH = 5.2; pitch = 6.5; r = vec4(0.3, 0.7, 0.55, 0.8); }
     else if (kind < 5.5) { office = 1.0; }
-    else { floorH = 4.4; pitch = 3.4; r = vec4(0.3, 0.7, 0.24, 0.84); office = 1.0; }
+    else { floorH = 3.5 + mod(seed, 3.0) * 0.7; pitch = 2.6 + mod(seed * 1.7, 3.0); r = vec4(0.28, 0.72, 0.22, 0.84); office = 1.0; }
     if (glassy) { floorH = 3.9; pitch = 1.5; r = vec4(0.0, 1.0, 0.24, 1.0); office = 1.0; }
     // Ordinary towers: curtain wall, punched windows, or horizontal bands.
     float towerStyle = mod(seed, 3.0);
@@ -280,7 +291,7 @@ const FACADE_MAIN = /* glsl */`
 
     bool shop = row < 0.5 && (kind > 2.5 && kind < 3.5 || kind > 5.5 && height < 40.0 || kind < 0.5 && height < 24.0);
     if (shop) r = vec4(0.05, 0.95, 0.03, 0.8);
-    if (height > 85.0 && kind > 1.5 && kind < 4.5) photo = -1.0;
+    if (height > 70.0 && kind > 1.5 && kind < 5.5) photo = -1.0;
     bool usePhoto = photo > -0.5 && !shop;
     vec4 ph = vec4(0.0);
     if (usePhoto) {
@@ -345,6 +356,7 @@ const FACADE_MAIN = /* glsl */`
     float fickle = step(0.6, hash12(room + 31.0));
     float onClose = step(1.0 - onRate, hash12(room + 23.0 + fickle * vec2(mod(slot, 61.0) * 7.13, mod(slot, 47.0) * 3.71)));
     float on = mix(onClose, floorOn, far);
+    if (towerShaft) on = floorOn;
 
     float tint = hash12(room + 61.0);
     vec3 warm = mix(vec3(1.0, 0.6, 0.3), vec3(1.0, 0.82, 0.6), hash12(room + 67.0));
@@ -504,7 +516,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-18';
+  material.customProgramCacheKey = () => 'sh-facade-19';
   return material;
 }
 
@@ -825,7 +837,7 @@ export function createSkyMaterial({ sunDisc = 1, ground = false } = {}) {
         float sunUp = smoothstep(-0.08, 0.02, uSunDir.y);
         col += mix(vec3(1.0, 0.82, 0.6), uHorizon, 0.4) * (pow(sd, 12.0) * 0.18 + pow(sd, 4.0) * 0.12 * (1.0 - uDay)) * sunUp;
         col += vec3(1.0, 0.82, 0.6) * pow(sd, 180.0) * 0.5 * sunUp;
-        col += vec3(1.0, 0.95, 0.85) * smoothstep(0.9994, 0.9998, sd) * 30.0 * uSunDisc * sunUp * (1.0 - uDark);
+        col += vec3(1.0, 0.96, 0.88) * smoothstep(0.992, 0.9992, sd) * 1.6 * uSunDisc * sunUp * (1.0 - uDark);
         if (d.y > 0.0 && uCloudCover > 0.0) {
           vec2 p = d.xz / (d.y + 0.12) * 0.9 + vec2(uTime * 0.006, uTime * 0.002);
           float c = fbm(p);
@@ -838,8 +850,8 @@ export function createSkyMaterial({ sunDisc = 1, ground = false } = {}) {
         vec2 sp = d.xz / (abs(d.y) + 0.35) * 220.0;
         float star = step(0.9975, hash12(floor(sp))) * smoothstep(0.1, 0.5, d.y);
         col += vec3(0.8, 0.85, 1.0) * star * 0.12 * uDark * uSunDisc;
-        vec3 moonDir = normalize(vec3(0.78, 0.28, 0.18));
-        float moon = smoothstep(0.9986, 0.9995, max(dot(d, moonDir), 0.0));
+        vec3 moonDir = normalize(vec3(-0.62, 0.74, -0.22));
+        float moon = smoothstep(0.99955, 0.9999, max(dot(d, moonDir), 0.0));
         col += vec3(0.9, 0.92, 0.98) * moon * (0.15 + 1.1 * uDark);
         vec3 below = uGround > 0.5 ? vec3(0.3, 0.28, 0.25) * mix(1.0, 0.06, uDark) * (0.2 + 0.8 * uDay) : uHorizon;
         vec3 hazeZen = vec3(0.68, 0.74, 0.82);

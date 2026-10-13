@@ -123,16 +123,35 @@ export function createBoatFleet(count) {
   glass.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   glass.frustumCulled = false;
   const lampGeo = new THREE.BoxGeometry(0.35, 0.22, 0.35);
+  const bow = lampGeo.clone().translate(7.4, 1.35, 0);
+  const port = lampGeo.clone().translate(-6.2, 1.45, 1.7);
+  const starboard = lampGeo.clone().translate(-6.2, 1.45, -1.7);
+  const colorOf = (geo, hex) => {
+    const c = new THREE.Color(hex);
+    const n = geo.getAttribute('position').count;
+    const arr = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
+    geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    return geo;
+  };
   const lampsGeo = mergeGeometries([
-    lampGeo.clone().translate(7.4, 1.35, 1.5),
-    lampGeo.clone().translate(7.4, 1.35, -1.5),
-    lampGeo.clone().translate(-7.2, 2.5, 0),
+    colorOf(bow, 0xfff4d2),
+    colorOf(port, 0xff3030),
+    colorOf(starboard, 0x30ff68),
   ]);
   const lampMat = new THREE.MeshStandardMaterial({
-    color: 0xfff2cc,
-    emissive: new THREE.Color('#ffd27a'),
+    color: 0xffffff,
+    vertexColors: true,
+    emissive: new THREE.Color('#ffffff'),
     emissiveIntensity: 0,
   });
+  lampMat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <emissivemap_fragment>',
+      '#include <emissivemap_fragment>\n#ifdef USE_COLOR\ntotalEmissiveRadiance *= vColor;\n#endif',
+    );
+  };
+  lampMat.customProgramCacheKey = () => 'boat-nav-1';
   const lamps = new THREE.InstancedMesh(lampsGeo, lampMat, count);
   lamps.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   lamps.frustumCulled = false;
@@ -143,13 +162,20 @@ export function createBoatFleet(count) {
     body.setColorAt(i, color);
   }
   body.instanceColor.needsUpdate = true;
-  return { body, glass, lamps, lampMat, dummy: new THREE.Object3D(), count };
+  const wake = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(22, 5.5).rotateX(-Math.PI / 2).translate(-18, 0.05, 0),
+    new THREE.MeshBasicMaterial({ color: 0xd5e6ee, transparent: true, opacity: 0.35, depthWrite: false }),
+    count,
+  );
+  wake.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  wake.frustumCulled = false;
+  return { body, glass, lamps, lampMat, wake, dummy: new THREE.Object3D(), count };
 }
 
-export function setVehicleMatrix(mesh, index, dummy, x, y, z, dx, dz) {
+export function setVehicleMatrix(mesh, index, dummy, x, y, z, dx, dz, scale = 1) {
   dummy.position.set(x, y, z);
   dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
-  dummy.scale.set(1, 1, 1);
+  dummy.scale.set(scale, scale, scale);
   dummy.updateMatrix();
   mesh.setMatrixAt(index, dummy.matrix);
 }

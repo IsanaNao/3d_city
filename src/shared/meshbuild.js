@@ -470,9 +470,10 @@ function addTowerCrown(acc, ring, color, a, item, prepared) {
   const hw2 = hw * 0.62;
   const hd2 = hd * 0.62;
   addBox(acc, cx, cz, hw2, hd2, a.top + crownH * 0.5, a.top + crownH, metal, a);
-  const dark = color.map((c) => c * 0.38);
-  const phH = 4 + (seed % 4);
-  addBox(acc, cx + hw * 0.12, cz - hd * 0.08, Math.max(2.4, hw2 * 0.34), Math.max(2, hd2 * 0.28), a.top + crownH, a.top + crownH + phH, dark, a);
+  const equip = color.map((c) => Math.min(1, c * 0.25 + 0.48));
+  const phH = 3.2 + (seed % 4);
+  addBox(acc, cx + hw * 0.1, cz - hd * 0.06, Math.max(2.2, hw2 * 0.28), Math.max(1.8, hd2 * 0.22), a.top + crownH, a.top + crownH + phH, equip, a);
+  addBox(acc, cx - hw * 0.16, cz + hd * 0.1, Math.max(1.4, hw2 * 0.16), Math.max(1.2, hd2 * 0.14), a.top + crownH, a.top + crownH + phH * 0.55, metal, a);
 }
 
 function addBalconies(acc, ring, color, a) {

@@ -232,7 +232,7 @@ async function boot() {
   }
   boats = createBoats(waterLevel, city.manifest.riverCenter);
   boatMesh = createBoatFleet(boats.length);
-  scene.add(boatMesh.body, boatMesh.glass, boatMesh.lamps);
+  scene.add(boatMesh.body, boatMesh.glass, boatMesh.lamps, boatMesh.wake);
   const lines = prepareLines(city.rails);
   trainList = createTrains(lines);
   if (trainList.length) {
@@ -367,13 +367,16 @@ renderer.setAnimationLoop(() => {
     if (boatMesh && boats) {
       boats.forEach((boat, i) => {
         const pose = boatPose(boat);
-        setVehicleMatrix(boatMesh.body, i, boatMesh.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
-        setVehicleMatrix(boatMesh.glass, i, boatMesh.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
-        setVehicleMatrix(boatMesh.lamps, i, boatMesh.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
+        const boatScale = 0.78 + (i % 5) * 0.11;
+        setVehicleMatrix(boatMesh.body, i, boatMesh.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz, boatScale);
+        setVehicleMatrix(boatMesh.glass, i, boatMesh.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz, boatScale);
+        setVehicleMatrix(boatMesh.lamps, i, boatMesh.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz, boatScale);
+        setVehicleMatrix(boatMesh.wake, i, boatMesh.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz, boatScale);
       });
       boatMesh.body.instanceMatrix.needsUpdate = true;
       boatMesh.glass.instanceMatrix.needsUpdate = true;
       boatMesh.lamps.instanceMatrix.needsUpdate = true;
+      boatMesh.wake.instanceMatrix.needsUpdate = true;
     }
     if (trainMesh) {
       let cursor = 0;
