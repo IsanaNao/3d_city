@@ -461,36 +461,60 @@ function addTowerCrown(acc, ring, color, a, item, prepared) {
   const towerH = a.top - Math.min(a.base, 15);
   if (towerH < 64) return;
   const seed = a.seed || 1;
-  const style = seed % 3;
+  // Crown choice is not the facade style, and the hip is light stone rather
+  // than a darkened copy of the wall.
+  const style = (seed * 7) % 6;
   const hw = w * 0.34;
   const hd = d * 0.34;
-  const crownH = Math.min(26, Math.max(12, towerH * 0.1));
-  const glass = [0.58, 0.72, 0.82];
-  const frame = [0.8, 0.84, 0.88];
-  const slope = color.map((c) => Math.min(1, c * 0.55 + 0.22));
+  const crownH = 10 + (seed % 9) * 1.8;
+  const tints = [
+    [0.56, 0.72, 0.86],
+    [0.50, 0.66, 0.58],
+    [0.76, 0.80, 0.82],
+    [0.74, 0.62, 0.50],
+    [0.64, 0.70, 0.76],
+  ];
+  const glass = tints[seed % 5];
+  const alt = tints[(seed + 2) % 5];
+  const frame = [0.86, 0.88, 0.90];
+  const stone = [0.80, 0.76, 0.68];
+  const y0 = a.top;
   if (style === 0) {
-    addBox(acc, cx, cz, hw * 0.7, hd * 0.7, a.top, a.top + crownH, glass, a);
-    addBox(acc, cx, cz, hw * 0.82, Math.max(1.1, hd * 0.16), a.top + crownH * 0.9, a.top + crownH + 1.4, frame, a);
-    addBox(acc, cx, cz, Math.max(1.1, hw * 0.16), hd * 0.82, a.top + crownH * 0.9, a.top + crownH + 1.4, frame, a);
+    addBox(acc, cx, cz, hw * 0.62, hd * 0.62, y0, y0 + crownH * 0.82, glass, a);
+    addBox(acc, cx, cz, hw * 0.78, Math.max(1.1, hd * 0.12), y0 + crownH * 0.74, y0 + crownH, frame, a);
+    addBox(acc, cx, cz, Math.max(1.1, hw * 0.12), hd * 0.78, y0 + crownH * 0.74, y0 + crownH, frame, a);
   } else if (style === 1) {
-    const y0 = a.top;
-    const y1 = a.top + crownH * 0.9;
-    const x0 = cx - hw;
-    const x1 = cx + hw;
-    const z0 = cz - hd;
-    const z1 = cz + hd;
-    const inset = Math.min(hw, hd) * 0.28;
-    addSlope(acc, [x0, y0, z0], [x1, y0, z0], [x1 - inset, y1, cz], [x0 + inset, y1, cz], slope, a);
-    addSlope(acc, [x1, y0, z1], [x0, y0, z1], [x0 + inset, y1, cz], [x1 - inset, y1, cz], slope, a);
-    addSlope(acc, [x0, y0, z1], [x0, y0, z0], [x0 + inset, y1, cz], [x0 + inset, y1, cz], slope, a);
-    addSlope(acc, [x1, y0, z0], [x1, y0, z1], [x1 - inset, y1, cz], [x1 - inset, y1, cz], slope, a);
-  } else {
-    addBox(acc, cx, cz, hw * 0.5, hd * 0.5, a.top, a.top + crownH * 0.62, glass, a);
+    const y1 = y0 + crownH * 0.82;
+    const x0 = cx - hw * 0.92;
+    const x1 = cx + hw * 0.92;
+    const z0 = cz - hd * 0.92;
+    const z1 = cz + hd * 0.92;
+    const inset = Math.min(hw, hd) * (0.16 + (seed % 5) * 0.03);
+    addSlope(acc, [x0, y0, z0], [x1, y0, z0], [x1 - inset, y1, cz], [x0 + inset, y1, cz], stone, a);
+    addSlope(acc, [x1, y0, z1], [x0, y0, z1], [x0 + inset, y1, cz], [x1 - inset, y1, cz], stone, a);
+    addSlope(acc, [x0, y0, z1], [x0, y0, z0], [x0 + inset, y1, cz], [x0 + inset, y1, cz], stone, a);
+    addSlope(acc, [x1, y0, z0], [x1, y0, z1], [x1 - inset, y1, cz], [x1 - inset, y1, cz], stone, a);
+  } else if (style === 2) {
+    addBox(acc, cx, cz, hw * 0.46, hd * 0.46, y0, y0 + crownH * 0.58, glass, a);
     for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-      addBox(acc, cx + sx * hw * 0.72, cz + sz * hd * 0.72, 1.35, 1.35, a.top, a.top + crownH, frame, a);
+      addBox(acc, cx + sx * hw * 0.72, cz + sz * hd * 0.72, 1.2, 1.2, y0, y0 + crownH, frame, a);
     }
-    addBox(acc, cx, cz, hw * 0.8, 1.15, a.top + crownH - 1.5, a.top + crownH, frame, a);
-    addBox(acc, cx, cz, 1.15, hd * 0.8, a.top + crownH - 1.5, a.top + crownH, frame, a);
+    addBox(acc, cx, cz, hw * 0.78, 1.05, y0 + crownH - 1.4, y0 + crownH, frame, a);
+    addBox(acc, cx, cz, 1.05, hd * 0.78, y0 + crownH - 1.4, y0 + crownH, frame, a);
+  } else if (style === 3) {
+    addBox(acc, cx, cz, hw * 0.7, hd * 0.7, y0, y0 + crownH * 0.46, glass, a);
+    addBox(acc, cx, cz, hw * 0.4, hd * 0.4, y0 + crownH * 0.46, y0 + crownH, alt, a);
+  } else if (style === 4) {
+    addBox(acc, cx, cz, hw * 0.88, hd * 0.88, y0, y0 + 2.4, stone, a);
+    addBox(acc, cx, cz, hw * 0.5, hd * 0.5, y0 + 2.4, y0 + crownH * 0.62, glass, a);
+    addBox(acc, cx, cz, hw * 0.9, Math.max(0.8, hd * 0.07), y0 + 1.6, y0 + crownH * 0.7, stone, a);
+    addBox(acc, cx, cz, Math.max(0.8, hw * 0.07), hd * 0.9, y0 + 1.6, y0 + crownH * 0.7, stone, a);
+  } else {
+    addBox(acc, cx, cz, hw * 0.46, hd * 0.46, y0, y0 + crownH * 0.66, glass, a);
+    addBox(acc, cx, cz, hw * 0.26, hd * 0.26, y0 + crownH * 0.66, y0 + crownH, alt, a);
+    for (const [sx, sz] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      addBox(acc, cx + sx * hw * 0.64, cz + sz * hd * 0.64, 0.65, 0.65, y0, y0 + crownH * 0.88, frame, a);
+    }
   }
 }
 
