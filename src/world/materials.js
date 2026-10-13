@@ -345,18 +345,20 @@ const FACADE_MAIN = /* glsl */`
     float onRate = shop ? 0.75 : office > 0.5 ? 0.32 : 0.24;
     float b1 = fract(sf * 11.7), b2 = fract(sf * 17.3), b3 = fract(sf * 23.9);
     onRate *= mix(0.35, 1.9, b1);
-    if (!shop && office > 0.5 && b2 > 0.4) onRate = mix(0.05, 0.9, step(0.5, hash12(vec2(row * 3.0 + mod(seed, 37.0), mod(seed, 53.0)))));
+    if (!shop && office > 0.5 && b2 > 0.4) onRate = mix(0.42, 0.92, step(0.5, hash12(vec2(row * 3.0 + mod(seed, 37.0), mod(seed, 53.0)))));
     // Tall towers light whole floors. At distance every pixel of a floor agrees,
     // so the skyline reads as bands instead of a field of random dots.
     float tall = smoothstep(70.0, 110.0, height);
-    float floorOn = step(0.48, hash12(vec2(floor(row) + mod(seed, 89.0) * 3.0, 4.0)));
-    if (!shop) onRate = mix(onRate, mix(0.05, 0.92, floorOn), tall);
+    // Most floors stay lit. A dark floor is a dimmer band, not a black void.
+    float floorOn = step(0.14, hash12(vec2(floor(row) + mod(seed, 89.0) * 3.0, 4.0)));
+    float floorGlow = mix(0.58, 1.0, floorOn);
+    if (!shop) onRate = mix(onRate, mix(0.5, 0.94, floorOn), tall);
     onRate = clamp(onRate, 0.0, 0.95);
     float slot = floor(uTime / (90.0 + 240.0 * hash12(room + 37.0)) + hash12(room + 41.0) * 64.0);
     float fickle = step(0.6, hash12(room + 31.0));
     float onClose = step(1.0 - onRate, hash12(room + 23.0 + fickle * vec2(mod(slot, 61.0) * 7.13, mod(slot, 47.0) * 3.71)));
-    float on = mix(onClose, floorOn, far);
-    if (towerShaft) on = floorOn;
+    float on = mix(onClose, floorGlow, far);
+    if (towerShaft || height > 70.0) on = floorGlow;
 
     float tint = hash12(room + 61.0);
     vec3 warm = mix(vec3(1.0, 0.6, 0.3), vec3(1.0, 0.82, 0.6), hash12(room + 67.0));
@@ -365,7 +367,7 @@ const FACADE_MAIN = /* glsl */`
     vec3 lamp = mix(warm, cool, step(1.0 - coolShare, mix(tint, 0.5 * b3 + 0.5 * tint, office)));
     lamp = mix(lamp, vec3(0.3, 0.55, 1.0), step(0.93 - 0.22 * uNightBlue, tint) * mix(1.0 - office, 1.0, uNightBlue));
     float glow = mix(0.3, 1.35, hash12(room + 1.3)) * mix(0.65, 1.25, b3);
-    glow = mix(glow, mix(0.4, 1.0, floorOn), max(far, tall * 0.65));
+    glow = mix(glow, mix(0.62, 1.0, floorOn), max(far, tall * 0.65));
 
     vec3 glassTint = glassy ? mix(vec3(0.2, 0.3, 0.38), vec3(0.3, 0.33, 0.34), fract(sf * 5.7)) : vec3(0.1, 0.11, 0.12);
     if (kind > 5.5) glassTint = vec3(0.045, 0.05, 0.055);
@@ -516,7 +518,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-19';
+  material.customProgramCacheKey = () => 'sh-facade-20';
   return material;
 }
 

@@ -4,7 +4,7 @@ import { sampleGrid } from '../shared/terrain.js';
 // Hard flood wall, raised stone promenade, railing and lamps along a bank line.
 // The walk sits on the street grade. It does not follow the DEM slope into the river.
 
-const wallMat = new THREE.MeshStandardMaterial({ color: 0xb4aea3, roughness: 0.86, metalness: 0.02 });
+const wallMat = new THREE.MeshStandardMaterial({ color: 0xb4aea3, roughness: 0.86, metalness: 0.02, side: THREE.DoubleSide });
 const deckMat = new THREE.MeshStandardMaterial({ color: 0xc4b8a4, roughness: 0.86, metalness: 0.02 });
 deckMat.onBeforeCompile = (shader) => {
   shader.vertexShader = shader.vertexShader
@@ -121,6 +121,90 @@ function deckY(grid, waterLevel, x, z, ox, oz) {
   return y;
 }
 
+// OSM water rings jag back on themselves for a few metres. That jog, with the
+// normal that belongs to it, opens a triangular hole in the wall and the deck.
+function dropSpikes(pts) {
+  let cur = pts.slice();
+  let changed = true;
+  while (changed && cur.length > 3) {
+    changed = false;
+    const next = [cur[0]];
+    for (let i = 1; i < cur.length - 1; i++) {
+      const a = next[next.length - 1];
+      const b = cur[i];
+      const c = cur[i + 1];
+      const abx = b.x - a.x;
+      const abz = b.z - a.z;
+      const bcx = c.x - b.x;
+      const bcz = c.z - b.z;
+      const lab = Math.hypot(abx, abz) || 1;
+      const lbc = Math.hypot(bcx, bcz) || 1;
+      const cos = (abx * bcx + abz * bcz) / (lab * lbc);
+      if (cos < 0.35 && Math.min(lab, lbc) < 48) {
+        changed = true;
+        continue;
+      }
+      next.push(b);
+    }
+    next.push(cur[cur.length - 1]);
+    cur = next;
+  }
+  return cur;
+}
+
+// One inland side for the whole line. A single flipped sample must not swing
+// the deck out into the river.
+function lineSide(pts) {
+  let score = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const dx = pts[i].x - pts[i - 1].x;
+    const dz = pts[i].z - pts[i - 1].z;
+    const len = Math.hypot(dx, dz) || 1;
+    const lx = -dz / len;
+    const lz = dx / len;
+    const hx = ((pts[i - 1].ox || 0) + (pts[i].ox || 0)) * 0.5;
+    const hz = ((pts[i - 1].oz || 0) + (pts[i].oz || 0)) * 0.5;
+    score += lx * hx + lz * hz;
+  }
+  return score >= 0 ? 1 : -1;
+}
+
+// Shared corners. A sharp turn becomes two vertices at the same shore point
+// so the deck can fill the wedge instead of leaving a triangular gap.
+function weldShore(pts, side) {
+  const segs = [];
+  for (let i = 1; i < pts.length; i++) {
+    const dx = pts[i].x - pts[i - 1].x;
+    const dz = pts[i].z - pts[i - 1].z;
+    const len = Math.hypot(dx, dz) || 1;
+    segs.push({ nx: side * -dz / len, nz: side * dx / len });
+  }
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const L = i > 0 ? segs[i - 1] : null;
+    const R = i < pts.length - 1 ? segs[i] : null;
+    if (!L || !R) {
+      const s = L || R;
+      out.push({ x: pts[i].x, z: pts[i].z, nx: s.nx, nz: s.nz, m: 1 });
+      continue;
+    }
+    const dot = L.nx * R.nx + L.nz * R.nz;
+    if (dot < 0.55) {
+      out.push({ x: pts[i].x, z: pts[i].z, nx: L.nx, nz: L.nz, m: 1 });
+      out.push({ x: pts[i].x, z: pts[i].z, nx: R.nx, nz: R.nz, m: 1 });
+    } else {
+      let mx = L.nx + R.nx;
+      let mz = L.nz + R.nz;
+      const ml = Math.hypot(mx, mz) || 1;
+      mx /= ml;
+      mz /= ml;
+      const along = Math.max(0.45, mx * L.nx + mz * L.nz);
+      out.push({ x: pts[i].x, z: pts[i].z, nx: mx, nz: mz, m: Math.min(1.65, 1 / along) });
+    }
+  }
+  return out;
+}
+
 // Sharp shoreline corners leave a triangular gap and a knife edge. Pull the
 // corner back and fill it with a short curve so the wall stays one strip.
 function roundBank(pts) {
@@ -169,46 +253,61 @@ export function createEmbankments(lines, grid, waterLevel) {
   const level = Number.isFinite(waterLevel) ? waterLevel : 0;
   let lampAcc = 0;
   for (const line of lines || []) {
-    const pts = roundBank(line.points || []);
+    const cleaned = dropSpikes(line.points || []);
+    if (cleaned.length < 2) continue;
+    const side = lineSide(cleaned);
+    const pts = weldShore(roundBank(cleaned), side);
     const width = line.width || 24;
+    for (const v of pts) v.y = deckY(grid, level, v.x, v.z, v.nx, v.nz);
+    for (let pass = 0; pass < 3; pass++) {
+      for (let i = 1; i < pts.length - 1; i++) {
+        const floor = Math.min(pts[i - 1].y, pts[i + 1].y);
+        if (pts[i].y < floor - 0.35) pts[i].y = floor;
+      }
+    }
     for (let i = 1; i < pts.length; i++) {
       const p0 = pts[i - 1];
       const p1 = pts[i];
       const len = Math.hypot(p1.x - p0.x, p1.z - p0.z);
-      if (len < 1) continue;
-      const ox = ((p0.ox || 0) + (p1.ox || 0)) / 2 || p1.ox || p0.ox || 0;
-      const oz = ((p0.oz || 0) + (p1.oz || 0)) / 2 || p1.oz || p0.oz || 0;
-      const nlen = Math.hypot(ox, oz) || 1;
-      const nx = ox / nlen;
-      const nz = oz / nlen;
-      const y0 = deckY(grid, level, p0.x, p0.z, nx, nz);
-      const y1 = deckY(grid, level, p1.x, p1.z, nx, nz);
+      const y0 = p0.y;
+      const y1 = p1.y;
       const low = level - 0.6;
-      const a = new THREE.Vector3(p0.x, low, p0.z);
-      const b = new THREE.Vector3(p1.x, low, p1.z);
-      const c = new THREE.Vector3(p1.x, y1 + 0.2, p1.z);
-      const d = new THREE.Vector3(p0.x, y0 + 0.2, p0.z);
-      faceToward(wall, a, b, c, d, -nx, -nz);
-      const inset = 0.85;
-      const i0 = new THREE.Vector3(p0.x + nx * inset, low, p0.z + nz * inset);
-      const i1 = new THREE.Vector3(p1.x + nx * inset, low, p1.z + nz * inset);
-      faceToward(wall, i0, d.clone(), c.clone(), i1, nx, nz);
-      const d0 = new THREE.Vector3(p0.x + nx * 0.4, y0 + 0.28, p0.z + nz * 0.4);
-      const d1 = new THREE.Vector3(p1.x + nx * 0.4, y1 + 0.28, p1.z + nz * 0.4);
-      const d2 = new THREE.Vector3(p1.x + nx * width, y1 + 0.28, p1.z + nz * width);
-      const d3 = new THREE.Vector3(p0.x + nx * width, y0 + 0.28, p0.z + nz * width);
-      faceUp(deck, d0, d1, d2, d3);
-      // Solid parapet, then a dark rail and posts, on the water side of the walk.
-      const parapet = 0.9;
-      faceToward(
-        wall,
-        d.clone(),
-        c.clone(),
-        new THREE.Vector3(p1.x, y1 + parapet, p1.z),
-        new THREE.Vector3(p0.x, y0 + parapet, p0.z),
-        -nx,
-        -nz,
+      const at = (p, dist, y) => new THREE.Vector3(
+        p.x + p.nx * p.m * dist,
+        y,
+        p.z + p.nz * p.m * dist,
       );
+      const inset = 0.85;
+      if (len >= 0.35) {
+        const a = new THREE.Vector3(p0.x, low, p0.z);
+        const b = new THREE.Vector3(p1.x, low, p1.z);
+        const c = new THREE.Vector3(p1.x, y1 + 0.2, p1.z);
+        const d = new THREE.Vector3(p0.x, y0 + 0.2, p0.z);
+        const nx = (p0.nx + p1.nx) / 2;
+        const nz = (p0.nz + p1.nz) / 2;
+        faceToward(wall, a, b, c, d, -nx, -nz);
+        faceToward(wall, at(p0, inset, low), d.clone(), c.clone(), at(p1, inset, low), nx, nz);
+        const parapet = 0.9;
+        faceToward(
+          wall,
+          d.clone(),
+          c.clone(),
+          new THREE.Vector3(p1.x, y1 + parapet, p1.z),
+          new THREE.Vector3(p0.x, y0 + parapet, p0.z),
+          -nx,
+          -nz,
+        );
+      }
+      faceUp(
+        deck,
+        at(p0, 0.4, y0 + 0.28),
+        at(p1, 0.4, y1 + 0.28),
+        at(p1, width, y1 + 0.28),
+        at(p0, width, y0 + 0.28),
+      );
+      if (len < 0.35) continue;
+      const nx = (p0.nx + p1.nx) / 2;
+      const nz = (p0.nz + p1.nz) / 2;
       const railOut = 0.35;
       for (const lift of [0.62, 1.2]) {
         const railY0 = y0 + lift;

@@ -644,7 +644,7 @@ function capRing(group, ring, mat) {
   add(group, geo, mat);
 }
 
-const slotMat = new THREE.MeshStandardMaterial({ color: 0x4e5964, metalness: 0.28, roughness: 0.62 });
+const slotMat = new THREE.MeshStandardMaterial({ color: 0x243038, metalness: 0.22, roughness: 0.48 });
 slotMat.side = THREE.DoubleSide;
 const ribMat = new THREE.MeshStandardMaterial({ color: 0xe7eef3, metalness: 0.48, roughness: 0.3 });
 ribMat.side = THREE.DoubleSide;
@@ -657,8 +657,10 @@ function shanghaiRing(segs, radius, twist, y) {
     const a = (s / segs) * Math.PI * 2;
     let k = 0.76 + 0.24 * Math.cos(3 * a);
     const raw = a > Math.PI ? a - Math.PI * 2 : a;
-    const notch = Math.exp(-((raw / 0.22) ** 2));
-    k *= 1 - 0.32 * notch;
+    // A wide, deep groove on one vertex. Deep enough to break the silhouette,
+    // still above the flat faces so the plan ratio stays under 2.1.
+    const notch = Math.exp(-((raw / 0.38) ** 2));
+    k *= 1 - 0.46 * notch;
     const ang = a + twist;
     pts.push(new THREE.Vector3(Math.cos(ang) * radius * k, y, Math.sin(ang) * radius * k));
   }
@@ -694,7 +696,7 @@ function shanghai(h) {
   const kindOf = (i) => {
     const a = ((i + 0.5) / segs) * Math.PI * 2;
     const raw = a > Math.PI ? a - Math.PI * 2 : a;
-    if (Math.abs(raw) < 0.24) return slot;
+    if (Math.abs(raw) < 0.46) return slot;
     for (const v of [(2 * Math.PI) / 3, (4 * Math.PI) / 3]) {
       let d = Math.abs(a - v);
       d = Math.min(d, Math.PI * 2 - d);
@@ -704,24 +706,38 @@ function shanghai(h) {
   };
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
-    const u = Math.min(t, 0.9) / 0.9;
-    const body = 1 - 0.55 * (u ** 1.35);
-    const dome = t <= 0.9 ? 1 : Math.cos(((t - 0.9) / 0.1) * Math.PI / 2);
+    // Taper through the shaft, then a shoulder, a narrower lattice crown, and a mast.
+    const u = Math.min(t, 0.86) / 0.86;
+    const body = 1 - 0.5 * (u ** 1.22);
+    let profile = 1;
+    let mast = false;
+    if (t > 0.86 && t <= 0.905) {
+      const s = (t - 0.86) / 0.045;
+      profile = 1 + 0.2 * Math.sin(Math.min(1, s) * Math.PI);
+    } else if (t > 0.905 && t <= 0.97) {
+      profile = 0.74;
+    } else if (t > 0.97) {
+      profile = 0.09;
+      mast = true;
+    }
     const y = t * h * yScale;
-    const twist = t * (120 * Math.PI / 180);
-    const ring = shanghaiRing(segs, 34 * body * (0.58 + 0.42 * dome), twist, y);
+    const twist = Math.min(t, 0.9) * (120 * Math.PI / 180);
+    const radius = 34 * body * profile;
+    const ring = mast ? ringPoints(segs, radius, twist, y, false) : shanghaiRing(segs, radius, twist, y);
     if (prev) {
-      const dest = t > 0.9 ? crown : null;
+      const inCrown = t > 0.9;
       for (let s = 0; s < segs; s++) {
         const s2 = (s + 1) % segs;
-        const bucket = dest || kindOf(s);
+        // Vertical gaps in the crown so the top reads as a lattice, not a needle.
+        if (inCrown && !mast && s % 5 === 2) continue;
+        const bucket = inCrown || mast ? crown : kindOf(s);
         bucket.push(prev[s], prev[s2], ring[s2], ring[s]);
       }
     }
-    if (t > 0.02 && t < 0.9 && i % 2 === 0) {
+    if (t > 0.04 && t < 0.88 && i % 2 === 0) {
       const ang = twist;
-      const rad = 34 * body * (0.58 + 0.42 * dome) * 0.7;
-      const fin = new THREE.BoxGeometry(1.4, (h * yScale) / steps * 2.4, 2.4);
+      const rad = radius * 0.56;
+      const fin = new THREE.BoxGeometry(0.9, (h * yScale) / steps * 2.6, 5.2);
       fin.rotateY(-ang);
       fin.translate(Math.cos(ang) * rad, y, Math.sin(ang) * rad);
       add(g, fin, slotMat);
@@ -732,8 +748,14 @@ function shanghai(h) {
   quadsMesh(g, crown, shanghaiCrownMat);
   quadsMesh(g, slot, slotMat);
   quadsMesh(g, rib, ribMat);
+  const shoulderY = 0.882 * h * yScale;
+  const lip = new THREE.TorusGeometry(18.4, 0.85, 8, 36);
+  lip.rotateX(Math.PI / 2);
+  lip.translate(0, shoulderY, 0);
+  add(g, lip, ribMat);
   if (prev) capRing(g, prev, shanghaiCrownMat);
-  add(g, new THREE.SphereGeometry(1.15, 10, 8).translate(0, h * 0.992, 0), beaconMat);
+  add(g, new THREE.CylinderGeometry(0.35, 0.55, h * 0.045, 8).translate(0, h * 0.992, 0), ribMat);
+  add(g, new THREE.SphereGeometry(0.7, 10, 8).translate(0, h * 1.012, 0), beaconMat);
   return g;
 }
 
