@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { cityUniforms } from './materials.js';
 
 const SCALE = 0.5;
-// Metres below the water level still drawn: the embankments stand a little into it.
-const CLIP = 0.3;
+// Keep a little of the bank; discard the river bed. A world clip, not an
+// oblique near plane: Lengyel's projection threw Pearl and the supertalls
+// out of the mirror when the camera looked along the water.
+const CLIP = 0.35;
 // Water meshes live on this layer only, so the mirror camera never sees them.
 export const WATER_LAYER = 1;
 
@@ -11,10 +13,8 @@ const _rot = new THREE.Matrix4();
 const _up = new THREE.Vector3(0, 1, 0);
 const _pos = new THREE.Vector3();
 const _look = new THREE.Vector3();
-const _plane = new THREE.Plane();
-const _clip = new THREE.Plane();
-const _v4 = new THREE.Vector4();
-const _q = new THREE.Vector4();
+const _waterClip = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _clipList = [_waterClip];
 
 export class WaterMirror {
   constructor(renderer) {
@@ -38,7 +38,6 @@ export class WaterMirror {
     if (this.target.width !== this.size.x || this.target.height !== this.size.y) this.target.setSize(this.size.x, this.size.y);
 
     const cam = this.camera;
-    const plane = _plane.set(_up, -y);
     _pos.setFromMatrixPosition(camera.matrixWorld);
     _look.set(0, 0, -1).applyMatrix4(_rot.extractRotation(camera.matrixWorld)).add(_pos);
     cam.position.set(_pos.x, 2 * y - _pos.y, _pos.z);
@@ -46,26 +45,22 @@ export class WaterMirror {
     cam.lookAt(_look.x, 2 * y - _look.y, _look.z);
     cam.near = camera.near;
     cam.far = camera.far;
+    cam.aspect = camera.aspect;
+    // At night the matched field of view leaves Pearl below the mirror and
+    // packs the other towers into a thin band. A wider lens keeps every
+    // landmark in the texture so the river can stretch them into streaks.
+    const night = cityUniforms.uDark.value > 0.5;
+    cam.fov = night ? 108 : camera.fov;
+    cam.updateProjectionMatrix();
     cam.updateMatrixWorld();
-    cam.projectionMatrix.copy(camera.projectionMatrix);
-    cam.projectionMatrixInverse.copy(camera.projectionMatrixInverse);
-    // an oblique near plane: nothing below the water is drawn (Lengyel's method)
-    _clip.copy(plane);
-    _clip.constant += CLIP;
-    _clip.applyMatrix4(cam.matrixWorldInverse);
-    const p = cam.projectionMatrix.elements;
-    const c = _v4.set(_clip.normal.x, _clip.normal.y, _clip.normal.z, _clip.constant);
-    _q.x = (Math.sign(c.x) + p[8]) / p[0];
-    _q.y = (Math.sign(c.y) + p[9]) / p[5];
-    _q.z = -1;
-    _q.w = (1 + p[10]) / p[14];
-    c.multiplyScalar(2 / c.dot(_q));
-    p[2] = c.x; p[6] = c.y; p[10] = c.z + 1; p[14] = c.w;
 
     cityUniforms.uMirrorMatrix.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
-    const state = { target: r.getRenderTarget(), shadows: r.shadowMap.autoUpdate, clear: r.getClearColor(new THREE.Color()), alpha: r.getClearAlpha() };
+    const state = { target: r.getRenderTarget(), shadows: r.shadowMap.autoUpdate, clear: r.getClearColor(new THREE.Color()), alpha: r.getClearAlpha(), planes: r.clippingPlanes };
     cityUniforms.uMirror.value = this.blank;
     cityUniforms.uMirrorOn.value = 0;
+    _waterClip.normal.set(0, 1, 0);
+    _waterClip.constant = -(y - CLIP);
+    r.clippingPlanes = _clipList;
     r.shadowMap.autoUpdate = false;
     r.setRenderTarget(this.target);
     r.setClearColor(this.clear, 0);
@@ -74,6 +69,7 @@ export class WaterMirror {
     r.setRenderTarget(state.target);
     r.setClearColor(state.clear, state.alpha);
     r.shadowMap.autoUpdate = state.shadows;
+    r.clippingPlanes = state.planes;
     cityUniforms.uMirror.value = this.target.texture;
     cityUniforms.uMirrorOn.value = 1;
   }
