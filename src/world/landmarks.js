@@ -157,11 +157,12 @@ function pearlMemberShader(shader, rings, metal) {
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       float along = vColUv.x;
       float around = vColUv.y;
-      // Six vertical panels. The seam is a dark joint, not a soft flute.
+      // Six vertical panels. The joint is wide enough to survive at the
+      // close camera; a hairline seam aliased away to a plain cylinder.
       float edge = abs(fract(around * 6.0) - 0.5) * 2.0;
-      float seam = smoothstep(0.82, 0.96, edge);
+      float seam = smoothstep(0.58, 0.88, edge);
       vec3 metal = ${metal};
-      diffuseColor.rgb = mix(metal, metal * 0.55, seam);
+      diffuseColor.rgb = mix(metal, metal * 0.4, seam);
       float ring = 1.0 - smoothstep(0.015, 0.04, abs(fract(along * ${rings}.0) - 0.5));
       vec3 show = showColor(along, around);
       vec3 showN = showNorm(show, 0.48);
@@ -172,13 +173,13 @@ function pearlMemberShader(shader, rings, metal) {
     `);
 }
 columnMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 4, 'vec3(0.96, 0.97, 0.98)');
-columnMat.customProgramCacheKey = () => 'lm-pearl-column-12';
+columnMat.customProgramCacheKey = () => 'lm-pearl-column-13';
 const legMat = new THREE.MeshStandardMaterial({
   color: 0xe0ddd6, metalness: 0.16, roughness: 0.58,
   emissive: new THREE.Color(0x000000), emissiveIntensity: 0,
 });
 legMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 3, 'vec3(0.90, 0.91, 0.92)');
-legMat.customProgramCacheKey = () => 'lm-pearl-leg-6';
+legMat.customProgramCacheKey = () => 'lm-pearl-leg-7';
 const shanghaiCrownMat = new THREE.MeshStandardMaterial({
   color: 0x9eb4c6, metalness: 0.62, roughness: 0.16,
   emissive: new THREE.Color(0x3aa0ff), emissiveIntensity: 0,
@@ -375,7 +376,7 @@ function tube(group, points, radius, mat, part, angle) {
   const curve = points.length === 2
     ? new THREE.LineCurve3(points[0], points[1])
     : new THREE.CatmullRomCurve3(points);
-  const geo = new THREE.TubeGeometry(curve, Math.max(2, (points.length - 1) * 6), radius, 12, false);
+  const geo = new THREE.TubeGeometry(curve, Math.max(2, (points.length - 1) * 6), radius, 20, false);
   return tag(add(group, geo, mat), part, angle);
 }
 
