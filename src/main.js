@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { sunVector, duskHaze } from './shared/sun.js';
 import { syncLandmarkNight, syncPearlShow } from './world/landmarks.js';
 import { createSim, prepareGraph, stepSim, carPose } from './sim/traffic.js';
+import { createCrowd, stepCrowd, personPose, createBoats, stepBoats } from './sim/crowd.js';
 import { createTrains, prepareLines, stepTrains, trainPoses } from './sim/trains.js';
 import { yawFromHeading } from './sim/path.js';
 import { cityUniforms, createSkyMaterial, makeSignAtlas } from './world/materials.js';
@@ -16,7 +17,7 @@ import { syncBridgeNight } from './world/bridges.js';
 import { syncEmbankmentNight } from './world/embankment.js';
 import { loadPhotoTextures } from './world/textures.js';
 import { signMaterial } from './world/props.js';
-import { createCarFleet, createTrainMesh, setVehicleMatrix } from './world/vehicles.js';
+import { createBoatFleet, createCarFleet, createPersonFleet, createTrainMesh, setVehicleMatrix } from './world/vehicles.js';
 
 const base = import.meta.env.BASE_URL;
 const params = new URLSearchParams(location.search);
@@ -101,6 +102,10 @@ const streamer = createStreamer({
 });
 
 let cars = null;
+let crowd = null;
+let people = null;
+let boats = null;
+let boatMesh = null;
 let trains = null;
 let trainMesh = null;
 let sim = null;
@@ -142,6 +147,7 @@ function applySun() {
   syncEmbankmentNight(night);
   signsMat.emissiveIntensity = 0.15 + night * 0.9;
   if (cars) cars.lampMat.emissiveIntensity = 0.05 + night * 5;
+  if (boatMesh) boatMesh.lampMat.emissiveIntensity = 0.2 + night * 2.4;
   if (trainMesh) trainMesh.windows.material.emissiveIntensity = night * 1.2;
   clockEl.textContent = formatHour(hour);
 }
@@ -220,7 +226,13 @@ async function boot() {
   if (sim) {
     cars = createCarFleet(sim.cars.length);
     scene.add(cars.body, cars.glass, cars.lamps);
+    crowd = createCrowd(graph, { count: 420, seed: 11 });
+    people = createPersonFleet(crowd.people.length);
+    scene.add(people.mesh, people.heads);
   }
+  boats = createBoats(waterLevel);
+  boatMesh = createBoatFleet(boats.length);
+  scene.add(boatMesh.body, boatMesh.glass, boatMesh.lamps);
   const lines = prepareLines(city.rails);
   trainList = createTrains(lines);
   if (trainList.length) {
@@ -326,6 +338,8 @@ renderer.setAnimationLoop(() => {
       streamTimer = 0;
     }
     if (sim && trafficOn) stepSim(sim, dt);
+    if (crowd && trafficOn) stepCrowd(crowd, dt);
+    if (boats && trafficOn) stepBoats(boats, dt);
     if (trainsOn) stepTrains(trainList, dt);
     if (cars && sim) {
       sim.cars.forEach((car, i) => {
@@ -338,6 +352,25 @@ renderer.setAnimationLoop(() => {
       cars.body.instanceMatrix.needsUpdate = true;
       cars.glass.instanceMatrix.needsUpdate = true;
       cars.lamps.instanceMatrix.needsUpdate = true;
+    }
+    if (people && crowd && trafficOn) {
+      crowd.people.forEach((person, i) => {
+        const pose = personPose(person);
+        setVehicleMatrix(people.mesh, i, people.dummy, pose.x, pose.y + pose.bob, pose.z, pose.dx, pose.dz);
+        setVehicleMatrix(people.heads, i, people.dummy, pose.x, pose.y + pose.bob, pose.z, pose.dx, pose.dz);
+      });
+      people.mesh.instanceMatrix.needsUpdate = true;
+      people.heads.instanceMatrix.needsUpdate = true;
+    }
+    if (boatMesh && boats && trafficOn) {
+      boats.forEach((boat, i) => {
+        setVehicleMatrix(boatMesh.body, i, boatMesh.dummy, boat.x, boat.y, boat.z, 0, boat.dir);
+        setVehicleMatrix(boatMesh.glass, i, boatMesh.dummy, boat.x, boat.y, boat.z, 0, boat.dir);
+        setVehicleMatrix(boatMesh.lamps, i, boatMesh.dummy, boat.x, boat.y, boat.z, 0, boat.dir);
+      });
+      boatMesh.body.instanceMatrix.needsUpdate = true;
+      boatMesh.glass.instanceMatrix.needsUpdate = true;
+      boatMesh.lamps.instanceMatrix.needsUpdate = true;
     }
     if (trainMesh) {
       let cursor = 0;

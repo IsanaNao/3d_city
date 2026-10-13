@@ -66,6 +66,72 @@ export function createCarFleet(count) {
   return { body, glass, lamps, lampMat, beams, dummy: new THREE.Object3D(), count };
 }
 
+const CLOTHES = [0x243044, 0x8c3a3a, 0x2f4a38, 0xc4b8a4, 0x1d3d6e, 0x6b5344, 0xd8d4cc, 0x3d3a44];
+
+export function createPersonFleet(count) {
+  const body = paint(new THREE.BoxGeometry(0.42, 0.92, 0.26).translate(0, 0.78, 0), 0xffffff);
+  const legs = paint(new THREE.BoxGeometry(0.36, 0.55, 0.22).translate(0, 0.28, 0), 0x1c1e22);
+  const geo = mergeGeometries([body, legs]);
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
+  const mesh = new THREE.InstancedMesh(geo, mat, count);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.frustumCulled = false;
+  const headGeo = new THREE.SphereGeometry(0.16, 8, 6).translate(0, 1.38, 0);
+  const heads = new THREE.InstancedMesh(headGeo, new THREE.MeshStandardMaterial({
+    color: 0xd2b49a, roughness: 0.65,
+  }), count);
+  heads.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  heads.frustumCulled = false;
+  const color = new THREE.Color();
+  for (let i = 0; i < count; i++) {
+    color.setHex(CLOTHES[i % CLOTHES.length]);
+    mesh.setColorAt(i, color);
+  }
+  mesh.instanceColor.needsUpdate = true;
+  return { mesh, heads, dummy: new THREE.Object3D(), count };
+}
+
+export function createBoatFleet(count) {
+  const hull = paint(new THREE.BoxGeometry(16, 1.15, 4.2).translate(0, 0.7, 0), 0xf4f1ea);
+  const stripe = paint(new THREE.BoxGeometry(16.05, 0.28, 4.25).translate(0, 1.15, 0), 0x1a3a6b);
+  const cabin = paint(new THREE.BoxGeometry(5.2, 1.5, 3.1).translate(-1.2, 1.9, 0), 0xe7e2d6);
+  const geo = mergeGeometries([hull, stripe, cabin]);
+  const body = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.42, metalness: 0.2,
+  }), count);
+  body.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  body.frustumCulled = false;
+  const glass = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(3.4, 0.7, 2.7).translate(-1.2, 2.15, 0),
+    new THREE.MeshStandardMaterial({ color: 0x9bb4c4, roughness: 0.08, metalness: 0.6 }),
+    count,
+  );
+  glass.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  glass.frustumCulled = false;
+  const lampGeo = new THREE.BoxGeometry(0.35, 0.22, 0.35);
+  const lampsGeo = mergeGeometries([
+    lampGeo.clone().translate(7.4, 1.35, 1.5),
+    lampGeo.clone().translate(7.4, 1.35, -1.5),
+    lampGeo.clone().translate(-7.2, 2.5, 0),
+  ]);
+  const lampMat = new THREE.MeshStandardMaterial({
+    color: 0xfff2cc,
+    emissive: new THREE.Color('#ffd27a'),
+    emissiveIntensity: 0,
+  });
+  const lamps = new THREE.InstancedMesh(lampsGeo, lampMat, count);
+  lamps.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  lamps.frustumCulled = false;
+  const color = new THREE.Color();
+  const paints = [0xf7f4ee, 0xf7f4ee, 0xd8dee6, 0xc4553a];
+  for (let i = 0; i < count; i++) {
+    color.setHex(paints[i % paints.length]);
+    body.setColorAt(i, color);
+  }
+  body.instanceColor.needsUpdate = true;
+  return { body, glass, lamps, lampMat, dummy: new THREE.Object3D(), count };
+}
+
 export function setVehicleMatrix(mesh, index, dummy, x, y, z, dx, dz) {
   dummy.position.set(x, y, z);
   dummy.rotation.set(0, Math.atan2(-dz, dx), 0);

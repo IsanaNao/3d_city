@@ -346,8 +346,9 @@ function addBox(acc, cx, cz, hw, hd, y0, y1, color, a) {
 // locally the highest, sized from the full height so the setback reads from
 // the Bund.
 function addTowerCrown(acc, ring, color, a, item, prepared) {
-  if (a.kind === KIND.LANDMARK || a.kind === KIND.HISTORIC) return;
-  if (a.kind !== KIND.OFFICE && a.kind !== KIND.COMMERCIAL && a.kind !== KIND.RESIDENTIAL) return;
+  // Kind LANDMARK here is an ordinary named tower that was not replaced by a
+  // hand-built model. Historic Bund fronts keep their own cornice.
+  if (a.kind === KIND.HISTORIC || a.kind === KIND.INDUSTRIAL) return;
   const pts = pairsOf(ring);
   if (pts.length < 3 || pts.length > 28) return;
   if (a.top - a.base < 12) return;

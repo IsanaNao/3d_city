@@ -285,7 +285,7 @@ const FACADE_MAIN = /* glsl */`
     float mx = fract((pm.x - wmin.x) / max(wmax.x - wmin.x, 0.01) * panes);
     float mw = 0.03 * panes / max(wmax.x - wmin.x, 0.01);
     frame = max(frame, panes > 1.5 ? 1.0 - box(mx, mw, 1.0 - mw, max(fwidth(mx), 1e-4)) : 0.0);
-    float tallOffice = height > 80.0 && kind > 1.5 && kind < 4.5 ? 1.0 : 0.0;
+    float tallOffice = height > 80.0 && kind > 1.5 && kind < 5.5 ? 1.0 : 0.0;
     // At skyline distance the mullions used to vanish, leaving zebra floor bands.
     float frameFade = mix(1.0 - far, mix(1.0, 0.78, far), tallOffice);
     frame *= usePhoto ? 0.0 : frameFade;
@@ -480,7 +480,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-16';
+  material.customProgramCacheKey = () => 'sh-facade-17';
   return material;
 }
 
