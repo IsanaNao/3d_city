@@ -842,23 +842,27 @@ export function createWaterMaterial() {
         vec3 seen = mix(uHorizon, uSky, pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * uSkyGain * 0.9;
         float thing = 0.0;
         if (uMirrorOn > 0.5) {
-          // One planar reflection. The matrix already has the Reflector bias.
-          // At night the mirrored image is upside down, so a shift toward
-          // smaller v walks from the waterline up the tower. Ripples are
-          // wider on that axis than across it.
+          // One planar reflection. The matrix already has the Reflector bias,
+          // so this uv is the mirrored camera's picture of the point.
           vec4 mc = uMirrorMatrix * vec4(vWorld, 1.0);
           vec2 uv = mc.xy / max(mc.w, 1e-4);
-          vec2 rip = n.xz * vec2(0.008, 0.01);
-          float distH = length(vWorld.xz - cameraPosition.xz);
-          float toward = 1.0 - smoothstep(70.0, 760.0, distH);
-          uv.y -= toward * uDark * 0.2;
-          uv += vec2(rip.x * mix(0.45, 0.7, uDark), rip.y * mix(0.6, 3.2, uDark));
+          // The mirrored camera already holds the towers. Two gentle lifts,
+          // not painted columns: the Bund water is west of x=-900 and its
+          // fronts sit just above the projected band; the Pearl is the near
+          // tower on the other bank, higher in the same picture.
+          float onBund = 1.0 - smoothstep(-980.0, -860.0, vWorld.x);
+          float side = smoothstep(0.72, 0.90, uv.x);
+          // More lift where the sample is still down on the dark quay, so the
+          // floodlit wall covers the Bund reach instead of one fringe.
+          float low = smoothstep(0.33, 0.43, uv.y);
+          uv.y -= uDark * (onBund * (0.045 + 0.04 * low) + side * 0.105);
+          uv += vec2(n.x * mix(0.012, 0.028, uDark), n.z * mix(0.03, 0.09, uDark));
           float edge = max(max(-uv.x, uv.x - 1.0), max(-uv.y, uv.y - 1.0));
           float outside = mc.w < 0.0 ? 1.0 : smoothstep(-0.02, 0.08, edge);
           seen = texture2D(uMirror, clamp(uv, 0.002, 0.998)).rgb;
           thing = 1.0 - outside;
         }
-        float cover = mix(fresnel * 0.82, 0.26 + 0.62 * fresnel, uDark);
+        float cover = mix(fresnel * 0.82, 0.4 + 0.48 * fresnel, uDark);
         vec3 col = mix(body, seen, cover * thing);
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);
