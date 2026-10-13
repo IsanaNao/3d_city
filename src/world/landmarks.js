@@ -90,13 +90,13 @@ pearlMat.onBeforeCompile = (shader) => {
       vec2 pane = fract(cell);
       float edge = min(min(pane.x, 1.0 - pane.x), min(pane.y, 1.0 - pane.y));
       float aa = max(fw.x, fw.y);
-      float glass = smoothstep(0.016, 0.038 + aa * 0.32, edge);
+      float glass = smoothstep(0.008, 0.02 + aa * 0.22, edge);
       float panelId = dot(floor(cell), vec2(1.0, 17.0));
       float hash = fract(sin(panelId * 12.9898) * 43758.5453);
       float vary = 0.86 + 0.2 * hash;
       float bottom = smoothstep(0.28, 0.92, vLat);
       vec3 rose = vec3(0.82, 0.34, 0.38) * vary * mix(1.04, 0.8, bottom);
-      vec3 mullion = vec3(0.55, 0.56, 0.58);
+      vec3 mullion = vec3(0.74, 0.76, 0.78);
       vec3 show = showColor(vLat, pane.x);
       vec3 showN = showNorm(show, 0.42);
       float lit = step(0.07, hash);
@@ -136,7 +136,7 @@ pearlMat.onBeforeCompile = (shader) => {
       reflectedLight.indirectSpecular *= 0.32;
       #include <opaque_fragment>`);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-13';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-14';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
@@ -159,7 +159,7 @@ function pearlMemberShader(shader, rings, metal) {
       float around = vColUv.y;
       float flute = smoothstep(0.36, 0.5, abs(fract(around * 8.0) - 0.5));
       vec3 metal = ${metal};
-      diffuseColor.rgb = mix(metal * 0.9, metal, flute);
+      diffuseColor.rgb = mix(metal * 0.97, metal, flute);
       float ring = 1.0 - smoothstep(0.015, 0.04, abs(fract(along * ${rings}.0) - 0.5));
       vec3 show = showColor(along, around);
       vec3 showN = showNorm(show, 0.48);
@@ -169,7 +169,7 @@ function pearlMemberShader(shader, rings, metal) {
     `);
 }
 columnMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 4, 'vec3(0.96, 0.97, 0.98)');
-columnMat.customProgramCacheKey = () => 'lm-pearl-column-9';
+columnMat.customProgramCacheKey = () => 'lm-pearl-column-10';
 const legMat = new THREE.MeshStandardMaterial({
   color: 0xe0ddd6, metalness: 0.16, roughness: 0.58,
   emissive: new THREE.Color(0x000000), emissiveIntensity: 0,

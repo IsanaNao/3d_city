@@ -461,19 +461,57 @@ function addTowerCrown(acc, ring, color, a, item, prepared) {
   const towerH = a.top - Math.min(a.base, 15);
   if (towerH < 64) return;
   const seed = a.seed || 1;
-  const inset = 0.18 + (seed % 4) * 0.025;
-  const hw = w * (0.5 - inset);
-  const hd = d * (0.5 - inset);
-  const crownH = Math.min(46, Math.max(14, towerH * 0.13));
-  const metal = color.map((c) => Math.min(1, c * 0.55 + 0.16));
-  addBox(acc, cx, cz, hw, hd, a.top, a.top + crownH * 0.62, metal, a);
-  const hw2 = hw * 0.62;
-  const hd2 = hd * 0.62;
-  addBox(acc, cx, cz, hw2, hd2, a.top + crownH * 0.5, a.top + crownH, metal, a);
-  const equip = color.map((c) => Math.min(1, c * 0.25 + 0.48));
-  const phH = 3.2 + (seed % 4);
-  addBox(acc, cx + hw * 0.1, cz - hd * 0.06, Math.max(2.2, hw2 * 0.28), Math.max(1.8, hd2 * 0.22), a.top + crownH, a.top + crownH + phH, equip, a);
-  addBox(acc, cx - hw * 0.16, cz + hd * 0.1, Math.max(1.4, hw2 * 0.16), Math.max(1.2, hd2 * 0.14), a.top + crownH, a.top + crownH + phH * 0.55, metal, a);
+  const style = seed % 3;
+  const hw = w * 0.34;
+  const hd = d * 0.34;
+  const crownH = Math.min(26, Math.max(12, towerH * 0.1));
+  const glass = [0.58, 0.72, 0.82];
+  const frame = [0.8, 0.84, 0.88];
+  const slope = color.map((c) => Math.min(1, c * 0.55 + 0.22));
+  if (style === 0) {
+    addBox(acc, cx, cz, hw * 0.7, hd * 0.7, a.top, a.top + crownH, glass, a);
+    addBox(acc, cx, cz, hw * 0.82, Math.max(1.1, hd * 0.16), a.top + crownH * 0.9, a.top + crownH + 1.4, frame, a);
+    addBox(acc, cx, cz, Math.max(1.1, hw * 0.16), hd * 0.82, a.top + crownH * 0.9, a.top + crownH + 1.4, frame, a);
+  } else if (style === 1) {
+    const y0 = a.top;
+    const y1 = a.top + crownH * 0.9;
+    const x0 = cx - hw;
+    const x1 = cx + hw;
+    const z0 = cz - hd;
+    const z1 = cz + hd;
+    const inset = Math.min(hw, hd) * 0.28;
+    addSlope(acc, [x0, y0, z0], [x1, y0, z0], [x1 - inset, y1, cz], [x0 + inset, y1, cz], slope, a);
+    addSlope(acc, [x1, y0, z1], [x0, y0, z1], [x0 + inset, y1, cz], [x1 - inset, y1, cz], slope, a);
+    addSlope(acc, [x0, y0, z1], [x0, y0, z0], [x0 + inset, y1, cz], [x0 + inset, y1, cz], slope, a);
+    addSlope(acc, [x1, y0, z0], [x1, y0, z1], [x1 - inset, y1, cz], [x1 - inset, y1, cz], slope, a);
+  } else {
+    addBox(acc, cx, cz, hw * 0.5, hd * 0.5, a.top, a.top + crownH * 0.62, glass, a);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      addBox(acc, cx + sx * hw * 0.72, cz + sz * hd * 0.72, 1.35, 1.35, a.top, a.top + crownH, frame, a);
+    }
+    addBox(acc, cx, cz, hw * 0.8, 1.15, a.top + crownH - 1.5, a.top + crownH, frame, a);
+    addBox(acc, cx, cz, 1.15, hd * 0.8, a.top + crownH - 1.5, a.top + crownH, frame, a);
+  }
+}
+
+function addSlope(acc, p0, p1, p2, p3, color, a) {
+  const q = [p0, p1, p2, p3];
+  const ax = p1[0] - p0[0];
+  const ay = p1[1] - p0[1];
+  const az = p1[2] - p0[2];
+  const bx = p2[0] - p0[0];
+  const by = p2[1] - p0[1];
+  const bz = p2[2] - p0[2];
+  let nx = ay * bz - az * by;
+  let ny = az * bx - ax * bz;
+  let nz = ax * by - ay * bx;
+  const len = Math.hypot(nx, ny, nz) || 1;
+  nx /= len;
+  ny /= len;
+  nz /= len;
+  const order = ny >= 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
+  if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
+  for (const i of order) pushVert(acc, q[i][0], q[i][1], q[i][2], nx, ny, nz, color, a);
 }
 
 function addBalconies(acc, ring, color, a) {

@@ -26,41 +26,57 @@ function limb(r0, r1, length, hex) {
   return geo;
 }
 
+function shadeCrown(geo, cy, topHex, underHex) {
+  const pos = geo.getAttribute('position');
+  const top = new THREE.Color(topHex);
+  const under = new THREE.Color(underHex);
+  const arr = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const t = THREE.MathUtils.clamp(0.5 + (pos.getY(i) - cy) / 1.8, 0, 1);
+    const c = under.clone().lerp(top, t * t);
+    arr[i * 3] = c.r;
+    arr[i * 3 + 1] = c.g;
+    arr[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+  return geo;
+}
+
+function crownLobe(x, y, z, sx, sy, sz, topHex, underHex) {
+  const lobe = new THREE.IcosahedronGeometry(1, 1);
+  lobe.scale(sx, sy, sz).translate(x, y, z);
+  return shadeCrown(lobe, y, topHex, underHex);
+}
+
 let treeGeo = null;
 export function treeGeometry() {
   if (treeGeo) return treeGeo;
-  // A pollarded Shanghai plane: clear trunk, a few limbs, a high wide crown.
-  const trunk = new THREE.CylinderGeometry(0.13, 0.26, 4.6, 6);
-  trunk.translate(0, 2.3, 0);
-  colorize(trunk, 0x6b5342);
-  const parts = [flatGeo(trunk)];
-  const branches = [
-    [0.9, 0.35, 4.15, 2.4, 0.11, 0.05],
-    [-0.7, -0.85, 4.25, 2.15, 0.1, 0.045],
-    [0.15, 1.05, 4.2, 2.05, 0.09, 0.04],
+  // Forked trunk and a clustered crown, lighter underneath, not one ball.
+  const parts = [flatGeo(limb(0.3, 0.2, 2.5, 0x6a5344))];
+  const forks = [
+    [0.62, 2.15, 0.15, 2.8, -0.15],
+    [-0.55, 2.05, -0.35, 2.4, 0.9],
+    [0.1, 2.35, 0.7, 2.1, 2.2],
   ];
-  for (const [x, z, y0, length, r0, r1] of branches) {
-    const geo = limb(r0, r1, length, 0x5c493c);
-    const yaw = Math.atan2(x, z);
-    const pitch = Math.atan2(Math.hypot(x, z), length * 0.55);
-    geo.rotateX(pitch);
+  for (const [x, y, z, length, yaw] of forks) {
+    const geo = limb(0.11, 0.045, length, 0x5a4638);
+    geo.rotateZ(x >= 0 ? -0.7 : 0.65);
     geo.rotateY(yaw);
-    geo.translate(0, y0, 0);
+    geo.translate(x * 0.15, y, z * 0.15);
     parts.push(flatGeo(geo));
   }
   const lobes = [
-    [0, 7.15, 0, 2.55, 1.35, 2.4, 0x3d6934],
-    [1.55, 6.85, 0.4, 1.7, 1.05, 1.55, 0x4a783c],
-    [-1.35, 6.7, -0.85, 1.6, 1.0, 1.55, 0x345e2e],
-    [0.2, 7.85, -0.25, 1.35, 0.85, 1.25, 0x547f42],
-    [-0.55, 6.45, 1.35, 1.5, 0.95, 1.4, 0x386332],
-    [1.1, 7.35, -1.15, 1.25, 0.8, 1.15, 0x46743a],
+    [1.15, 5.15, 0.35, 1.35, 1.05, 1.2, 0x2d6230, 0x9ec56e],
+    [-0.95, 4.85, -0.55, 1.25, 0.95, 1.15, 0x356838, 0xa4cc78],
+    [0.15, 5.55, 0.95, 1.15, 0.9, 1.05, 0x3a7040, 0xb4d888],
+    [-0.2, 4.45, 0.85, 1.05, 0.8, 1.0, 0x2a5c2e, 0x8fbb66],
+    [0.85, 4.35, -0.7, 1.1, 0.85, 1.05, 0x3e7642, 0xb0d484],
+    [-1.25, 5.35, 0.45, 0.95, 0.75, 0.9, 0x326434, 0x98c070],
+    [0.35, 5.95, -0.15, 0.85, 0.65, 0.8, 0x4a8248, 0xc2e090],
+    [-0.45, 3.95, -0.15, 0.9, 0.7, 0.85, 0x285828, 0x86b45e],
   ];
-  for (const [x, y, z, sx, sy, sz, hex] of lobes) {
-    const lobe = new THREE.IcosahedronGeometry(1, 1);
-    lobe.scale(sx, sy, sz).translate(x, y, z);
-    colorize(lobe, hex);
-    parts.push(flatGeo(lobe));
+  for (const [x, y, z, sx, sy, sz, top, under] of lobes) {
+    parts.push(flatGeo(crownLobe(x, y, z, sx, sy, sz, top, under)));
   }
   treeGeo = mergeGeometries(parts);
   treeGeo.userData.sharedGeo = true;
@@ -70,13 +86,18 @@ export function treeGeometry() {
 let treeFarGeo = null;
 export function treeGeometryFar() {
   if (treeFarGeo) return treeFarGeo;
-  const trunk = new THREE.CylinderGeometry(0.16, 0.24, 4.4, 4);
-  trunk.translate(0, 2.2, 0);
-  colorize(trunk, 0x6b5342);
-  const crown = new THREE.IcosahedronGeometry(1, 0);
-  crown.scale(2.7, 1.7, 2.6).translate(0, 6.9, 0);
-  colorize(crown, 0x3f6b36);
-  treeFarGeo = mergeGeometries([flatGeo(trunk), flatGeo(crown)]);
+  const parts = [flatGeo(limb(0.16, 0.24, 2.6, 0x6b5342))];
+  const lobes = [
+    [0.7, 4.6, 0.2, 1.3, 1.0, 1.2, 0x326434, 0xa4cc78],
+    [-0.65, 4.35, -0.35, 1.15, 0.9, 1.05, 0x2d5e30, 0x96c06e],
+    [0.1, 5.15, 0.45, 1.0, 0.75, 0.95, 0x3e7640, 0xb6d884],
+  ];
+  for (const [x, y, z, sx, sy, sz, top, under] of lobes) {
+    const lobe = new THREE.IcosahedronGeometry(1, 0);
+    lobe.scale(sx, sy, sz).translate(x, y, z);
+    parts.push(flatGeo(shadeCrown(lobe, y, top, under)));
+  }
+  treeFarGeo = mergeGeometries(parts);
   treeFarGeo.userData.sharedGeo = true;
   return treeFarGeo;
 }
@@ -250,7 +271,10 @@ export function instanceProps(kind, props, geometry, material) {
     dummy.rotation.set(0, prop.rot || 0, 0);
     const s = prop.scale || 1;
     const treeN = Math.abs(Math.round(prop.x * 0.13 + prop.z * 0.07));
-    if (kind === PROP.TREE) dummy.scale.set(s * (0.72 + (treeN % 5) * 0.1), 0.7 + (treeN % 4) * 0.14, s * (0.8 + (treeN % 3) * 0.12));
+    if (kind === PROP.TREE) {
+      dummy.rotation.set(((treeN % 5) - 2) * 0.05, (prop.rot || 0) + (treeN % 7) * 0.4, ((treeN % 3) - 1) * 0.06);
+      dummy.scale.set(s * (0.55 + (treeN % 7) * 0.13), 0.58 + (treeN % 6) * 0.14, s * (0.55 + (treeN % 5) * 0.15));
+    }
     else dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);

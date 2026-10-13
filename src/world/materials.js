@@ -808,8 +808,8 @@ export function createWaterMaterial() {
         float pStreak = exp(-pow(pLat / 26.0, 2.0)) * smoothstep(30.0, 140.0, pAlong) * (1.0 - smoothstep(pLen * 0.82, pLen * 1.05, pAlong));
         float tStreak = exp(-pow(tLat / 34.0, 2.0)) * smoothstep(40.0, 180.0, tAlong) * (1.0 - smoothstep(tLen * 0.78, tLen * 1.08, tAlong));
         vec3 streaks = vec3(0.86, 0.28, 0.42) * pStreak + vec3(0.22, 0.52, 1.0) * tStreak;
-        float cover = mix(fresnel * 0.65, 0.22 + 0.72 * fresnel, thing);
-        cover = mix(cover, max(cover, 0.12 + 0.78 * fresnel), uDark);
+        float cover = mix(fresnel * 0.55, 0.28 + 0.66 * fresnel, thing);
+        cover = mix(cover, max(cover, 0.36 + 0.56 * fresnel), uDark);
         vec3 col = mix(body, seen, cover);
         col += streaks * fresnel * mix(0.12, 0.9, uDark);
         float s = max(dot(wr, uSunDir), 0.0);
