@@ -1,5 +1,5 @@
 import { mulberry32 } from '../shared/rng.js';
-import { samplePath } from './path.js';
+import { pathFromFlat, samplePath } from './path.js';
 
 const SKIP = new Set([0, 9]);
 
@@ -77,8 +77,47 @@ export function personPose(person) {
   };
 }
 
+function curvePath(samples, waterY) {
+  const flat = [];
+  for (const p of samples) flat.push(p[0], waterY + 0.15, p[1]);
+  return pathFromFlat(flat);
+}
+
 // Two lanes in the Huangpu channel off the Bund, plus one further toward Lujiazui.
-export function createBoats(waterY) {
+// When a centreline is available the lanes follow its curve instead of a straight x.
+export function createBoats(waterY, centerline) {
+  const line = (centerline || []).filter((p) => Array.isArray(p) && p.length >= 2);
+  if (line.length >= 6) {
+    const path = curvePath(line, waterY);
+    const lanes = [
+      { offset: 24, speed: 3.4, dir: 1 },
+      { offset: -40, speed: 2.7, dir: -1 },
+      { offset: 78, speed: 4.1, dir: 1 },
+    ];
+    let near0 = 0;
+    let near1 = path.length;
+    for (let i = 0; i < path.pts.length; i++) {
+      if (Math.abs(path.pts[i].z) < 900) { near0 = path.cum[i]; break; }
+    }
+    for (let i = path.pts.length - 1; i >= 0; i--) {
+      if (Math.abs(path.pts[i].z) < 900) { near1 = path.cum[i]; break; }
+    }
+    const span = Math.max(120, near1 - near0);
+    const boats = [];
+    for (const lane of lanes) {
+      for (let i = 0; i < 5; i++) {
+        boats.push({
+          path,
+          offset: lane.offset,
+          speed: lane.speed,
+          dir: lane.dir,
+          dist: near0 + span * (i + 0.22) / 5,
+          y: waterY + 0.15,
+        });
+      }
+    }
+    return boats;
+  }
   const lanes = [
     { x: -900, z0: -820, z1: 980, speed: 3.6, dir: 1 },
     { x: -760, z0: -820, z1: 980, speed: 2.8, dir: -1 },
@@ -100,8 +139,30 @@ export function createBoats(waterY) {
 
 export function stepBoats(boats, dt) {
   for (const boat of boats) {
+    if (boat.path) {
+      boat.dist += boat.speed * boat.dir * dt;
+      const len = boat.path.length || 1;
+      if (boat.dist >= len) boat.dist -= len;
+      if (boat.dist < 0) boat.dist += len;
+      continue;
+    }
     boat.z += boat.speed * boat.dir * dt;
     if (boat.z > boat.z1) boat.z = boat.z0;
     if (boat.z < boat.z0) boat.z = boat.z1;
   }
+}
+
+export function boatPose(boat) {
+  if (!boat.path) return { x: boat.x, y: boat.y, z: boat.z, dx: 0, dz: boat.dir || 1 };
+  const pose = samplePath(boat.path, boat.dist);
+  const len = Math.hypot(pose.dx, pose.dz) || 1;
+  const nx = -pose.dz / len;
+  const nz = pose.dx / len;
+  return {
+    x: pose.x + nx * boat.offset,
+    y: boat.y,
+    z: pose.z + nz * boat.offset,
+    dx: pose.dx * boat.dir,
+    dz: pose.dz * boat.dir,
+  };
 }

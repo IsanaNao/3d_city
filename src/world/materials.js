@@ -245,6 +245,24 @@ const FACADE_MAIN = /* glsl */`
     else if (kind < 5.5) { office = 1.0; }
     else { floorH = 4.4; pitch = 3.4; r = vec4(0.3, 0.7, 0.24, 0.84); office = 1.0; }
     if (glassy) { floorH = 3.9; pitch = 1.5; r = vec4(0.0, 1.0, 0.24, 1.0); office = 1.0; }
+    // Ordinary towers: curtain wall, punched windows, or horizontal bands.
+    float towerStyle = mod(seed, 3.0);
+    bool towerShaft = height > 80.0 && kind > 1.5 && kind < 5.5 && !glassy;
+    if (towerShaft) {
+      if (towerStyle < 0.5) {
+        r = vec4(0.04, 0.96, 0.14, 0.9);
+        floorH = 3.6;
+        pitch = 2.2;
+      } else if (towerStyle < 1.5) {
+        r = vec4(0.3, 0.7, 0.36, 0.76);
+        floorH = 3.35;
+        pitch = 4.8;
+      } else {
+        r = vec4(0.02, 0.98, 0.46, 0.74);
+        floorH = 4.4;
+        pitch = 9.0;
+      }
+    }
     vec4 pgrid = vec4(1.0, 1.0, 0.0, 0.0);
     if (photo > -0.5) {
       ${FACADE_GRID}
@@ -351,9 +369,13 @@ const FACADE_MAIN = /* glsl */`
     diffuseColor.rgb = mix(diffuseColor.rgb, glassTint, pane);
     if (tallOffice > 0.5 && !usePhoto) {
       float spandrel = 1.0 - smoothstep(0.0, 0.18, min(fy, 1.0 - fy));
-      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.42, 0.46, 0.5), spandrel * (1.0 - pane));
-      float podium = 1.0 - smoothstep(6.0, 16.0, v);
-      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.38, 0.36, 0.34), podium * 0.75);
+      float spandrelAmt = towerStyle > 1.5 ? 0.72 : towerStyle < 0.5 ? 0.35 : 0.15;
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.42, 0.46, 0.5), spandrel * (1.0 - pane) * spandrelAmt);
+      float podium = 1.0 - smoothstep(12.0, 20.0, v);
+      vec3 podiumCol = towerStyle < 1.5 ? vec3(0.30, 0.28, 0.26) : vec3(0.36, 0.34, 0.32);
+      diffuseColor.rgb = mix(diffuseColor.rgb, podiumCol, podium * 0.82 * (1.0 - pane * 0.4));
+      float lip = 1.0 - smoothstep(0.0, 1.1, abs(v - 16.0));
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.72, 0.7, 0.66), lip * 0.65);
     }
     gRough = mix(gRough, 0.45, inWin * frame);
     gRough = mix(gRough, 0.06, pane);
@@ -376,10 +398,12 @@ const FACADE_MAIN = /* glsl */`
       if (kind > 5.5) power *= 0.22;
       gEmissive += pane * (interior * daylight + room3 * soft * power);
       if (tallOffice > 0.5) {
-        float bay = fract(vWall.x / 7.0);
+        float bay = fract(vWall.x / mix(3.2, 7.0, step(0.5, towerStyle)));
         float pierCut = 1.0 - smoothstep(0.0, 0.18, bay) * (1.0 - smoothstep(0.82, 1.0, bay));
+        if (towerStyle > 1.5) pierCut = 0.0;
+        if (towerStyle > 0.5 && towerStyle < 1.5) pierCut *= 0.25;
         float slab = 1.0 - smoothstep(0.0, 0.2, min(fract(v / floorH), 1.0 - fract(v / floorH)));
-        float gridCut = max(pierCut, slab * 0.8);
+        float gridCut = max(pierCut, slab * (towerStyle > 1.5 ? 1.0 : 0.8));
         gEmissive *= mix(1.0, 0.1, gridCut);
         diffuseColor.rgb *= mix(1.0, 0.48, gridCut * 0.85);
       }
@@ -480,7 +504,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-17';
+  material.customProgramCacheKey = () => 'sh-facade-18';
   return material;
 }
 

@@ -230,7 +230,54 @@ function subtractRanges(y0, y1, ranges) {
   return bands;
 }
 
-function emitWall(acc, w, covers, color, attrs) {
+function towerMass(ring, base, top, kind, seed) {
+  if (kind === KIND.HISTORIC || kind === KIND.INDUSTRIAL) return null;
+  const height = top - base;
+  if (height < 78) return null;
+  const pts = pairsOf(ring);
+  if (pts.length < 3 || pts.length > 28) return null;
+  let cx = 0;
+  let cz = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const p of pts) {
+    cx += p[0];
+    cz += p[1];
+    minX = Math.min(minX, p[0]);
+    maxX = Math.max(maxX, p[0]);
+    minZ = Math.min(minZ, p[1]);
+    maxZ = Math.max(maxZ, p[1]);
+  }
+  cx /= pts.length;
+  cz /= pts.length;
+  const w = maxX - minX;
+  const d = maxZ - minZ;
+  if (w < 18 || d < 18 || w > 120 || d > 120) return null;
+  const inset = 0.055 + (seed % 5) * 0.008;
+  return {
+    cx,
+    cz,
+    podium: base + Math.min(18, height * 0.1),
+    inset,
+    taperAt: height > 140 ? base + height * 0.62 : null,
+    taper: inset + 0.06,
+  };
+}
+
+function insetCorner(p, mass, amount) {
+  if (!mass || amount <= 0) return p;
+  return [p[0] + (mass.cx - p[0]) * amount, p[1] + (mass.cz - p[1]) * amount];
+}
+
+function insetOf(mass, y) {
+  if (!mass || y <= mass.podium + 0.2) return 0;
+  if (mass.taperAt && y >= mass.taperAt) return mass.taper;
+  return mass.inset;
+}
+
+function emitWall(acc, w, covers, color, attrs, mass) {
   const dx = w.b[0] - w.a[0];
   const dz = w.b[1] - w.a[1];
   const point = (t) => [w.a[0] + dx * (t / w.len), w.a[1] + dz * (t / w.len)];
@@ -241,25 +288,53 @@ function emitWall(acc, w, covers, color, attrs) {
     const len = Math.hypot(x, z) || 1;
     return [x / len, z / len];
   };
-  if (!covers.length) {
-    addWall(acc, w.a[0], w.a[1], w.b[0], w.b[1], w.y0, w.y1, color, attrs, { n0: w.n0, n1: w.n1 });
-    return;
+  const yCuts = [w.y0, w.y1];
+  if (mass && mass.podium > w.y0 + 0.5 && mass.podium < w.y1 - 0.5) yCuts.push(mass.podium);
+  if (mass && mass.taperAt && mass.taperAt > w.y0 + 0.5 && mass.taperAt < w.y1 - 0.5) yCuts.push(mass.taperAt);
+  yCuts.sort((a, b) => a - b);
+  const paint = (p, q, y0, y1, t0, t1) => {
+    if (y1 - y0 < 0.2) return;
+    const amount = insetOf(mass, (y0 + y1) * 0.5);
+    const p0 = insetCorner(p, mass, amount);
+    const q0 = insetCorner(q, mass, amount);
+    addWall(acc, p0[0], p0[1], q0[0], q0[1], y0, y1, color, attrs, {
+      n0: normalAt(t0), n1: normalAt(t1), u0: t0, u1: t1, wallLen: w.len,
+    });
+  };
+  const ledge = (p, q, y, inner, outer) => {
+    if (!mass || Math.abs(inner - outer) < 0.01) return;
+    const a0 = insetCorner(p, mass, outer);
+    const b0 = insetCorner(q, mass, outer);
+    const a1 = insetCorner(p, mass, inner);
+    const b1 = insetCorner(q, mass, inner);
+    const slab = color.map((c) => Math.min(1, c * 0.82 + 0.08));
+    pushTri(acc, [a0[0], y, a0[1]], [b0[0], y, b0[1]], [b1[0], y, b1[1]], slab, attrs);
+    pushTri(acc, [a0[0], y, a0[1]], [b1[0], y, b1[1]], [a1[0], y, a1[1]], slab, attrs);
+  };
+  const spans = !covers.length
+    ? [[point(0), point(w.len), w.y0, w.y1, 0, w.len]]
+    : [];
+  if (covers.length) {
+    const cuts = new Set([0, w.len]);
+    for (const c of covers) { cuts.add(c.t0); cuts.add(c.t1); }
+    const ts = [...cuts].sort((a, b) => a - b);
+    for (let i = 0; i < ts.length - 1; i++) {
+      const t0 = ts[i];
+      const t1 = ts[i + 1];
+      if (t1 - t0 < 0.02) continue;
+      const mid = (t0 + t1) / 2;
+      const ranges = covers.filter((c) => c.t0 <= mid && c.t1 >= mid).map((c) => [c.y0, c.y1]);
+      const p = point(t0);
+      const q = point(t1);
+      for (const [y0, y1] of subtractRanges(w.y0, w.y1, ranges)) spans.push([p, q, y0, y1, t0, t1]);
+    }
   }
-  const cuts = new Set([0, w.len]);
-  for (const c of covers) { cuts.add(c.t0); cuts.add(c.t1); }
-  const ts = [...cuts].sort((p, q) => p - q);
-  for (let i = 0; i < ts.length - 1; i++) {
-    const t0 = ts[i];
-    const t1 = ts[i + 1];
-    if (t1 - t0 < 0.02) continue;
-    const mid = (t0 + t1) / 2;
-    const ranges = covers.filter((c) => c.t0 <= mid && c.t1 >= mid).map((c) => [c.y0, c.y1]);
-    const p = point(t0);
-    const q = point(t1);
-    for (const [y0, y1] of subtractRanges(w.y0, w.y1, ranges)) {
-      addWall(acc, p[0], p[1], q[0], q[1], y0, y1, color, attrs, {
-        n0: normalAt(t0), n1: normalAt(t1), u0: t0, u1: t1, wallLen: w.len,
-      });
+  for (const [p, q, y0, y1, t0, t1] of spans) {
+    const bands = yCuts.filter((y) => y > y0 + 0.2 && y < y1 - 0.2);
+    const stops = [y0, ...bands, y1];
+    for (let i = 0; i < stops.length - 1; i++) {
+      paint(p, q, stops[i], stops[i + 1], t0, t1);
+      if (i > 0) ledge(p, q, stops[i], insetOf(mass, stops[i] + 0.3), insetOf(mass, stops[i] - 0.3));
     }
   }
 }
@@ -494,6 +569,7 @@ export function buildBuildingGeometry(buildings) {
       kind: building.kind,
       glass: building.flags & BFLAG.GLASS ? 1 : 0,
     };
+    const mass = towerMass(rings[0], building.baseY, wallTop, attrs.kind, attrs.seed);
     for (const w of item.walls) {
       const seen = new Set();
       const covers = [];
@@ -505,10 +581,15 @@ export function buildBuildingGeometry(buildings) {
           if (cover) covers.push(cover);
         }
       }
-      emitWall(acc, w, covers, color, attrs);
+      emitWall(acc, w, covers, color, attrs, mass);
     }
     if (shaped) {
       addShapedRoof(acc, rings[0], wallTop, building.topY - wallTop, building.roofShape, color, attrs);
+    } else if (mass) {
+      const cap = mass.taperAt ? mass.taper : mass.inset;
+      const pts = pairsOf(rings[0]).map((p) => insetCorner(p, mass, cap));
+      addRoof(acc, [{ points: pts }], wallTop, color, attrs, true);
+      addTowerCrown(acc, rings[0], color, attrs, item, prepared);
     } else {
       addRoof(acc, rings, building.topY, color, attrs, true);
       addParapet(acc, rings[0], color, attrs);

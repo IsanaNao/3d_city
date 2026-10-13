@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { sunVector, duskHaze } from './shared/sun.js';
 import { syncLandmarkNight, syncPearlShow } from './world/landmarks.js';
 import { createSim, prepareGraph, stepSim, carPose } from './sim/traffic.js';
-import { createCrowd, stepCrowd, personPose, createBoats, stepBoats } from './sim/crowd.js';
+import { boatPose, createCrowd, stepCrowd, personPose, createBoats, stepBoats } from './sim/crowd.js';
 import { createTrains, prepareLines, stepTrains, trainPoses } from './sim/trains.js';
 import { yawFromHeading } from './sim/path.js';
 import { cityUniforms, createSkyMaterial, makeSignAtlas } from './world/materials.js';
@@ -230,7 +230,7 @@ async function boot() {
     people = crowd.people.length ? createPersonFleet(crowd.people.length) : null;
     if (people) scene.add(people.mesh, people.legs, people.heads);
   }
-  boats = createBoats(waterLevel);
+  boats = createBoats(waterLevel, city.manifest.riverCenter);
   boatMesh = createBoatFleet(boats.length);
   scene.add(boatMesh.body, boatMesh.glass, boatMesh.lamps);
   const lines = prepareLines(city.rails);
@@ -364,11 +364,12 @@ renderer.setAnimationLoop(() => {
       people.legs.instanceMatrix.needsUpdate = true;
       people.heads.instanceMatrix.needsUpdate = true;
     }
-    if (boatMesh && boats && trafficOn) {
+    if (boatMesh && boats) {
       boats.forEach((boat, i) => {
-        setVehicleMatrix(boatMesh.body, i, boatMesh.dummy, boat.x, boat.y, boat.z, 0, boat.dir);
-        setVehicleMatrix(boatMesh.glass, i, boatMesh.dummy, boat.x, boat.y, boat.z, 0, boat.dir);
-        setVehicleMatrix(boatMesh.lamps, i, boatMesh.dummy, boat.x, boat.y, boat.z, 0, boat.dir);
+        const pose = boatPose(boat);
+        setVehicleMatrix(boatMesh.body, i, boatMesh.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
+        setVehicleMatrix(boatMesh.glass, i, boatMesh.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
+        setVehicleMatrix(boatMesh.lamps, i, boatMesh.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
       });
       boatMesh.body.instanceMatrix.needsUpdate = true;
       boatMesh.glass.instanceMatrix.needsUpdate = true;

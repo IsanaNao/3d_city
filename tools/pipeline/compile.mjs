@@ -1197,6 +1197,7 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
       id, name, kind, style, towerH, mainSpan, points,
     })),
     embankments,
+    riverCenter: riverCenterline(parsed.land),
     generatedAt: new Date().toISOString(),
     attribution: {
       osm: '© OpenStreetMap contributors (ODbL)',
@@ -1311,6 +1312,53 @@ function addBoulevardCrossings(buckets, road, areaRect) {
     }
     walked += len;
   }
+}
+
+function riverCenterline(land) {
+  const waters = [];
+  for (const feature of land) {
+    if (feature.kind !== LAND.WATER || !feature.rings?.[0]) continue;
+    const area = polygonArea(feature.rings[0]);
+    if (area < 12000) continue;
+    waters.push({ ring: feature.rings[0], area });
+  }
+  if (!waters.length) return [];
+  const probes = [[-720, 40], [-640, -180], [-560, 280], [-820, -480], [-480, 520]];
+  let best = null;
+  for (const water of waters) {
+    if (!probes.some(([x, z]) => pointInPoly(x, z, water.ring))) continue;
+    if (!best || water.area > best.area) best = water;
+  }
+  if (!best) best = waters.sort((a, b) => b.area - a.area)[0];
+  const box = ringBBox(best.ring);
+  best = best.ring;
+  const samples = [];
+  for (let z = box.minZ; z <= box.maxZ; z += 48) {
+    let run = null;
+    let widest = null;
+    const consider = (span) => {
+      if (!widest || span[1] - span[0] > widest[1] - widest[0]) widest = span;
+    };
+    for (let x = box.minX; x <= box.maxX; x += 14) {
+      const inside = pointInPoly(x, z, best);
+      if (inside && run == null) run = x;
+      if (!inside && run != null) {
+        consider([run, x]);
+        run = null;
+      }
+    }
+    if (run != null) consider([run, box.maxX]);
+    if (!widest) continue;
+    const width = widest[1] - widest[0];
+    if (width < 140 || width > 1800) continue;
+    samples.push([(widest[0] + widest[1]) * 0.5, z]);
+  }
+  if (samples.length < 6) return [];
+  return samples.map((p, i) => {
+    const a = samples[Math.max(0, i - 1)];
+    const c = samples[Math.min(samples.length - 1, i + 1)];
+    return [Math.round((a[0] + p[0] + c[0]) / 3), Math.round(p[1])];
+  });
 }
 
 function sidewalkWalks(roads) {
