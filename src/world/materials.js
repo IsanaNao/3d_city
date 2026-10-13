@@ -869,7 +869,7 @@ export function createWaterMaterial() {
               vec2 sd = vec2(cos(a), sin(a));
               float lum = 0.0;
               for (int k = 0; k < 2; k++) {
-                float hh = k == 0 ? 90.0 : 300.0;
+                float hh = k == 0 ? 460.0 : 660.0;
                 vec3 sp = vec3(cameraPosition.x, hh, cameraPosition.z) + vec3(sd.x, 0.0, sd.y) * 1000.0;
                 vec4 sm = uMirrorMatrix * vec4(sp, 1.0);
                 vec2 suv = sm.xy / max(sm.w, 1e-3) * 0.5 + 0.5;
@@ -899,7 +899,7 @@ export function createWaterMaterial() {
             float crownL = 0.0;
             for (int s = 0; s < 3; s++) {
               float u = fract(band * (s == 0 ? 1.0 : s == 1 ? 1.6 : 2.1) + float(s) * 0.27);
-              float hh = s == 2 ? mix(480.0, 800.0, u) : mix(36.0, 320.0, u);
+              float hh = s == 2 ? mix(400.0, 660.0, u) : mix(36.0, 320.0, u);
               vec3 sp = vec3(cameraPosition.x, hh, cameraPosition.z) + vec3(cd.x, 0.0, cd.y) * 1000.0;
               vec4 sm = uMirrorMatrix * vec4(sp, 1.0);
               vec2 suv = sm.xy / max(sm.w, 1e-3) * 0.5 + 0.5 + wob2;
@@ -910,7 +910,7 @@ export function createWaterMaterial() {
             }
             // The crown tap is where Pearl's spheres and the supertall tops sit.
             // Keep it in the streak whenever it is actually lit.
-            seen = mix(shaft, crown, step(0.06, crownL) * 0.72);
+            seen = mix(shaft, crown, step(0.05, crownL) * 0.86);
             float dash = 0.5 + 0.5 * sin(travel * 8.0 + chop * 2.4 + vnoise(vWorld.xz * 0.07) * 4.0);
             thing = 0.38 + 0.62 * smoothstep(0.2, 0.62, dash);
           } else {
