@@ -90,7 +90,7 @@ pearlMat.onBeforeCompile = (shader) => {
       vec2 pane = fract(cell);
       float edge = min(min(pane.x, 1.0 - pane.x), min(pane.y, 1.0 - pane.y));
       float aa = max(fw.x, fw.y);
-      float glass = smoothstep(0.055, 0.10 + aa * 0.65, edge);
+      float glass = smoothstep(0.016, 0.038 + aa * 0.32, edge);
       float panelId = dot(floor(cell), vec2(1.0, 17.0));
       float hash = fract(sin(panelId * 12.9898) * 43758.5453);
       float vary = 0.86 + 0.2 * hash;
@@ -136,16 +136,16 @@ pearlMat.onBeforeCompile = (shader) => {
       reflectedLight.indirectSpecular *= 0.32;
       #include <opaque_fragment>`);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-12';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-13';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
 });
 const columnMat = new THREE.MeshStandardMaterial({
-  color: 0xe4e7ea, metalness: 0.18, roughness: 0.52,
+  color: 0xf4f6f8, metalness: 0.46, roughness: 0.28,
   emissive: new THREE.Color(0x000000), emissiveIntensity: 0,
 });
-function pearlMemberShader(shader, rings) {
+function pearlMemberShader(shader, rings, metal) {
   bindPearlShow(shader);
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', '#include <common>\nvarying vec2 vColUv;')
@@ -158,8 +158,8 @@ function pearlMemberShader(shader, rings) {
       float along = vColUv.x;
       float around = vColUv.y;
       float flute = smoothstep(0.36, 0.5, abs(fract(around * 8.0) - 0.5));
-      vec3 metal = vec3(0.84, 0.82, 0.78);
-      diffuseColor.rgb = mix(metal * 0.78, metal, flute);
+      vec3 metal = ${metal};
+      diffuseColor.rgb = mix(metal * 0.9, metal, flute);
       float ring = 1.0 - smoothstep(0.015, 0.04, abs(fract(along * ${rings}.0) - 0.5));
       vec3 show = showColor(along, around);
       vec3 showN = showNorm(show, 0.48);
@@ -168,14 +168,14 @@ function pearlMemberShader(shader, rings) {
       totalEmissiveRadiance += vec3(1.0, 0.9, 0.75) * ring * uNight * 0.18;
     `);
 }
-columnMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 4);
-columnMat.customProgramCacheKey = () => 'lm-pearl-column-8';
+columnMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 4, 'vec3(0.96, 0.97, 0.98)');
+columnMat.customProgramCacheKey = () => 'lm-pearl-column-9';
 const legMat = new THREE.MeshStandardMaterial({
   color: 0xe0ddd6, metalness: 0.16, roughness: 0.58,
   emissive: new THREE.Color(0x000000), emissiveIntensity: 0,
 });
-legMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 3);
-legMat.customProgramCacheKey = () => 'lm-pearl-leg-3';
+legMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 3, 'vec3(0.90, 0.91, 0.92)');
+legMat.customProgramCacheKey = () => 'lm-pearl-leg-4';
 const shanghaiCrownMat = new THREE.MeshStandardMaterial({
   color: 0x9eb4c6, metalness: 0.62, roughness: 0.16,
   emissive: new THREE.Color(0x3aa0ff), emissiveIntensity: 0,
@@ -244,10 +244,10 @@ shanghaiGlass.onBeforeCompile = (shader, renderer) => {
   glassBlue.onBeforeCompile(shader, renderer);
   shader.fragmentShader = shader.fragmentShader.replace(
     'totalEmissiveRadiance += vec3(1.0, 0.86, 0.62) * pane * on * uNight * 0.7;',
-    'totalEmissiveRadiance += vec3(1.0, 0.86, 0.62) * pane * on * uNight * 0.7 * vColor;',
+    'totalEmissiveRadiance += vec3(1.0, 0.86, 0.62) * pane * on * uNight * 0.7 * vColor.rgb;',
   );
 };
-shanghaiGlass.customProgramCacheKey = () => 'lm-shanghai-glass-1';
+shanghaiGlass.customProgramCacheKey = () => 'lm-shanghai-glass-2';
 shanghaiGlass.side = THREE.DoubleSide;
 const glassSilver = glassMaterial(0xb7c3ce);
 glassBlue.side = THREE.DoubleSide;
@@ -438,6 +438,16 @@ function sphereHit(from, to, centerY, radius) {
   return from.clone().addScaledVector(dir, Math.max(0, t));
 }
 
+// A flange where a tube meets the glass, so the leg and the column read as
+// seated in the sphere rather than stopping on it.
+function collar(group, point, axis, radius) {
+  const geo = new THREE.TorusGeometry(radius * 1.18, Math.max(0.35, radius * 0.2), 8, 20);
+  const dir = axis.clone().normalize();
+  geo.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir));
+  geo.translate(point.x, point.y, point.z);
+  tag(add(group, geo, columnMat), 'collar');
+}
+
 function buryToward(point, toward, dist) {
   const d = toward.clone().sub(point);
   const len = d.length() || 1;
@@ -455,7 +465,9 @@ function pearl(h) {
     const foot = along(angle, m.foot, m.plinth + m.legR * 0.42);
     const aim = new THREE.Vector3(0, m.lowerC, 0);
     const hit = sphereHit(foot, aim, m.lowerC, m.lowerR) || along(angle, m.lowerR * 0.2, m.lowerC - m.lowerR * 0.55);
-    const legEnd = buryToward(hit, aim, m.legR * 0.35);
+    const legEnd = buryToward(hit, aim, m.legR * 0.45);
+    const legDir = aim.clone().sub(foot);
+    collar(g, hit, legDir, m.legR);
     const knee = foot.clone().lerp(legEnd, 0.48);
     knee.add(along(angle, 5.5 * m.s, 0));
     tube(g, [foot, knee, legEnd], m.legR, legMat, 'leg', angle);
@@ -468,9 +480,10 @@ function pearl(h) {
     const outsideHigh = columnAt(m, angle, m.upperC - m.upperR - 4 * m.s);
     const lowHit = sphereHit(outsideLow, new THREE.Vector3(0, m.lowerC, 0), m.lowerC, m.lowerR) || outsideLow;
     const upHit = sphereHit(outsideHigh, new THREE.Vector3(0, m.upperC, 0), m.upperC, m.upperR) || outsideHigh;
-    const shaftStart = buryToward(lowHit, new THREE.Vector3(0, m.lowerC, 0), m.shaftR * 0.3);
+    const shaftStart = buryToward(lowHit, new THREE.Vector3(0, m.lowerC, 0), m.shaftR * 0.35);
     const shaftEnd = buryToward(upHit, new THREE.Vector3(0, m.upperC, 0), m.shaftR * 0.3);
     tube(g, [shaftStart, shaftEnd], m.shaftR, columnMat, 'shaft', angle);
+    collar(g, lowHit, shaftEnd.clone().sub(shaftStart), m.shaftR);
     shafts.push({ angle, start: shaftStart, end: shaftEnd });
   }
 
@@ -495,11 +508,11 @@ function pearl(h) {
     for (let i = 0; i < ring.length; i++) tube(g, [ring[i], ring[(i + 1) % ring.length]], 1.55 * m.s, columnMat, 'brace');
   }
 
-  paneledSphere(g, m.lowerR, m.lowerC, 56, 112, pearlMat, 'lower-sphere', 32, 56);
+  paneledSphere(g, m.lowerR, m.lowerC, 56, 112, pearlMat, 'lower-sphere', 44, 80);
   sphereRing(g, m.lowerR, m.lowerC, 0, 1.15 * m.s);
   sphereRing(g, m.lowerR, m.lowerC, m.lowerR * 0.46, 0.38 * m.s);
   sphereRing(g, m.lowerR, m.lowerC, -m.lowerR * 0.46, 0.38 * m.s);
-  paneledSphere(g, m.upperR, m.upperC, 48, 96, pearlMat, 'upper-sphere', 28, 48);
+  paneledSphere(g, m.upperR, m.upperC, 48, 96, pearlMat, 'upper-sphere', 36, 64);
   sphereRing(g, m.upperR, m.upperC, 0, 1.0 * m.s);
   sphereRing(g, m.upperR, m.upperC, m.upperR * 0.46, 0.32 * m.s);
   sphereRing(g, m.upperR, m.upperC, -m.upperR * 0.46, 0.32 * m.s);

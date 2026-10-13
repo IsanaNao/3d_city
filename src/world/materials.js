@@ -775,16 +775,43 @@ export function createWaterMaterial() {
         float thing = 0.0;
         if (uMirrorOn > 0.5) {
           vec4 mc = uMirrorMatrix * vec4(vWorld, 1.0);
-          float near = clamp(50.0 / dist, 0.04, 0.55);
-          vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + n.xz * vec2(0.02, 0.035) * near;
-          vec2 feather = smoothstep(0.0, 0.03, muv) * (1.0 - smoothstep(0.97, 1.0, muv));
-          float inside = feather.x * feather.y;
-          vec3 refl = texture2D(uMirror, clamp(muv, 0.002, 0.998)).rgb;
-          seen = mix(seen, refl, inside);
-          thing = inside;
+          float near = clamp(80.0 / dist, 0.08, 0.85);
+          vec2 wob = n.xz * vec2(0.04, 0.055) * mix(0.4, 1.15, uDark);
+          wob += vec2(sin(vWorld.x * 0.16 + t * 0.85), cos(vWorld.z * 0.13 - t * 0.7)) * 0.014 * uDark;
+          float w = max(abs(mc.w), 1e-3);
+          vec2 muv = mc.xy / w * 0.5 + 0.5 + wob * near;
+          if (mc.w < 0.0) muv = vec2(1.5);
+          vec2 over = vec2(max(max(-muv.x, muv.x - 1.0), 0.0), max(max(-muv.y, muv.y - 1.0), 0.0));
+          vec2 uv = clamp(muv, 0.004, 0.996);
+          // Past the mirror frame, keep the skyline colour and break it into streaks.
+          float smear = smoothstep(0.0, 0.45, over.y + over.x * 0.35);
+          uv.y = mix(uv.y, clamp(uv.y + wob.y * 1.4, 0.02, 0.98), smear);
+          vec3 tap = texture2D(uMirror, uv).rgb;
+          float chop = 0.62 + 0.38 * sin(dot(vWorld.xz, vec2(0.31, 0.22)) + t * 1.4 + wob.x * 8.0);
+          tap *= mix(1.0, chop, smear * uDark);
+          float reach = exp(-2.4 * over.x) * exp(-0.85 * over.y) * step(0.0, mc.w);
+          seen = mix(seen, tap, mix(0.55, 1.0, reach));
+          thing = mix(0.45, 1.0, reach);
         }
-        float cover = mix(fresnel, 0.55 + 0.4 * fresnel, thing);
+        // Pearl pink and Shanghai Tower blue, along the line from the camera.
+        vec2 rel = vWorld.xz - cameraPosition.xz;
+        vec2 pearl = vec2(-242.0, -321.0) - cameraPosition.xz;
+        vec2 tower = vec2(330.0, 382.0) - cameraPosition.xz;
+        float pLen = length(pearl);
+        float tLen = length(tower);
+        vec2 pDir = pearl / max(pLen, 1.0);
+        vec2 tDir = tower / max(tLen, 1.0);
+        float pLat = abs(rel.x * pDir.y - rel.y * pDir.x);
+        float tLat = abs(rel.x * tDir.y - rel.y * tDir.x);
+        float pAlong = dot(rel, pDir);
+        float tAlong = dot(rel, tDir);
+        float pStreak = exp(-pow(pLat / 26.0, 2.0)) * smoothstep(30.0, 140.0, pAlong) * (1.0 - smoothstep(pLen * 0.82, pLen * 1.05, pAlong));
+        float tStreak = exp(-pow(tLat / 34.0, 2.0)) * smoothstep(40.0, 180.0, tAlong) * (1.0 - smoothstep(tLen * 0.78, tLen * 1.08, tAlong));
+        vec3 streaks = vec3(0.86, 0.28, 0.42) * pStreak + vec3(0.22, 0.52, 1.0) * tStreak;
+        float cover = mix(fresnel * 0.65, 0.22 + 0.72 * fresnel, thing);
+        cover = mix(cover, max(cover, 0.12 + 0.78 * fresnel), uDark);
         vec3 col = mix(body, seen, cover);
+        col += streaks * fresnel * mix(0.12, 0.9, uDark);
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);
         gl_FragColor = vec4(col, 1.0);
