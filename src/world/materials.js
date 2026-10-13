@@ -848,14 +848,19 @@ export function createWaterMaterial() {
             float travel = distH * 0.0032;
             float chop = sin(dot(vWorld.xz, vec2(0.27, 0.19)) + t * 0.85);
             float band = fract(travel * 1.15 + chop * 0.07);
-            float hgt = mix(22.0, 700.0, pow(band, 0.72));
-            vec3 probe = vec3(cameraPosition.x, 0.0, cameraPosition.z) + vec3(dir.x, 0.0, dir.y) * 1500.0;
-            probe.y = hgt;
-            vec4 mc = uMirrorMatrix * vec4(probe, 1.0);
-            vec2 uv = mc.xy / max(mc.w, 1e-3) * 0.5 + 0.5;
-            uv += wob * vec2(1.2, 0.45);
-            seen = texture2D(uMirror, clamp(uv, 0.012, 0.988)).rgb;
-            thing = 0.28 + 0.72 * smoothstep(0.32, 0.78, 0.5 + 0.5 * sin(travel * 8.0 + chop * 2.4 + vnoise(vWorld.xz * 0.07) * 4.0));
+            vec3 across = vec3(dir.x, 0.0, dir.y) * 1500.0;
+            vec3 origin = vec3(cameraPosition.x, 0.0, cameraPosition.z);
+            vec2 wob2 = wob * vec2(1.2, 0.35);
+            float hA = mix(26.0, 680.0, pow(band, 0.7));
+            float hB = mix(40.0, 320.0, fract(band * 1.8 + 0.31));
+            vec4 mcA = uMirrorMatrix * vec4(origin + across + vec3(0.0, hA, 0.0), 1.0);
+            vec4 mcB = uMirrorMatrix * vec4(origin + across + vec3(0.0, hB, 0.0), 1.0);
+            vec2 uvA = mcA.xy / max(mcA.w, 1e-3) * 0.5 + 0.5 + wob2;
+            vec2 uvB = mcB.xy / max(mcB.w, 1e-3) * 0.5 + 0.5 + wob2;
+            vec3 tapA = texture2D(uMirror, clamp(uvA, 0.012, 0.988)).rgb;
+            vec3 tapB = texture2D(uMirror, clamp(uvB, 0.012, 0.988)).rgb;
+            seen = dot(tapA, vec3(0.3)) > dot(tapB, vec3(0.3)) ? tapA : tapB;
+            thing = 0.42 + 0.58 * smoothstep(0.28, 0.72, 0.5 + 0.5 * sin(travel * 8.0 + chop * 2.4 + vnoise(vWorld.xz * 0.07) * 4.0));
           } else {
             vec4 mc = uMirrorMatrix * vec4(vWorld, 1.0);
             float near = clamp(70.0 / dist, 0.05, 0.65);
@@ -869,7 +874,7 @@ export function createWaterMaterial() {
             thing = 1.0;
           }
         }
-        float cover = mix(fresnel * 0.8, (0.26 + 0.48 * smoothstep(50.0, 850.0, dist)) * (0.45 + 0.55 * fresnel), uDark);
+        float cover = mix(fresnel * 0.8, 0.5 + 0.38 * fresnel, uDark);
         vec3 col = mix(body, seen, cover * thing + fresnel * (1.0 - thing) * 0.35);
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);
