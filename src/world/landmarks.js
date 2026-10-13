@@ -752,7 +752,6 @@ function shanghai(h) {
   const yScale = 0.985;
   let prev = null;
   const glass = [];
-  const crown = [];
   const slot = [];
   const rib = [];
   const kindOf = (i) => {
@@ -768,32 +767,25 @@ function shanghai(h) {
   };
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
-    // Taper through the shaft, then a shoulder, a narrower lattice crown, and a mast.
+    // Taper through the shaft, then a shoulder. The open crown is built
+    // afterwards as ribs, not a skinned needle.
     const u = Math.min(t, 0.86) / 0.86;
     const body = 1 - 0.5 * (u ** 1.22);
     let profile = 1;
-    let mast = false;
-    if (t > 0.86 && t <= 0.905) {
-      const s = (t - 0.86) / 0.045;
-      profile = 1 + 0.2 * Math.sin(Math.min(1, s) * Math.PI);
-    } else if (t > 0.905 && t <= 0.97) {
-      profile = 0.74;
-    } else if (t > 0.97) {
-      profile = 0.09;
-      mast = true;
+    if (t > 0.86 && t <= 0.902) {
+      const s = (t - 0.86) / 0.042;
+      profile = 1 + 0.12 * Math.sin(Math.min(1, s) * Math.PI);
+    } else if (t > 0.902) {
+      break;
     }
     const y = t * h * yScale;
     const twist = Math.min(t, 0.9) * (120 * Math.PI / 180);
     const radius = 34 * body * profile;
-    const ring = mast ? ringPoints(segs, radius, twist, y, false) : shanghaiRing(segs, radius, twist, y);
+    const ring = shanghaiRing(segs, radius, twist, y);
     if (prev) {
-      const inCrown = t > 0.9;
       for (let s = 0; s < segs; s++) {
         const s2 = (s + 1) % segs;
-        // Vertical gaps in the crown so the top reads as a lattice, not a needle.
-        if (inCrown && !mast && s % 5 === 2) continue;
-        const bucket = inCrown || mast ? crown : kindOf(s);
-        bucket.push(prev[s], prev[s2], ring[s2], ring[s]);
+        kindOf(s).push(prev[s], prev[s2], ring[s2], ring[s]);
       }
     }
     if (t > 0.04 && t < 0.88 && i % 2 === 0) {
@@ -807,9 +799,37 @@ function shanghai(h) {
     prev = ring;
   }
   quadsMesh(g, glass, shanghaiGlass, (p) => spiralShade(p, h, yScale));
-  quadsMesh(g, crown, shanghaiCrownMat);
   quadsMesh(g, slot, slotMat);
   quadsMesh(g, rib, ribMat);
+  // Open lattice: twelve ribs taper upward, with three hoops. Sky shows
+  // between them, so the crown is not a solid cap or a needle.
+  const ribCount = 12;
+  const latticeSteps = 8;
+  const latticeT0 = 0.902;
+  const latticeT1 = 0.988;
+  const columns = [];
+  const crownTwist = 0.9 * (120 * Math.PI / 180);
+  for (let k = 0; k < ribCount; k++) {
+    const a = (k / ribCount) * Math.PI * 2;
+    let kk = 0.76 + 0.24 * Math.cos(3 * a);
+    const raw = a > Math.PI ? a - Math.PI * 2 : a;
+    kk *= 1 - 0.46 * Math.exp(-((raw / 0.38) ** 2));
+    const ang = a + crownTwist;
+    const pts = [];
+    for (let i = 0; i <= latticeSteps; i++) {
+      const s = i / latticeSteps;
+      const t = latticeT0 + (latticeT1 - latticeT0) * s;
+      const profile = 0.95 - 0.55 * s;
+      const radius = 34 * 0.5 * profile * kk;
+      pts.push(new THREE.Vector3(Math.cos(ang) * radius, t * h * yScale, Math.sin(ang) * radius));
+    }
+    columns.push(pts);
+    tube(g, pts, 0.62, shanghaiCrownMat, 'crown-rib');
+  }
+  for (const step of [2, 5, 8]) {
+    const ring = columns.map((pts) => pts[step]);
+    for (let i = 0; i < ring.length; i++) tube(g, [ring[i], ring[(i + 1) % ring.length]], 0.42, shanghaiCrownMat, 'crown-hoop');
+  }
   const lipT = 0.882;
   const lipTwist = lipT * (120 * Math.PI / 180);
   const lipY = lipT * h * yScale;
@@ -821,9 +841,6 @@ function shanghai(h) {
     lip.push(lipInner[s], lipInner[s2], lipOuter[s2], lipOuter[s]);
   }
   quadsMesh(g, lip, ribMat);
-  if (prev) capRing(g, prev, shanghaiCrownMat);
-  add(g, new THREE.CylinderGeometry(0.35, 0.55, h * 0.045, 8).translate(0, h * 0.992, 0), ribMat);
-  add(g, new THREE.SphereGeometry(0.7, 10, 8).translate(0, h * 1.012, 0), beaconMat);
   return g;
 }
 
