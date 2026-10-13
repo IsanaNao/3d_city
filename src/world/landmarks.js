@@ -157,9 +157,11 @@ function pearlMemberShader(shader, rings, metal) {
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       float along = vColUv.x;
       float around = vColUv.y;
-      float flute = smoothstep(0.36, 0.5, abs(fract(around * 8.0) - 0.5));
+      // Six vertical panels. The seam is a dark joint, not a soft flute.
+      float edge = abs(fract(around * 6.0) - 0.5) * 2.0;
+      float seam = smoothstep(0.82, 0.96, edge);
       vec3 metal = ${metal};
-      diffuseColor.rgb = mix(metal * 0.97, metal, flute);
+      diffuseColor.rgb = mix(metal, metal * 0.55, seam);
       float ring = 1.0 - smoothstep(0.015, 0.04, abs(fract(along * ${rings}.0) - 0.5));
       vec3 show = showColor(along, around);
       vec3 showN = showNorm(show, 0.48);
@@ -169,13 +171,13 @@ function pearlMemberShader(shader, rings, metal) {
     `);
 }
 columnMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 4, 'vec3(0.96, 0.97, 0.98)');
-columnMat.customProgramCacheKey = () => 'lm-pearl-column-10';
+columnMat.customProgramCacheKey = () => 'lm-pearl-column-11';
 const legMat = new THREE.MeshStandardMaterial({
   color: 0xe0ddd6, metalness: 0.16, roughness: 0.58,
   emissive: new THREE.Color(0x000000), emissiveIntensity: 0,
 });
 legMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 3, 'vec3(0.90, 0.91, 0.92)');
-legMat.customProgramCacheKey = () => 'lm-pearl-leg-4';
+legMat.customProgramCacheKey = () => 'lm-pearl-leg-5';
 const shanghaiCrownMat = new THREE.MeshStandardMaterial({
   color: 0x9eb4c6, metalness: 0.62, roughness: 0.16,
   emissive: new THREE.Color(0x3aa0ff), emissiveIntensity: 0,
@@ -358,7 +360,7 @@ function pearlMeasures(h) {
     capsuleC: 342 * s,
     capsuleR: 8 * s,
     legR: 7.4 * s,
-    shaftR: 5.1 * s,
+    shaftR: 4.4 * s,
     foot: 40 * s,
     plinth: 5.45 * s,
   };
@@ -418,7 +420,9 @@ function columnAt(m, angle, y) {
   const y0 = m.lowerC + m.lowerR * 0.35;
   const y1 = m.upperC - m.upperR * 0.15;
   const t = Math.min(1, Math.max(0, (y - y0) / (y1 - y0)));
-  return along(angle, (18 - 8 * t) * m.s, y);
+  // The shafts stay nearly parallel. A strong taper made the upper section
+  // read as three pinched cones.
+  return along(angle, (14.6 - 1.4 * t) * m.s, y);
 }
 
 // First intersection of the segment with a sphere on the Y axis. The columns
@@ -460,21 +464,19 @@ function pearl(h) {
   // One leg toward the usual southeast view, so the tripod reads in the close camera.
   const angles = [0, 1, 2].map((k) => (k / 3) * Math.PI * 2 + 0.85);
   const shafts = [];
+  const legHits = [];
 
   for (const angle of angles) {
     const foot = along(angle, m.foot, m.plinth + m.legR * 0.42);
     const aim = new THREE.Vector3(0, m.lowerC, 0);
     const hit = sphereHit(foot, aim, m.lowerC, m.lowerR) || along(angle, m.lowerR * 0.2, m.lowerC - m.lowerR * 0.55);
+    legHits.push(hit);
     const legEnd = buryToward(hit, aim, m.legR * 0.45);
     const legDir = aim.clone().sub(foot);
     collar(g, hit, legDir, m.legR);
     const knee = foot.clone().lerp(legEnd, 0.48);
     knee.add(along(angle, 5.5 * m.s, 0));
     tube(g, [foot, knee, legEnd], m.legR, legMat, 'leg', angle);
-
-    const pod = foot.clone().lerp(legEnd, 0.46);
-    const podMesh = paneledSphere(g, 9.2 * m.s, 0, 16, 28, pearlMat, 'pod', 8, 14);
-    podMesh.position.copy(pod);
 
     const outsideLow = columnAt(m, angle, m.lowerC + m.lowerR + 6 * m.s);
     const outsideHigh = columnAt(m, angle, m.upperC - m.upperR - 4 * m.s);
@@ -485,6 +487,22 @@ function pearl(h) {
     tube(g, [shaftStart, shaftEnd], m.shaftR, columnMat, 'shaft', angle);
     collar(g, lowHit, shaftEnd.clone().sub(shaftStart), m.shaftR);
     shafts.push({ angle, start: shaftStart, end: shaftEnd });
+  }
+
+  // A small sphere in each bay, tucked against the underside of the lower
+  // sphere where the two legs meet it. On the leg centreline they disappeared
+  // behind the shaft.
+  for (let i = 0; i < legHits.length; i++) {
+    const a = legHits[i];
+    const b = legHits[(i + 1) % legHits.length];
+    const podR = 11 * m.s;
+    const mid = a.clone().add(b).multiplyScalar(0.5);
+    const radial = Math.hypot(mid.x, mid.z) || 1;
+    mid.x += (mid.x / radial) * podR * 0.35;
+    mid.z += (mid.z / radial) * podR * 0.35;
+    mid.y -= podR * 0.2;
+    const podMesh = paneledSphere(g, podR, 0, 18, 32, pearlMat, 'pod', 8, 14);
+    podMesh.position.copy(mid);
   }
 
   // Two spheres on each column, sitting on the shaft rather than beside it.
