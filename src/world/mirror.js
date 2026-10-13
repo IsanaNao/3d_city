@@ -13,6 +13,8 @@ const _rot = new THREE.Matrix4();
 const _up = new THREE.Vector3(0, 1, 0);
 const _pos = new THREE.Vector3();
 const _look = new THREE.Vector3();
+const _fwd = new THREE.Vector3();
+const _aim = new THREE.Vector3();
 const _waterClip = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const _clipList = [_waterClip];
 
@@ -46,11 +48,26 @@ export class WaterMirror {
     cam.near = camera.near;
     cam.far = camera.far;
     cam.aspect = camera.aspect;
-    // At night the matched field of view leaves Pearl below the mirror and
-    // packs the other towers into a thin band. A wider lens keeps every
-    // landmark in the texture so the river can stretch them into streaks.
     const night = cityUniforms.uDark.value > 0.5;
-    cam.fov = night ? 108 : camera.fov;
+    _fwd.copy(_look).sub(_pos);
+    _fwd.y = 0;
+    if (_fwd.lengthSq() < 1e-8) _fwd.set(0, 0, -1);
+    _fwd.normalize();
+    cityUniforms.uCamDir.value.set(_fwd.x, _fwd.z);
+    if (night) {
+      // The reflected look points down into the river, so Pearl and the
+      // supertalls sit on the edge of the mirror and the far bank samples
+      // sky. Aim up the skyline from the reflected eye; the water shader
+      // then stretches that picture into streaks.
+      _aim.copy(cam.position);
+      _aim.y += 230;
+      _aim.addScaledVector(_fwd, 900);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(_aim);
+      cam.fov = 74;
+    } else {
+      cam.fov = camera.fov;
+    }
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld();
 

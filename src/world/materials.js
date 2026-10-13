@@ -27,6 +27,9 @@ export const cityUniforms = {
   uMirror: { value: null },
   uMirrorMatrix: { value: new THREE.Matrix4() },
   uMirrorOn: { value: 0 },
+  // Horizontal view direction. Night water folds the river onto the lit fan
+  // in front of the camera so a bearing that misses the skyline still streaks.
+  uCamDir: { value: new THREE.Vector2(0, -1) },
 };
 
 const NOISE = /* glsl */`
@@ -306,6 +309,14 @@ const FACADE_MAIN = /* glsl */`
       if (photo < 1.5) office = 1.0;
     }
 
+    // Mid-rise podiums get their own module before the cell grid is built.
+    bool podiumBlock = height > 14.0 && height < 110.0 && kind < 5.5 && !glassy && !(height > 80.0 && kind > 1.5);
+    if (podiumBlock) {
+      floorH = 3.3;
+      pitch = 3.4;
+      r = vec4(0.06, 0.94, 0.1, 0.9);
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.6, 0.56), 0.72);
+    }
     float cols = max(1.0, floor(vWall.y / pitch + 0.5));
     float cellW = max(vWall.y, 0.5) / cols;
     float u = vWall.x / cellW;
@@ -316,14 +327,11 @@ const FACADE_MAIN = /* glsl */`
     float far = smoothstep(0.2, 0.6, max(wx, wy));
 
     bool shop = row < 0.5 && (kind > 2.5 && kind < 3.5 || kind > 5.5 && height < 40.0 || kind < 0.5 && height < 24.0);
-    // Pudong mid-rises in front of the towers: a retail podium and a real
-    // window grid, not a dark box with a few holes.
-    bool podiumBlock = height > 18.0 && height < 78.0 && kind < 5.5 && !glassy;
-    if (podiumBlock && v < 7.5) {
+    if (podiumBlock && v < 11.0) {
       shop = true;
-      r = vec4(0.04, 0.96, 0.05, 0.8);
+      r = vec4(0.03, 0.97, 0.02, 0.94);
     }
-    if (shop) r = vec4(0.05, 0.95, 0.03, 0.8);
+    if (shop && !podiumBlock) r = vec4(0.05, 0.95, 0.03, 0.8);
     if (height > 70.0 && kind > 1.5 && kind < 5.5) photo = -1.0;
     if (podiumBlock) photo = -1.0;
     bool usePhoto = photo > -0.5 && !shop;
@@ -334,7 +342,7 @@ const FACADE_MAIN = /* glsl */`
       ph = texture(uFacade, vec3(puv, photo));
     }
     float valid = 1.0;
-    if (kind < 1.5 && !shop && !usePhoto) valid *= step(podiumBlock ? 0.34 : 0.18, hash12(room + 41.0));
+    if (kind < 1.5 && !shop && !usePhoto) valid *= step(podiumBlock ? 0.04 : 0.18, hash12(room + 41.0));
     float inWin = usePhoto ? smoothstep(0.25, 0.75, ph.a) : box(fx, r.x, r.y, wx) * box(fy, r.z, r.w, wy) * valid;
     gNs *= usePhoto ? 0.0 : 1.0 - inWin;
 
@@ -525,13 +533,14 @@ const FACADE_MAIN = /* glsl */`
     // the lintel shades the top of the opening
     if (!usePhoto) diffuseColor.rgb *= 1.0 - 0.35 * inWin * (1.0 - smoothstep(0.0, 0.18, wmax.y - pm.y)) * (1.0 - far);
     if (podiumBlock) {
-      float belt = exp(-abs(v - 7.2) * 1.35);
-      vec3 podLed = mix(vec3(1.0, 0.58, 0.24), vec3(0.35, 0.72, 1.0), step(0.55, fract(sf * 4.1)));
-      gEmissive += podLed * uNight * belt * 1.15;
-      float pierM = 1.0 - smoothstep(0.0, 0.2, abs(fract(vWall.x / mix(4.2, 7.4, fract(sf * 2.3))) - 0.5));
-      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.62, 0.64, 0.68), pierM * 0.65);
+      float belt = max(exp(-abs(v - 10.2) * 1.15), exp(-abs(v - 3.4) * 1.5));
+      vec3 podLed = mix(vec3(1.0, 0.58, 0.24), vec3(0.35, 0.72, 1.0), step(0.55, fract(sf * 4.1 + vWall.x * 0.02)));
+      gEmissive += podLed * uNight * belt * 1.45;
+      gEmissive += pane * vec3(1.0, 0.8, 0.52) * uNight * (0.34 + 0.7 * on);
+      float pierM = 1.0 - smoothstep(0.0, 0.16, abs(fract(vWall.x / mix(3.6, 6.2, fract(sf * 2.3))) - 0.5));
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.55, 0.57, 0.6), pierM * 0.85);
       float beltCourse = smoothstep(0.78, 0.94, fract(v / max(floorH, 0.5)));
-      diffuseColor.rgb *= 1.0 - beltCourse * 0.22;
+      diffuseColor.rgb *= 1.0 - beltCourse * 0.28;
     }
     if (shop) {
       float sign = box(fy, 0.84, 0.985, wy) * box(fx, 0.03, 0.97, wx) * step(0.25, hash12(room + 57.0));
@@ -580,7 +589,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-22';
+  material.customProgramCacheKey = () => 'sh-facade-23';
   return material;
 }
 
@@ -808,6 +817,7 @@ export function createWaterMaterial() {
       uniform sampler2D uMirror;
       uniform mat4 uMirrorMatrix;
       uniform float uMirrorOn;
+      uniform vec2 uCamDir;
       varying vec3 vWorld;
       ${NOISE}
       float ripple(vec2 p, float t) {
@@ -838,29 +848,65 @@ export function createWaterMaterial() {
         if (uMirrorOn > 0.5) {
           vec2 wob = n.xz * vec2(0.028, 0.04) * mix(0.35, 1.0, uDark);
           if (uDark > 0.5) {
-            // Elongated streaks: walk up the facade that lies on this bearing
-            // and lay that column of lights down the river. Ripple and a dash
-            // break it, so Pearl, the supertalls and the Bund each smear
-            // instead of sitting in one patch.
+            // The river is wider than the skyline. Find the bearings that
+            // actually hit lit towers, then lay that whole fan down every
+            // part of the water as a rippled column.
             vec2 bear = vWorld.xz - cameraPosition.xz;
             float distH = max(length(bear), 1.0);
             vec2 dir = bear / distH;
+            vec2 fwd = uCamDir;
+            float fl = length(fwd);
+            fwd = fl > 1e-4 ? fwd / fl : vec2(0.0, -1.0);
+            float fang = atan(fwd.y, fwd.x);
+            float ang = atan(dir.y, dir.x);
+            float delta = ang - fang;
+            delta -= 6.2831853 * floor((delta + 3.14159265) / 6.2831853);
+            float leftA = fang;
+            float rightA = fang;
+            float found = 0.0;
+            for (int i = 0; i < 11; i++) {
+              float a = fang + mix(-0.78, 0.78, float(i) / 10.0);
+              vec2 sd = vec2(cos(a), sin(a));
+              float lum = 0.0;
+              for (int k = 0; k < 2; k++) {
+                float hh = k == 0 ? 90.0 : 300.0;
+                vec3 sp = vec3(cameraPosition.x, hh, cameraPosition.z) + vec3(sd.x, 0.0, sd.y) * 1000.0;
+                vec4 sm = uMirrorMatrix * vec4(sp, 1.0);
+                vec2 suv = sm.xy / max(sm.w, 1e-3) * 0.5 + 0.5;
+                float inside = step(0.0, sm.w) * step(0.02, suv.x) * step(suv.x, 0.98) * step(0.02, suv.y) * step(suv.y, 0.98);
+                lum = max(lum, dot(texture2D(uMirror, clamp(suv, 0.02, 0.98)).rgb, vec3(0.299, 0.587, 0.114)) * inside);
+              }
+              if (lum > 0.08) {
+                if (found < 0.5) { leftA = a; rightA = a; found = 1.0; }
+                leftA = min(leftA, a);
+                rightA = max(rightA, a);
+              }
+            }
+            float tAcross = clamp(delta / 1.5 + 0.5, 0.0, 1.0);
             float travel = distH * 0.0032;
             float chop = sin(dot(vWorld.xz, vec2(0.27, 0.19)) + t * 0.85);
+            float column = found > 0.5 ? mix(leftA, rightA, tAcross) : ang;
+            column += (chop * 0.45 + (vnoise(vWorld.xz * 0.05) - 0.5)) * 0.035;
+            vec2 cd = vec2(cos(column), sin(column));
+            vec2 wob2 = wob * vec2(0.7, 0.22);
             float band = fract(travel * 1.15 + chop * 0.07);
-            vec3 across = vec3(dir.x, 0.0, dir.y) * 1500.0;
-            vec3 origin = vec3(cameraPosition.x, 0.0, cameraPosition.z);
-            vec2 wob2 = wob * vec2(1.2, 0.35);
-            float hA = mix(26.0, 680.0, pow(band, 0.7));
-            float hB = mix(40.0, 320.0, fract(band * 1.8 + 0.31));
-            vec4 mcA = uMirrorMatrix * vec4(origin + across + vec3(0.0, hA, 0.0), 1.0);
-            vec4 mcB = uMirrorMatrix * vec4(origin + across + vec3(0.0, hB, 0.0), 1.0);
-            vec2 uvA = mcA.xy / max(mcA.w, 1e-3) * 0.5 + 0.5 + wob2;
-            vec2 uvB = mcB.xy / max(mcB.w, 1e-3) * 0.5 + 0.5 + wob2;
-            vec3 tapA = texture2D(uMirror, clamp(uvA, 0.012, 0.988)).rgb;
-            vec3 tapB = texture2D(uMirror, clamp(uvB, 0.012, 0.988)).rgb;
-            seen = dot(tapA, vec3(0.3)) > dot(tapB, vec3(0.3)) ? tapA : tapB;
-            thing = 0.42 + 0.58 * smoothstep(0.28, 0.72, 0.5 + 0.5 * sin(travel * 8.0 + chop * 2.4 + vnoise(vWorld.xz * 0.07) * 4.0));
+            vec3 best = vec3(0.0);
+            float bestS = -1.0;
+            for (int s = 0; s < 3; s++) {
+              float u = s == 0 ? band : fract(band * (s == 1 ? 1.7 : 2.4) + float(s) * 0.31);
+              float hh = s == 0 ? mix(28.0, 240.0, u) : s == 1 ? mix(200.0, 480.0, u) : mix(420.0, 820.0, u);
+              vec3 sp = vec3(cameraPosition.x, hh, cameraPosition.z) + vec3(cd.x, 0.0, cd.y) * 1000.0;
+              vec4 sm = uMirrorMatrix * vec4(sp, 1.0);
+              vec2 suv = sm.xy / max(sm.w, 1e-3) * 0.5 + 0.5 + wob2;
+              vec3 sc = texture2D(uMirror, clamp(suv, 0.012, 0.988)).rgb;
+              float l = dot(sc, vec3(0.299, 0.587, 0.114));
+              float chroma = length(sc - vec3(l));
+              float score = l + chroma * (s == 2 ? 1.2 : 0.55);
+              if (score > bestS) { bestS = score; best = sc; }
+            }
+            seen = best;
+            float dash = 0.5 + 0.5 * sin(travel * 8.0 + chop * 2.4 + vnoise(vWorld.xz * 0.07) * 4.0);
+            thing = 0.38 + 0.62 * smoothstep(0.2, 0.62, dash);
           } else {
             vec4 mc = uMirrorMatrix * vec4(vWorld, 1.0);
             float near = clamp(70.0 / dist, 0.05, 0.65);
@@ -874,7 +920,7 @@ export function createWaterMaterial() {
             thing = 1.0;
           }
         }
-        float cover = mix(fresnel * 0.8, 0.5 + 0.38 * fresnel, uDark);
+        float cover = mix(fresnel * 0.8, 0.6 + 0.3 * fresnel, uDark);
         vec3 col = mix(body, seen, cover * thing + fresnel * (1.0 - thing) * 0.35);
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);
