@@ -30,6 +30,7 @@ export const cityUniforms = {
   // Horizontal view direction. Night water folds the river onto the lit fan
   // in front of the camera so a bearing that misses the skyline still streaks.
   uCamDir: { value: new THREE.Vector2(0, -1) },
+  uViewMatrix: { value: new THREE.Matrix4() },
 };
 
 const NOISE = /* glsl */`
@@ -535,8 +536,8 @@ const FACADE_MAIN = /* glsl */`
     if (podiumBlock) {
       float belt = max(exp(-abs(v - 10.2) * 1.15), exp(-abs(v - 3.4) * 1.5));
       vec3 podLed = mix(vec3(1.0, 0.58, 0.24), vec3(0.35, 0.72, 1.0), step(0.55, fract(sf * 4.1 + vWall.x * 0.02)));
-      gEmissive += podLed * uNight * belt * 1.45;
-      gEmissive += pane * vec3(1.0, 0.8, 0.52) * uNight * (0.34 + 0.7 * on);
+      gEmissive += podLed * uNight * belt * 0.85;
+      gEmissive += pane * vec3(1.0, 0.74, 0.42) * uNight * 0.2 * on;
       float pierM = 1.0 - smoothstep(0.0, 0.16, abs(fract(vWall.x / mix(3.6, 6.2, fract(sf * 2.3))) - 0.5));
       diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.55, 0.57, 0.6), pierM * 0.85);
       float beltCourse = smoothstep(0.78, 0.94, fract(v / max(floorH, 0.5)));
@@ -589,7 +590,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-23';
+  material.customProgramCacheKey = () => 'sh-facade-24';
   return material;
 }
 
@@ -818,6 +819,7 @@ export function createWaterMaterial() {
       uniform mat4 uMirrorMatrix;
       uniform float uMirrorOn;
       uniform vec2 uCamDir;
+      uniform mat4 uViewMatrix;
       varying vec3 vWorld;
       ${NOISE}
       float ripple(vec2 p, float t) {
@@ -859,8 +861,6 @@ export function createWaterMaterial() {
             fwd = fl > 1e-4 ? fwd / fl : vec2(0.0, -1.0);
             float fang = atan(fwd.y, fwd.x);
             float ang = atan(dir.y, dir.x);
-            float delta = ang - fang;
-            delta -= 6.2831853 * floor((delta + 3.14159265) / 6.2831853);
             float leftA = fang;
             float rightA = fang;
             float found = 0.0;
@@ -882,29 +882,35 @@ export function createWaterMaterial() {
                 rightA = max(rightA, a);
               }
             }
-            float tAcross = clamp(delta / 1.5 + 0.5, 0.0, 1.0);
+            // Screen-left water takes the leftmost lit tower (Pearl), screen-right
+            // the far end of the cluster, so each landmark is a column on the river.
+            vec4 vc = uViewMatrix * vec4(vWorld, 1.0);
+            float tAcross = clamp(vc.x / max(vc.w, 1e-3) * 0.5 + 0.5, 0.0, 1.0);
             float travel = distH * 0.0032;
             float chop = sin(dot(vWorld.xz, vec2(0.27, 0.19)) + t * 0.85);
             float column = found > 0.5 ? mix(leftA, rightA, tAcross) : ang;
-            column += (chop * 0.45 + (vnoise(vWorld.xz * 0.05) - 0.5)) * 0.035;
+            column += (vnoise(vWorld.xz * 0.05) - 0.5) * 0.02;
             vec2 cd = vec2(cos(column), sin(column));
-            vec2 wob2 = wob * vec2(0.7, 0.22);
+            vec2 wob2 = wob * vec2(0.45, 0.16);
             float band = fract(travel * 1.15 + chop * 0.07);
-            vec3 best = vec3(0.0);
-            float bestS = -1.0;
+            vec3 shaft = vec3(0.0);
+            float shaftS = -1.0;
+            vec3 crown = vec3(0.0);
+            float crownL = 0.0;
             for (int s = 0; s < 3; s++) {
-              float u = s == 0 ? band : fract(band * (s == 1 ? 1.7 : 2.4) + float(s) * 0.31);
-              float hh = s == 0 ? mix(28.0, 240.0, u) : s == 1 ? mix(200.0, 480.0, u) : mix(420.0, 820.0, u);
+              float u = fract(band * (s == 0 ? 1.0 : s == 1 ? 1.6 : 2.1) + float(s) * 0.27);
+              float hh = s == 2 ? mix(480.0, 800.0, u) : mix(36.0, 320.0, u);
               vec3 sp = vec3(cameraPosition.x, hh, cameraPosition.z) + vec3(cd.x, 0.0, cd.y) * 1000.0;
               vec4 sm = uMirrorMatrix * vec4(sp, 1.0);
               vec2 suv = sm.xy / max(sm.w, 1e-3) * 0.5 + 0.5 + wob2;
               vec3 sc = texture2D(uMirror, clamp(suv, 0.012, 0.988)).rgb;
               float l = dot(sc, vec3(0.299, 0.587, 0.114));
-              float chroma = length(sc - vec3(l));
-              float score = l + chroma * (s == 2 ? 1.2 : 0.55);
-              if (score > bestS) { bestS = score; best = sc; }
+              if (s == 2) { crown = sc; crownL = l; }
+              else if (l > shaftS) { shaftS = l; shaft = sc; }
             }
-            seen = best;
+            // The crown tap is where Pearl's spheres and the supertall tops sit.
+            // Keep it in the streak whenever it is actually lit.
+            seen = mix(shaft, crown, step(0.06, crownL) * 0.72);
             float dash = 0.5 + 0.5 * sin(travel * 8.0 + chop * 2.4 + vnoise(vWorld.xz * 0.07) * 4.0);
             thing = 0.38 + 0.62 * smoothstep(0.2, 0.62, dash);
           } else {

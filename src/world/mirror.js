@@ -54,6 +54,7 @@ export class WaterMirror {
     if (_fwd.lengthSq() < 1e-8) _fwd.set(0, 0, -1);
     _fwd.normalize();
     cityUniforms.uCamDir.value.set(_fwd.x, _fwd.z);
+    cityUniforms.uViewMatrix.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     if (night) {
       // The reflected look points down into the river, so Pearl and the
       // supertalls sit on the edge of the mirror and the far bank samples
