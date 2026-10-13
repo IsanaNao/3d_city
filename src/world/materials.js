@@ -864,8 +864,8 @@ export function createWaterMaterial() {
             float leftA = fang;
             float rightA = fang;
             float found = 0.0;
-            for (int i = 0; i < 11; i++) {
-              float a = fang + mix(-0.78, 0.78, float(i) / 10.0);
+            for (int i = 0; i < 15; i++) {
+              float a = fang + mix(-0.72, 0.72, float(i) / 14.0);
               vec2 sd = vec2(cos(a), sin(a));
               float lum = 0.0;
               for (int k = 0; k < 2; k++) {
@@ -883,12 +883,33 @@ export function createWaterMaterial() {
               }
             }
             // Screen-left water takes the leftmost lit tower (Pearl), screen-right
-            // the far end of the cluster, so each landmark is a column on the river.
+            // the far end of the cluster. Snap onto a lit bearing so the gaps
+            // between towers still carry that tower's column.
             vec4 vc = uViewMatrix * vec4(vWorld, 1.0);
             float tAcross = clamp(vc.x / max(vc.w, 1e-3) * 0.5 + 0.5, 0.0, 1.0);
+            float want = mix(leftA, rightA, tAcross);
+            float snapped = want;
+            float snapD = 2.0;
+            if (found > 0.5) {
+              for (int i = 0; i < 15; i++) {
+                float a = fang + mix(-0.72, 0.72, float(i) / 14.0);
+                vec2 sd = vec2(cos(a), sin(a));
+                float lum = 0.0;
+                for (int k = 0; k < 2; k++) {
+                  float hh = k == 0 ? 460.0 : 660.0;
+                  vec3 sp = vec3(cameraPosition.x, hh, cameraPosition.z) + vec3(sd.x, 0.0, sd.y) * 1000.0;
+                  vec4 sm = uMirrorMatrix * vec4(sp, 1.0);
+                  vec2 suv = sm.xy / max(sm.w, 1e-3) * 0.5 + 0.5;
+                  float inside = step(0.0, sm.w) * step(0.02, suv.x) * step(suv.x, 0.98) * step(0.02, suv.y) * step(suv.y, 0.98);
+                  lum = max(lum, dot(texture2D(uMirror, clamp(suv, 0.02, 0.98)).rgb, vec3(0.299, 0.587, 0.114)) * inside);
+                }
+                float d = abs(a - want);
+                if (lum > 0.08 && d < snapD) { snapD = d; snapped = a; }
+              }
+            }
             float travel = distH * 0.0032;
             float chop = sin(dot(vWorld.xz, vec2(0.27, 0.19)) + t * 0.85);
-            float column = found > 0.5 ? mix(leftA, rightA, tAcross) : ang;
+            float column = found > 0.5 ? snapped : ang;
             column += (vnoise(vWorld.xz * 0.05) - 0.5) * 0.02;
             vec2 cd = vec2(cos(column), sin(column));
             vec2 wob2 = wob * vec2(0.45, 0.16);
@@ -911,6 +932,21 @@ export function createWaterMaterial() {
             // The crown tap is where Pearl's spheres and the supertall tops sit.
             // Keep it in the streak whenever it is actually lit.
             seen = mix(shaft, crown, step(0.05, crownL) * 0.86);
+            // Four named lights, left to right: Pearl, Jin Mao, SWFC, Shanghai.
+            // A stripe of the river samples that tower directly when the mirror
+            // can see it, so the pink spheres and the crowns are not skipped.
+            float stripe = clamp(tAcross, 0.0, 0.999) * 4.0;
+            vec3 mark = stripe < 1.0 ? vec3(-242.0, 0.0, -321.0)
+              : stripe < 2.0 ? vec3(344.0, 0.0, 194.0)
+              : stripe < 3.0 ? vec3(499.0, 0.0, 269.0)
+              : vec3(330.0, 0.0, 382.0);
+            float markH = stripe < 1.0 ? mix(140.0, 470.0, band) : mix(160.0, 600.0, band);
+            vec4 mm = uMirrorMatrix * vec4(mark.x, markH, mark.z, 1.0);
+            vec2 muv = mm.xy / max(mm.w, 1e-3) * 0.5 + 0.5 + wob2;
+            float minSide = min(min(muv.x, 1.0 - muv.x), min(muv.y, 1.0 - muv.y));
+            float markOk = step(0.0, mm.w) * step(0.03, minSide);
+            vec3 markCol = texture2D(uMirror, clamp(muv, 0.02, 0.98)).rgb;
+            if (markOk > 0.5 && dot(markCol, vec3(0.3)) > 0.04) seen = markCol;
             float dash = 0.5 + 0.5 * sin(travel * 8.0 + chop * 2.4 + vnoise(vWorld.xz * 0.07) * 4.0);
             thing = 0.38 + 0.62 * smoothstep(0.2, 0.62, dash);
           } else {
