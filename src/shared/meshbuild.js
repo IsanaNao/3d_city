@@ -326,6 +326,70 @@ function addParapet(acc, ring, color, a) {
   }
 }
 
+function addBox(acc, cx, cz, hw, hd, y0, y1, color, a) {
+  if (hw < 0.8 || hd < 0.8 || y1 - y0 < 0.4) return;
+  const x0 = cx - hw;
+  const x1 = cx + hw;
+  const z0 = cz - hd;
+  const z1 = cz + hd;
+  addWall(acc, x0, z0, x1, z0, y0, y1, color, a);
+  addWall(acc, x1, z0, x1, z1, y0, y1, color, a);
+  addWall(acc, x1, z1, x0, z1, y0, y1, color, a);
+  addWall(acc, x0, z1, x0, z0, y0, y1, color, a);
+  const roof = color.map((c) => Math.min(1, c * 0.9));
+  for (const v of [[x0, z0], [x1, z0], [x1, z1], [x0, z0], [x1, z1], [x0, z1]]) {
+    pushVert(acc, v[0], y1, v[1], 0, 1, 0, roof, a);
+  }
+}
+
+// Ordinary office towers are one OSM box. A stepped crown and a mechanical
+// penthouse give the skyline a setback instead of a flat top.
+function addTowerCrown(acc, ring, color, a) {
+  const height = a.top - a.base;
+  if (height < 75 || a.kind === KIND.LANDMARK || a.kind === KIND.HISTORIC) return;
+  if (a.kind !== KIND.OFFICE && a.kind !== KIND.COMMERCIAL) return;
+  const pts = pairsOf(ring);
+  if (pts.length < 3 || pts.length > 12) return;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const p of pts) {
+    minX = Math.min(minX, p[0]);
+    maxX = Math.max(maxX, p[0]);
+    minZ = Math.min(minZ, p[1]);
+    maxZ = Math.max(maxZ, p[1]);
+  }
+  const w = maxX - minX;
+  const d = maxZ - minZ;
+  if (w < 14 || d < 14 || w > 90 || d > 90) return;
+  const cx = (minX + maxX) / 2;
+  const cz = (minZ + maxZ) / 2;
+  const seed = a.seed || 1;
+  const inset = 0.12 + (seed % 5) * 0.02;
+  const hw = w * (0.5 - inset);
+  const hd = d * (0.5 - inset);
+  const crownH = Math.min(28, Math.max(7, height * (0.055 + (seed % 4) * 0.012)));
+  const metal = color.map((c) => Math.min(1, c * 0.62 + 0.12));
+  addBox(acc, cx, cz, hw, hd, a.top, a.top + crownH, metal, a);
+  if (seed % 3 !== 1) {
+    const hw2 = hw * (0.62 + (seed % 3) * 0.06);
+    const hd2 = hd * 0.58;
+    const step = crownH * 0.42;
+    addBox(acc, cx, cz, hw2, hd2, a.top + step, a.top + crownH + step * 0.35, metal, a);
+  }
+  const phW = Math.max(2.2, hw * 0.28);
+  const phD = Math.max(1.8, hd * 0.22);
+  const phH = 3.4 + (seed % 5) * 0.7;
+  const dark = color.map((c) => c * 0.4);
+  const ox = ((seed % 5) - 2) * hw * 0.12;
+  const oz = ((seed % 3) - 1) * hd * 0.1;
+  addBox(acc, cx + ox, cz + oz, phW, phD, a.top + crownH, a.top + crownH + phH, dark, a);
+  if (seed % 2 === 0) {
+    addBox(acc, cx - ox * 0.4, cz - oz, phW * 0.45, phD * 0.7, a.top + crownH, a.top + crownH + phH * 0.55, dark, a);
+  }
+}
+
 function addBalconies(acc, ring, color, a) {
   if (a.kind !== KIND.RESIDENTIAL) return;
   const height = a.top - a.base;
@@ -438,6 +502,7 @@ export function buildBuildingGeometry(buildings) {
     } else {
       addRoof(acc, rings, building.topY, color, attrs, true);
       addParapet(acc, rings[0], color, attrs);
+      addTowerCrown(acc, rings[0], color, attrs);
     }
     if (building.flags & BFLAG.FLOATING) addRoof(acc, rings, building.baseY, color, attrs, false);
     addBalconies(acc, rings[0], color, attrs);

@@ -197,3 +197,14 @@ test('a dome roof rises to the tagged height and windows know their wall length'
   const n0 = [geo.normal[0], geo.normal[2]];
   assert.ok(Math.abs(Math.hypot(n0[0], n0[1]) - 1) < 1e-3);
 });
+
+test('a tall office grows a setback crown above the roof', () => {
+  const geo = buildBuildingGeometry([part(box(0, 0, 40, 30), 0, 120)]);
+  let top = 0;
+  for (let i = 1; i < geo.position.length; i += 3) top = Math.max(top, geo.position[i]);
+  assert.ok(top > 128 && top < 170, `crown top ${top}`);
+  const low = buildBuildingGeometry([part(box(0, 0, 40, 30), 0, 40)]);
+  let lowTop = 0;
+  for (let i = 1; i < low.position.length; i += 3) lowTop = Math.max(lowTop, low.position[i]);
+  assert.ok(lowTop < 42, `short office top ${lowTop}`);
+});

@@ -838,13 +838,13 @@ function jinmaoMaterial() {
         float col = floor(vGrid.x * 9.0);
         float on = step(0.62, fract(sin(row * 12.1 + col * 7.7) * 43758.5));
         // Cool silver flood on the lattice, warm windows, gold only on the crown.
-        totalEmissiveRadiance += vec3(0.72, 0.80, 0.92) * frame * uNight * 0.28;
+        totalEmissiveRadiance += vec3(0.78, 0.86, 0.98) * frame * uNight * 0.62;
         totalEmissiveRadiance += vec3(1.0, 0.84, 0.58) * pane * on * uNight * 0.55;
         float crown = smoothstep(280.0, 370.0, vLm.y);
         totalEmissiveRadiance += vec3(1.0, 0.72, 0.22) * crown * uNight * (1.05 + frame * 1.5);
       `);
   };
-  jinGrid.customProgramCacheKey = () => 'lm-jin-grid-2';
+  jinGrid.customProgramCacheKey = () => 'lm-jin-grid-3';
   return jinGrid;
 }
 
@@ -868,6 +868,22 @@ function shellGrid(group, a, b, mat) {
   add(group, geo, mat);
 }
 
+let jinSteel = null;
+function jinmaoSteel() {
+  if (jinSteel) return jinSteel;
+  jinSteel = new THREE.MeshStandardMaterial({ color: 0xdfe4ea, metalness: 0.7, roughness: 0.26 });
+  jinSteel.onBeforeCompile = (shader) => {
+    shader.uniforms.uNight = cityUniforms.uNight;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uNight;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        totalEmissiveRadiance += vec3(0.78, 0.86, 0.96) * uNight * 0.46;
+      `);
+  };
+  jinSteel.customProgramCacheKey = () => 'lm-jin-steel-1';
+  return jinSteel;
+}
+
 function jinmao(h) {
   const g = new THREE.Group();
   const s = h / 420.5;
@@ -888,8 +904,8 @@ function jinmao(h) {
     const lip = ringPoints(8, radius * 1.045, twist, y + tierH * 0.92, false);
     const shelf = ringPoints(8, next, twist, y + tierH, false);
     shellGrid(g, lower, neck, grid);
-    shellBetween(g, neck, lip, steel);
-    shellBetween(g, lip, shelf, steel);
+    shellBetween(g, neck, lip, jinmaoSteel());
+    shellBetween(g, lip, shelf, jinmaoSteel());
     if (i === 0) capRing(g, lower, dark);
     y += tierH;
     radius = next;
@@ -898,7 +914,7 @@ function jinmao(h) {
   const spire = new THREE.CylinderGeometry(0.28 * s, Math.max(radius * 0.92, 0.7), spireH, 8);
   spire.rotateY(-twist);
   spire.translate(0, y + spireH / 2, 0);
-  add(g, spire, steel);
+  add(g, spire, jinmaoSteel());
   add(g, new THREE.SphereGeometry(0.55 * s, 8, 6).translate(0, h, 0), beaconMat);
   return g;
 }

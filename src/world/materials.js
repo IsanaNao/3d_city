@@ -283,7 +283,12 @@ const FACADE_MAIN = /* glsl */`
     float mx = fract((pm.x - wmin.x) / max(wmax.x - wmin.x, 0.01) * panes);
     float mw = 0.03 * panes / max(wmax.x - wmin.x, 0.01);
     frame = max(frame, panes > 1.5 ? 1.0 - box(mx, mw, 1.0 - mw, max(fwidth(mx), 1e-4)) : 0.0);
-    frame *= usePhoto ? 0.0 : 1.0 - far;
+    float tallOffice = height > 80.0 && kind > 1.5 && kind < 4.5 ? 1.0 : 0.0;
+    // At skyline distance the mullions used to vanish, leaving zebra floor bands.
+    float frameFade = mix(1.0 - far, mix(1.0, 0.78, far), tallOffice);
+    frame *= usePhoto ? 0.0 : frameFade;
+    float pier = tallOffice * (1.0 - smoothstep(0.02, 0.1, abs(fract((col + 0.5) / 5.0) - 0.5)));
+    frame = max(frame, pier);
     float pane = inWin * (1.0 - frame);
 
     // interior mapping: the view ray meets a room box behind the glass
@@ -342,6 +347,12 @@ const FACADE_MAIN = /* glsl */`
     }
     diffuseColor.rgb = mix(diffuseColor.rgb, frameCol, inWin * frame);
     diffuseColor.rgb = mix(diffuseColor.rgb, glassTint, pane);
+    if (tallOffice > 0.5 && !usePhoto) {
+      float spandrel = 1.0 - smoothstep(0.0, 0.18, min(fy, 1.0 - fy));
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.42, 0.46, 0.5), spandrel * (1.0 - pane));
+      float podium = 1.0 - smoothstep(6.0, 16.0, v);
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.38, 0.36, 0.34), podium * 0.75);
+    }
     gRough = mix(gRough, 0.45, inWin * frame);
     gRough = mix(gRough, 0.06, pane);
     gMetal = mix(gMetal, 0.92, pane);
@@ -406,6 +417,10 @@ const FACADE_MAIN = /* glsl */`
       vec3 line = mix(vec3(1.0, 0.82, 0.55), hue(led), 0.35);
       gEmissive += line * uNight * (side * 0.16 + crownLine * 0.4);
     }
+    if (tall > 0.55) {
+      float parapet = smoothstep(0.94, 0.975, v / height) * (1.0 - smoothstep(0.99, 1.0, v / height));
+      gEmissive += vec3(0.75, 0.82, 0.92) * uNight * parapet * 0.34;
+    }
     // the lintel shades the top of the opening
     if (!usePhoto) diffuseColor.rgb *= 1.0 - 0.35 * inWin * (1.0 - smoothstep(0.0, 0.18, wmax.y - pm.y)) * (1.0 - far);
     if (shop) {
@@ -455,7 +470,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-14';
+  material.customProgramCacheKey = () => 'sh-facade-15';
   return material;
 }
 
@@ -739,9 +754,15 @@ export function createWaterMaterial() {
           // lamp above them, broken into dashes along their length.
           vec3 src = max(m.rgb - vec3(0.045), 0.0);
           float srcL = dot(src, vec3(0.2126, 0.7152, 0.0722));
-          float along = dist * 0.09 + vnoise(vWorld.xz * 0.03) * 1.8;
-          float dash = smoothstep(0.06, 0.32, fract(along));
-          dash *= 0.4 + 0.6 * smoothstep(0.22, 0.78, vnoise(vec2(floor(along), vWorld.z * 0.02 + t * 0.12)));
+          // Breaks run along each column. A phase that depends only on distance
+          // from the camera lines the gaps up into horizontal stripes.
+          float vhLen = length(vec2(wv.x, wv.z));
+          vec2 vh = vhLen > 1e-4 ? vec2(wv.x, wv.z) / vhLen : vec2(1.0, 0.0);
+          float alongCol = vWorld.x * vh.x + vWorld.z * vh.y;
+          float acrossCol = -vWorld.x * vh.y + vWorld.z * vh.x;
+          float along = alongCol * 0.11 + vnoise(vec2(acrossCol * 0.045, 2.7)) * 3.4;
+          float dash = smoothstep(0.02, 0.42, fract(along));
+          dash *= 0.5 + 0.5 * smoothstep(0.2, 0.75, vnoise(vec2(floor(along + acrossCol * 0.07), 1.7 + t * 0.08)));
           float gate = smoothstep(0.04, 0.16, srcL);
           vec3 nightRefl = src * (0.45 + 1.05 * gate) * mix(0.22, 1.0, dash);
           // Near the camera the columns shorten and the water stays dark,
