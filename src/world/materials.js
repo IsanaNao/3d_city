@@ -558,7 +558,7 @@ const ROAD = /* glsl */`
   bool under = vFlags > 0.5 && vFlags < 1.5;
   bool tunnel = vFlags > 1.5 && vFlags < 2.5;
   bool curb = vFlags > 2.5 && vFlags < 3.5;
-  float lanes = vFlags > 9.5 ? clamp(floor(vFlags + 0.5) - 10.0, 1.0, 8.0) : 2.0;
+  float lanes = vFlags > 9.5 ? clamp(floor(vFlags + 0.5) - 10.0, 1.0, 12.0) : 2.0;
   vec2 ruv = vec2(vWorld.x, -vWorld.z);
   if (curb) {
     col = vec3(0.42, 0.41, 0.39);
@@ -612,7 +612,11 @@ const ROAD = /* glsl */`
     float edgeLine = 1.0 - smoothstep(0.0, 0.018, abs(abs(across) - 0.94));
     float paint = edgeLine;
     vec3 paintCol = vec3(0.75, 0.75, 0.7);
-    for (int i = 1; i < 8; i++) {
+    if (lanes >= 8.0) {
+      float median = 1.0 - smoothstep(0.018, 0.055, abs(across));
+      col = mix(col, vec3(0.1, 0.105, 0.09), median * 0.9);
+    }
+    for (int i = 1; i < 12; i++) {
       if (float(i) >= lanes) break;
       float boundary = float(i) / lanes * 2.0 - 1.0;
       bool center = abs(float(i) - lanes * 0.5) < 0.51 && mod(lanes, 2.0) < 0.1;
@@ -667,7 +671,7 @@ export function createRoadMaterial() {
       .replace('#include <normal_fragment_maps>', PHOTO_NORMAL)
       .replace('#include <lights_fragment_end>', LAMP_READ);
   };
-  material.customProgramCacheKey = () => 'sh-road-4';
+  material.customProgramCacheKey = () => 'sh-road-5';
   material.polygonOffset = true;
   material.polygonOffsetFactor = -1;
   material.polygonOffsetUnits = -1;

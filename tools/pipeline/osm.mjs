@@ -104,6 +104,9 @@ export function carriageWidth(tags, highway) {
     const n = lanes >= 1 && lanes <= 10 ? lanes : 4;
     return Math.max(tagged > 3 ? tagged : 0, n * 3.6 + 3);
   }
+  // OSM keeps one 3-lane direction. The surface road between the Bund fronts
+  // and the flood wall is a ten-lane boulevard with a narrow median.
+  if (/中山东[一二]路/.test(name)) return 10 * 3.35 + 1.5;
   const elevated = tags.bridge === 'yes' || tags.bridge === 'viaduct' || Number(tags.layer) > 0;
   if (elevated && (highway === 'trunk' || highway === 'motorway' || highway === 'trunk_link')) {
     const n = lanes >= 1 && lanes <= 8 ? lanes : 2;
@@ -131,7 +134,7 @@ export function deckLift(tags, points, bridge, lv) {
 }
 
 export function laneCount(width) {
-  return Math.max(1, Math.min(8, Math.round((width - 0.5) / 3.35)));
+  return Math.max(1, Math.min(12, Math.round((width - 0.5) / 3.35)));
 }
 
 export function sidewalkWidthFor(highway, bridge, name = '') {

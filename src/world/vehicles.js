@@ -68,15 +68,26 @@ export function createCarFleet(count) {
 
 const CLOTHES = [0x243044, 0x8c3a3a, 0x2f4a38, 0xc4b8a4, 0x1d3d6e, 0x6b5344, 0xd8d4cc, 0x3d3a44];
 
+const PANTS = [0x1c1e22, 0x243044, 0x3a322c, 0x2c3340, 0x4a4036, 0x1a2744];
+
 export function createPersonFleet(count) {
-  const body = paint(new THREE.BoxGeometry(0.42, 0.92, 0.26).translate(0, 0.78, 0), 0xffffff);
-  const legs = paint(new THREE.BoxGeometry(0.36, 0.55, 0.22).translate(0, 0.28, 0), 0x1c1e22);
-  const geo = mergeGeometries([body, legs]);
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
-  const mesh = new THREE.InstancedMesh(geo, mat, count);
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0 });
+  const shirt = mergeGeometries([
+    paint(new THREE.BoxGeometry(0.36, 0.48, 0.2).translate(0, 1.02, 0), 0xffffff),
+    paint(new THREE.BoxGeometry(0.1, 0.4, 0.1).translate(-0.24, 0.98, 0), 0xffffff),
+    paint(new THREE.BoxGeometry(0.1, 0.4, 0.1).translate(0.24, 0.98, 0), 0xffffff),
+  ]);
+  const mesh = new THREE.InstancedMesh(shirt, mat, count);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.frustumCulled = false;
-  const headGeo = new THREE.SphereGeometry(0.16, 8, 6).translate(0, 1.38, 0);
+  const legsGeo = mergeGeometries([
+    paint(new THREE.BoxGeometry(0.12, 0.56, 0.14).translate(-0.09, 0.28, 0), 0xffffff),
+    paint(new THREE.BoxGeometry(0.12, 0.56, 0.14).translate(0.09, 0.28, 0), 0xffffff),
+  ]);
+  const legs = new THREE.InstancedMesh(legsGeo, mat.clone(), count);
+  legs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  legs.frustumCulled = false;
+  const headGeo = new THREE.SphereGeometry(0.13, 8, 6).translate(0, 1.4, 0);
   const heads = new THREE.InstancedMesh(headGeo, new THREE.MeshStandardMaterial({
     color: 0xd2b49a, roughness: 0.65,
   }), count);
@@ -86,9 +97,12 @@ export function createPersonFleet(count) {
   for (let i = 0; i < count; i++) {
     color.setHex(CLOTHES[i % CLOTHES.length]);
     mesh.setColorAt(i, color);
+    color.setHex(PANTS[(i * 3) % PANTS.length]);
+    legs.setColorAt(i, color);
   }
   mesh.instanceColor.needsUpdate = true;
-  return { mesh, heads, dummy: new THREE.Object3D(), count };
+  legs.instanceColor.needsUpdate = true;
+  return { mesh, legs, heads, dummy: new THREE.Object3D(), count };
 }
 
 export function createBoatFleet(count) {

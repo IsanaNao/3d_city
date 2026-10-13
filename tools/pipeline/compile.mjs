@@ -581,10 +581,38 @@ function placeProps(buildings, roads, land, sampleHeight, signals = []) {
   const blocked = (x, z) => waters.some((ring) => pointInPoly(x, z, ring));
   const junctions = junctionPoints(roads);
   const nearJunction = (x, z, rad) => junctions.some((j) => (j[0] - x) ** 2 + (j[1] - z) ** 2 < rad * rad);
+  const shells = [];
+  for (const building of buildings) {
+    const ring = building.rings?.[0];
+    if (!ring || ring.length < 3 || !Array.isArray(ring[0])) continue;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const p of ring) {
+      if (p[0] < minX) minX = p[0];
+      if (p[0] > maxX) maxX = p[0];
+      if (p[1] < minZ) minZ = p[1];
+      if (p[1] > maxZ) maxZ = p[1];
+    }
+    shells.push({ ring, minX, maxX, minZ, maxZ });
+  }
+  const insideBuilding = (px, pz) => {
+    for (const shell of shells) {
+      if (px < shell.minX || px > shell.maxX || pz < shell.minZ || pz > shell.maxZ) continue;
+      if (pointInPoly(px, pz, shell.ring)) return true;
+    }
+    return false;
+  };
 
-  for (const road of roads) {
+  const treeRoads = [
+    ...roads.filter((road) => /中山东/.test(road.name || '')),
+    ...roads.filter((road) => !/中山东/.test(road.name || '')),
+  ];
+  for (const road of treeRoads) {
     if (!road.drive) continue;
-    const treeStep = road.cls === ROAD.RESIDENTIAL || road.cls === ROAD.SERVICE ? 8 : 12;
+    const treeStep = /中山东/.test(road.name || '') ? 10
+      : road.cls === ROAD.RESIDENTIAL || road.cls === ROAD.SERVICE ? 8 : 12;
     let walked = 0;
     let nextTree = treeStep * 0.45;
     let nextLamp = 8;
@@ -603,18 +631,32 @@ function placeProps(buildings, roads, land, sampleHeight, signals = []) {
         return [a[0] + dx * t, a[1] + dz * t];
       };
       if (!road.bridge && road.cls !== ROAD.MOTORWAY) {
+        const bundBoulevard = /中山东/.test(road.name || '');
         while (nextTree < walked + len && trees < 5200) {
           const [x, z] = at(nextTree);
-          const y = sampleHeight(x, z) + (road.lift || 0);
-          const side = road.width * 0.5 + Math.max(road.sidewalk || 2.8, 2.2) - 0.7;
-          if (!nearJunction(x, z, 9)) {
-            for (const s of [-1, 1]) {
-              const tx = x + rx * side * s;
-              const tz = z + rz * side * s;
+          const y = road.y ? road.y[i - 1] : sampleHeight(x, z) + (road.lift || 0);
+          const side = bundBoulevard
+            ? road.width * 0.5 + 1.5
+            : road.width * 0.5 + Math.max(road.sidewalk || 2.8, 2.2) - 0.7;
+          if (!nearJunction(x, z, bundBoulevard ? 3.5 : 9)) {
+            // Plane trees stand on the building side of the Bund boulevard, west of the curb.
+            const sides = bundBoulevard ? [rx >= 0 ? -1 : 1] : [-1, 1];
+            for (const s of sides) {
+              let tx = x + rx * side * s;
+              let tz = z + rz * side * s;
+              if (bundBoulevard) {
+                for (let n = 0; n < 5 && insideBuilding(tx, tz); n++) {
+                  tx -= rx * s * 1.3;
+                  tz -= rz * s * 1.3;
+                }
+                if (insideBuilding(tx, tz)) continue;
+              }
               if (!blocked(tx, tz)) {
                 props.push({
                   kind: PROP.TREE, variant: trees % 3, x: tx, y, z: tz,
-                  rot: (trees * 0.7) % 6.28, scale: 0.82 + (trees % 5) * 0.07, extra: 1,
+                  rot: (trees * 0.7) % 6.28,
+                  scale: bundBoulevard ? 1.55 + (trees % 4) * 0.1 : 0.82 + (trees % 5) * 0.07,
+                  extra: 1,
                 });
                 trees += 1;
               }
@@ -624,7 +666,7 @@ function placeProps(buildings, roads, land, sampleHeight, signals = []) {
         }
         while (nextLamp < walked + len && lamps < 2200 && road.cls !== ROAD.SERVICE) {
           const [x, z] = at(nextLamp);
-          const y = sampleHeight(x, z);
+          const y = road.y ? road.y[i - 1] : sampleHeight(x, z);
           const side = road.width * 0.5 + Math.max(road.sidewalk || 0, 0.6) - 0.35;
           if (!nearJunction(x, z, 7)) {
             for (const s of [-1, 1]) {
@@ -969,10 +1011,12 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
       const points = resamplePolyline(part, 16);
       if (points.length < 2 || polylineLength(points) < 4) continue;
       const lifts = liftAlong(road, points);
-      const y = points.map(([x, z], i) => sampleDeck(x, z) + 0.22 + lifts[i]);
+      const sampled = points.map(([x, z], i) => sampleDeck(x, z) + 0.22 + lifts[i]);
+      const y = road.bridge || road.ribbon ? sampled : relaxStreetGrade(points, sampled);
       draped.push({ ...road, points, y });
     }
   }
+  flattenTerrainUnderRoads(carved, draped);
 
   const graph = buildRoadGraph(draped, parsed.signals);
   const railPieces = [];
@@ -1070,6 +1114,7 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
     }
     const lanes = road.lanes || 2;
     appendStrip(buckets, road.points, road.y, road.width / 2, road.cls, 10 + lanes, areaRect);
+    if (/中山东/.test(road.name || '') && !road.bridge) addBoulevardCrossings(buckets, road, areaRect);
     if (road.sidewalk) {
       const sw = road.sidewalk;
       const offset = road.width / 2 + sw / 2;
@@ -1169,7 +1214,123 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
       points: line.points.flatMap((p, i) => [p[0], line.y[i], p[1]]),
     })),
   };
-  return { manifest, tiles, terrain: carved, roads: { nodes: graph.nodes, edges: graph.edges }, rails: railJson };
+  return {
+    manifest, tiles, terrain: carved,
+    roads: { nodes: graph.nodes, edges: graph.edges, walks: sidewalkWalks(draped) },
+    rails: railJson,
+  };
+}
+
+// Street roads in this delta stay nearly level. A DEM spike or a viaduct
+// sample must not hump the carriageway; bridges and ribbons keep their deck.
+function relaxStreetGrade(points, y) {
+  if (y.length < 3) return y.slice();
+  const sorted = [...y].sort((a, b) => a - b);
+  const mid = sorted[sorted.length >> 1];
+  const near = [];
+  for (let i = 0; i < y.length; i++) if (Math.abs(y[i] - mid) < 2.2) near.push(i);
+  const a = near.length ? near[0] : 0;
+  const b = near.length ? near[near.length - 1] : y.length - 1;
+  const cum = [0];
+  for (let i = 1; i < points.length; i++) {
+    cum.push(cum[i - 1] + Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]));
+  }
+  const span = Math.max(1, cum[b] - cum[a]);
+  const grade = Math.max(-0.015, Math.min(0.015, (y[b] - y[a]) / span));
+  return y.map((_, i) => y[a] + grade * (cum[i] - cum[a]));
+}
+
+function flattenTerrainUnderRoads(grid, roads) {
+  const { cols, rows, originX, originZ, step } = grid;
+  const original = Float32Array.from(grid.heights);
+  const best = new Float32Array(grid.heights.length);
+  const weight = new Float32Array(grid.heights.length);
+  for (const road of roads) {
+    if (road.bridge || road.ribbon || !road.y) continue;
+    const half = road.width * 0.5 + Math.max(road.sidewalk || 0, 0) + 1.5;
+    const apron = 20;
+    for (let i = 1; i < road.points.length; i++) {
+      const a = road.points[i - 1];
+      const b = road.points[i];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const steps = Math.max(1, Math.ceil(len / Math.max(4, step * 0.5)));
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const x = a[0] + (b[0] - a[0]) * t;
+        const z = a[1] + (b[1] - a[1]) * t;
+        const y = (road.y[i - 1] + (road.y[i] - road.y[i - 1]) * t) - 0.22;
+        const reach = half + apron;
+        const c0 = Math.max(0, Math.floor((x - reach - originX) / step));
+        const c1 = Math.min(cols - 1, Math.ceil((x + reach - originX) / step));
+        const r0 = Math.max(0, Math.floor((z - reach - originZ) / step));
+        const r1 = Math.min(rows - 1, Math.ceil((z + reach - originZ) / step));
+        for (let r = r0; r <= r1; r++) {
+          const gz = originZ + r * step;
+          for (let c = c0; c <= c1; c++) {
+            const dx = originX + c * step - x;
+            const dz = gz - z;
+            const dist = Math.hypot(dx, dz);
+            if (dist > reach) continue;
+            const influence = dist <= half ? 1 : 1 - (dist - half) / apron;
+            const idx = r * cols + c;
+            if (influence > weight[idx]) {
+              weight[idx] = influence;
+              best[idx] = y;
+            }
+          }
+        }
+      }
+    }
+  }
+  for (let i = 0; i < grid.heights.length; i++) {
+    if (weight[i] > 0) grid.heights[i] = original[i] * (1 - weight[i]) + best[i] * weight[i];
+  }
+}
+
+function addBoulevardCrossings(buckets, road, areaRect) {
+  let walked = 0;
+  let next = 48;
+  for (let i = 1; i < road.points.length; i++) {
+    const a = road.points[i - 1];
+    const b = road.points[i];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 0.5) { walked += len; continue; }
+    while (next < walked + len) {
+      const t = (next - walked) / len;
+      const x = a[0] + (b[0] - a[0]) * t;
+      const z = a[1] + (b[1] - a[1]) * t;
+      const y = road.y[i - 1] + (road.y[i] - road.y[i - 1]) * t + 0.05;
+      const dx = (b[0] - a[0]) / len;
+      const dz = (b[1] - a[1]) / len;
+      const depth = 5;
+      appendStrip(buckets, [
+        [x - dx * depth * 0.5, z - dz * depth * 0.5],
+        [x + dx * depth * 0.5, z + dz * depth * 0.5],
+      ], [y, y], road.width / 2, ROAD.CROSSWALK, 0, areaRect);
+      next += 120;
+    }
+    walked += len;
+  }
+}
+
+function sidewalkWalks(roads) {
+  const walks = [];
+  for (const road of roads) {
+    if (!road.drive || road.bridge || !road.sidewalk || road.sidewalk < 1.5) continue;
+    if (!road.points || road.points.length < 2 || !road.y) continue;
+    const offset = road.width / 2 + road.sidewalk / 2;
+    const { left, right } = offsetSides(road.points, offset);
+    for (const center of [left, right]) {
+      if (!center || center.length < 2) continue;
+      const flat = [];
+      for (let i = 0; i < center.length; i++) {
+        const y = road.y[Math.min(i, road.y.length - 1)] + 0.16;
+        flat.push(center[i][0], y, center[i][1]);
+      }
+      walks.push({ cls: road.cls, sidewalk: road.sidewalk, points: flat });
+    }
+  }
+  return walks;
 }
 
 export function writeCity(result, area) {

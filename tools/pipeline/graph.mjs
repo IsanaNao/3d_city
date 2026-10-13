@@ -115,7 +115,7 @@ export function buildRoadGraph(roads, signals) {
     const end = piece.points.at(-1);
     const junction = isSplit(end) || nodes[b]?.signal;
     if (junction && piece.road.cls !== ROAD.MOTORWAY && piece.road.cls !== ROAD.LINK) {
-      const mark = crosswalk(piece.points, piece.y, Math.min(piece.road.width, 16));
+      const mark = crosswalk(piece.points, piece.y, Math.min(piece.road.width, 46));
       if (mark) crosswalks.push(mark);
     }
   }

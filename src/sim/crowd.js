@@ -10,28 +10,46 @@ function midpoint(edge) {
 }
 
 export function createCrowd(graph, { seed = 11 } = {}) {
-  const edges = (graph.edges || []).filter((edge) => edge.length > 28 && !SKIP.has(edge.cls));
+  const walks = graph.walks || [];
+  const edges = walks.length
+    ? walks.filter((edge) => edge.length > 18)
+    : (graph.edges || []).filter((edge) => edge.length > 28 && !SKIP.has(edge.cls));
   if (!edges.length) return { people: [] };
   const rng = mulberry32(seed);
-  const people = [];
+  const eligible = [];
   for (const edge of edges) {
     const mid = midpoint(edge);
     const central = mid.x > -1500 && mid.x < 900 && Math.abs(mid.z) < 1100;
-    if (!central || edge.cls > 3) continue;
-    const step = edge.cls <= 2 ? 24 : 42;
-    const offset = edge.cls <= 2 ? 6.2 : 4.2;
-    for (let dist = 6 + rng() * 8; dist < edge.length && people.length < 1600; dist += step) {
-      people.push({
-        edge,
-        dist,
-        speed: 0.85 + rng() * 0.7,
-        side: people.length % 2 === 0 ? 1 : -1,
-        offset: offset + rng() * 0.6,
-        phase: rng() * Math.PI * 2,
-      });
-    }
-    if (people.length >= 1600) break;
+    if (!central || edge.cls > 4) continue;
+    eligible.push(edge);
   }
+  // Major roads first, and a step sized to the whole set, so one district
+  // does not consume the cap before Lujiazui's sidewalks are reached.
+  eligible.sort((a, b) => a.cls - b.cls || b.length - a.length);
+  const major = eligible.filter((edge) => edge.cls <= 2);
+  const minor = eligible.filter((edge) => edge.cls > 2);
+  const majorLen = major.reduce((sum, edge) => sum + edge.length, 0) || 1;
+  const majorStep = Math.max(16, majorLen / 1100);
+  const people = [];
+  const place = (list, stepFor) => {
+    for (const edge of list) {
+      const step = stepFor(edge);
+      const half = walks.length ? Math.max(0.35, (edge.sidewalk || 3.2) * 0.28) : 0.8;
+      for (let dist = 4 + rng() * step * 0.4; dist < edge.length && people.length < 1600; dist += step) {
+        people.push({
+          edge,
+          dist,
+          speed: 0.85 + rng() * 0.7,
+          side: 1,
+          offset: (rng() * 2 - 1) * half,
+          phase: rng() * Math.PI * 2,
+        });
+      }
+      if (people.length >= 1600) return;
+    }
+  };
+  place(major, (edge) => (edge.cls <= 1 ? majorStep * 0.7 : majorStep));
+  place(minor, () => 70);
   return { people };
 }
 

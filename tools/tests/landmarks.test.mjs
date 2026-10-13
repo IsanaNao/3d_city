@@ -16,6 +16,8 @@ test('lane width follows OSM lanes and sidewalks skip bridges', () => {
   assert.equal(sidewalkWidthFor('primary', true), 0);
   assert.ok(carriageWidth({ lanes: '4', name: '世纪大道' }, 'primary') > 16);
   assert.equal(sidewalkWidthFor('primary', false, '中山东一路'), 7.2);
+  assert.equal(carriageWidth({ lanes: '3', name: '中山东一路' }, 'secondary'), 10 * 3.35 + 1.5);
+  assert.equal(laneCount(10 * 3.35 + 1.5), 10);
 });
 
 test('named towers become landmarks and their parts are not extruded', () => {

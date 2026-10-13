@@ -29,7 +29,11 @@ export function prepareGraph(data) {
   edges.forEach((edge, index) => {
     if (out[edge.a]) out[edge.a].push(index);
   });
-  return { nodes: data.nodes || [], edges, out };
+  const walks = (data.walks || []).map((edge) => {
+    const path = pathFromFlat(edge.points);
+    return { ...edge, path, length: path.length };
+  }).filter((edge) => edge.length > 12);
+  return { nodes: data.nodes || [], edges, out, walks };
 }
 
 function weightedPick(items, rng) {

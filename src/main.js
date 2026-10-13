@@ -227,8 +227,8 @@ async function boot() {
     cars = createCarFleet(sim.cars.length);
     scene.add(cars.body, cars.glass, cars.lamps);
     crowd = createCrowd(graph, { seed: 11 });
-    people = createPersonFleet(crowd.people.length);
-    scene.add(people.mesh, people.heads);
+    people = crowd.people.length ? createPersonFleet(crowd.people.length) : null;
+    if (people) scene.add(people.mesh, people.legs, people.heads);
   }
   boats = createBoats(waterLevel);
   boatMesh = createBoatFleet(boats.length);
@@ -357,9 +357,11 @@ renderer.setAnimationLoop(() => {
       crowd.people.forEach((person, i) => {
         const pose = personPose(person);
         setVehicleMatrix(people.mesh, i, people.dummy, pose.x, pose.y + pose.bob, pose.z, pose.dx, pose.dz);
+        setVehicleMatrix(people.legs, i, people.dummy, pose.x, pose.y + pose.bob, pose.z, pose.dx, pose.dz);
         setVehicleMatrix(people.heads, i, people.dummy, pose.x, pose.y + pose.bob, pose.z, pose.dx, pose.dz);
       });
       people.mesh.instanceMatrix.needsUpdate = true;
+      people.legs.instanceMatrix.needsUpdate = true;
       people.heads.instanceMatrix.needsUpdate = true;
     }
     if (boatMesh && boats && trafficOn) {
