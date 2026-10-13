@@ -238,6 +238,17 @@ function glassMaterial(hex) {
 }
 
 const glassBlue = glassMaterial(0x9eb4c6);
+const shanghaiGlass = glassBlue.clone();
+shanghaiGlass.vertexColors = true;
+shanghaiGlass.onBeforeCompile = (shader, renderer) => {
+  glassBlue.onBeforeCompile(shader, renderer);
+  shader.fragmentShader = shader.fragmentShader.replace(
+    'totalEmissiveRadiance += vec3(1.0, 0.86, 0.62) * pane * on * uNight * 0.7;',
+    'totalEmissiveRadiance += vec3(1.0, 0.86, 0.62) * pane * on * uNight * 0.7 * vColor;',
+  );
+};
+shanghaiGlass.customProgramCacheKey = () => 'lm-shanghai-glass-1';
+shanghaiGlass.side = THREE.DoubleSide;
 const glassSilver = glassMaterial(0xb7c3ce);
 glassBlue.side = THREE.DoubleSide;
 glassSilver.side = THREE.DoubleSide;
@@ -667,20 +678,40 @@ function shanghaiRing(segs, radius, twist, y) {
   return pts;
 }
 
-function quadsMesh(group, quads, mat) {
+function quadsMesh(group, quads, mat, colorOf) {
   if (!quads.length) return;
   const geo = new THREE.BufferGeometry();
   const pos = [];
+  const col = [];
   const idx = [];
   for (let i = 0; i < quads.length; i += 4) {
     const base = pos.length / 3;
-    for (let k = 0; k < 4; k++) pos.push(quads[i + k].x, quads[i + k].y, quads[i + k].z);
+    for (let k = 0; k < 4; k++) {
+      const p = quads[i + k];
+      pos.push(p.x, p.y, p.z);
+      if (colorOf) {
+        const c = colorOf(p);
+        col.push(c, c, c);
+      }
+    }
     idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
   }
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  if (colorOf) geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   add(group, geo, mat);
+}
+
+// Wide dark groove that travels with the 120° twist, so the spiral still
+// reads when the tower is only a few pixels wide.
+function spiralShade(p, h, yScale) {
+  const t = p.y / (h * yScale);
+  const twist = Math.min(Math.max(t, 0), 0.9) * (120 * Math.PI / 180);
+  let a = Math.atan2(p.z, p.x) - twist;
+  a = Math.atan2(Math.sin(a), Math.cos(a));
+  const notch = Math.exp(-((Math.abs(a) / 0.62) ** 2));
+  return 1 - 0.68 * notch;
 }
 
 function shanghai(h) {
@@ -744,15 +775,21 @@ function shanghai(h) {
     }
     prev = ring;
   }
-  quadsMesh(g, glass, glassBlue);
+  quadsMesh(g, glass, shanghaiGlass, (p) => spiralShade(p, h, yScale));
   quadsMesh(g, crown, shanghaiCrownMat);
   quadsMesh(g, slot, slotMat);
   quadsMesh(g, rib, ribMat);
-  const shoulderY = 0.882 * h * yScale;
-  const lip = new THREE.TorusGeometry(18.4, 0.85, 8, 36);
-  lip.rotateX(Math.PI / 2);
-  lip.translate(0, shoulderY, 0);
-  add(g, lip, ribMat);
+  const lipT = 0.882;
+  const lipTwist = lipT * (120 * Math.PI / 180);
+  const lipY = lipT * h * yScale;
+  const lipInner = shanghaiRing(segs, 16.2, lipTwist, lipY);
+  const lipOuter = shanghaiRing(segs, 18.6, lipTwist, lipY + 0.4);
+  const lip = [];
+  for (let s = 0; s < segs; s++) {
+    const s2 = (s + 1) % segs;
+    lip.push(lipInner[s], lipInner[s2], lipOuter[s2], lipOuter[s]);
+  }
+  quadsMesh(g, lip, ribMat);
   if (prev) capRing(g, prev, shanghaiCrownMat);
   add(g, new THREE.CylinderGeometry(0.35, 0.55, h * 0.045, 8).translate(0, h * 0.992, 0), ribMat);
   add(g, new THREE.SphereGeometry(0.7, 10, 8).translate(0, h * 1.012, 0), beaconMat);

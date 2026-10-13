@@ -61,6 +61,18 @@ function faceToward(pos, a, b, c, d, tx, tz) {
   else addQuad(pos, a, b, c, d);
 }
 
+function edgesCross(a, b, c, d) {
+  const den = (d.z - c.z) * (b.x - a.x) - (d.x - c.x) * (b.z - a.z);
+  if (Math.abs(den) < 1e-6) return false;
+  const t = ((d.x - c.x) * (a.z - c.z) - (d.z - c.z) * (a.x - c.x)) / den;
+  const u = ((b.x - a.x) * (a.z - c.z) - (b.z - a.z) * (a.x - c.x)) / den;
+  return t > 0.04 && t < 0.96 && u > 0.04 && u < 0.96;
+}
+
+function deckCrosses(a, b, c, d) {
+  return edgesCross(a, b, c, d) || edgesCross(b, c, d, a);
+}
+
 function faceUp(pos, a, b, c, d) {
   const e1x = b.x - a.x;
   const e1z = b.z - a.z;
@@ -123,6 +135,50 @@ function deckY(grid, waterLevel, x, z, ox, oz) {
 
 // OSM water rings jag back on themselves for a few metres. That jog, with the
 // normal that belongs to it, opens a triangular hole in the wall and the deck.
+// Pull a point that sits well off the chord of its neighbours back toward
+// that chord. A 20 m jog is what folds the promenade into a triangular hole.
+function relaxShore(pts) {
+  let cur = dropSpikes(pts);
+  for (let pass = 0; pass < 5; pass++) {
+    if (cur.length < 3) break;
+    const next = [cur[0]];
+    for (let i = 1; i < cur.length - 1; i++) {
+      const a = cur[i - 1];
+      const b = cur[i];
+      const c = cur[i + 1];
+      const acx = c.x - a.x;
+      const acz = c.z - a.z;
+      const L2 = acx * acx + acz * acz || 1;
+      let t = ((b.x - a.x) * acx + (b.z - a.z) * acz) / L2;
+      t = Math.max(0, Math.min(1, t));
+      const px = a.x + acx * t;
+      const pz = a.z + acz * t;
+      const dev = Math.hypot(b.x - px, b.z - pz);
+      const pull = dev > 8 ? 0.72 : dev > 3 ? 0.35 : 0;
+      next.push({ ...b, x: b.x + (px - b.x) * pull, z: b.z + (pz - b.z) * pull });
+    }
+    next.push(cur[cur.length - 1]);
+    cur = next;
+  }
+  return cur;
+}
+
+function smoothNormals(verts) {
+  const out = verts.map((v) => ({ ...v }));
+  for (let pass = 0; pass < 2; pass++) {
+    const prev = out.map((v) => ({ nx: v.nx, nz: v.nz }));
+    for (let i = 1; i < out.length - 1; i++) {
+      let nx = prev[i - 1].nx + prev[i].nx * 2 + prev[i + 1].nx;
+      let nz = prev[i - 1].nz + prev[i].nz * 2 + prev[i + 1].nz;
+      const len = Math.hypot(nx, nz) || 1;
+      out[i].nx = nx / len;
+      out[i].nz = nz / len;
+      out[i].m = Math.min(out[i].m, 1.15);
+    }
+  }
+  return out;
+}
+
 function dropSpikes(pts) {
   let cur = pts.slice();
   let changed = true;
@@ -253,10 +309,10 @@ export function createEmbankments(lines, grid, waterLevel) {
   const level = Number.isFinite(waterLevel) ? waterLevel : 0;
   let lampAcc = 0;
   for (const line of lines || []) {
-    const cleaned = dropSpikes(line.points || []);
+    const cleaned = relaxShore(line.points || []);
     if (cleaned.length < 2) continue;
     const side = lineSide(cleaned);
-    const pts = weldShore(roundBank(cleaned), side);
+    const pts = smoothNormals(weldShore(roundBank(cleaned), side));
     const width = line.width || 24;
     for (const v of pts) v.y = deckY(grid, level, v.x, v.z, v.nx, v.nz);
     for (let pass = 0; pass < 3; pass++) {
@@ -298,13 +354,19 @@ export function createEmbankments(lines, grid, waterLevel) {
           -nz,
         );
       }
-      faceUp(
-        deck,
-        at(p0, 0.4, y0 + 0.28),
-        at(p1, 0.4, y1 + 0.28),
-        at(p1, width, y1 + 0.28),
-        at(p0, width, y0 + 0.28),
-      );
+      let deckW = width;
+      let d0 = at(p0, 0.4, y0 + 0.28);
+      let d1 = at(p1, 0.4, y1 + 0.28);
+      let d2 = at(p1, deckW, y1 + 0.28);
+      let d3 = at(p0, deckW, y0 + 0.28);
+      // A tight bend with a wide promenade folds into a bowtie: a triangular
+      // hole and a fin in the water. Narrow that one quad until it is convex.
+      for (let guard = 0; guard < 6 && deckCrosses(d0, d1, d2, d3); guard++) {
+        deckW *= 0.72;
+        d2 = at(p1, deckW, y1 + 0.28);
+        d3 = at(p0, deckW, y0 + 0.28);
+      }
+      if (!deckCrosses(d0, d1, d2, d3)) faceUp(deck, d0, d1, d2, d3);
       if (len < 0.35) continue;
       const nx = (p0.nx + p1.nx) / 2;
       const nz = (p0.nz + p1.nz) / 2;
