@@ -1660,6 +1660,17 @@ function peace(h) {
   }
   putCorniceRun(g, 26, wall - 0.4, 12.2, 1);
   putBox(g, 30, 1.4, 24, 0, wall - 0.2, 0, bundStone);
+  for (let k = 1; k <= 3; k++) {
+    putBox(g, 24.6, 0.42, 18.6, 0, 7.2 + k * ((wall - 14) / 4), 0, bundPlain);
+  }
+  const sideRows = Math.min(peaceRows, 7);
+  for (let row = 0; row < sideRows; row++) {
+    for (let i = -1; i <= 1; i++) {
+      putWindow(g, 1.45, 1.9, 12.15, 8.4 + row * 3.55, i * 4.4, { ax: 'x', sign: 1, reveal: 0.26 });
+      putWindow(g, 1.45, 1.9, -12.15, 8.4 + row * 3.55, i * 4.4, { ax: 'x', sign: -1, reveal: 0.26 });
+    }
+  }
+  add(g, new THREE.CylinderGeometry(1.1, 1.35, 2.2, 8).translate(0, wall + 1.3, 0), bundPlain);
   const roof = new THREE.CylinderGeometry(0.45, 13.2, roofH, 4);
   roof.rotateY(Math.PI / 4);
   roof.translate(0, wall + roofH / 2, 0);
@@ -1684,6 +1695,22 @@ function boc(h) {
   }
   putCorniceRun(g, 30, body - 0.5, 13.4, 1);
   putBox(g, 28, 1.15, 22, 0, body - 0.3, 0, glazeRoof);
+  for (const sx of [-1, 1]) {
+    putBox(g, 1.15, body * 0.5, 1.15, sx * 15.4, 0, 12.4, bundPlain);
+    putBox(g, 0.9, body * 0.28, 0.9, sx * 12.4, body * 0.48, 10.1, bundPlain);
+  }
+  const upperRows = Math.max(3, Math.floor(body * 0.28 / 4.2));
+  for (let row = 0; row < upperRows; row++) {
+    for (let i = -1; i <= 1; i++) {
+      putWindow(g, 1.5, 2.05, i * 3.6, body * 0.5 + row * 3.8, 10.55, { reveal: 0.26 });
+    }
+  }
+  for (let row = 0; row < Math.min(bocRows, 8); row++) {
+    for (let i = -1; i <= 1; i++) {
+      putWindow(g, 1.4, 2.0, 16.15, 3.2 + row * (body * 0.42 / Math.min(bocRows, 8)), i * 4.2, { ax: 'x', sign: 1, reveal: 0.24 });
+      putWindow(g, 1.4, 2.0, -16.15, 3.2 + row * (body * 0.42 / Math.min(bocRows, 8)), i * 4.2, { ax: 'x', sign: -1, reveal: 0.24 });
+    }
+  }
   const hip = new THREE.CylinderGeometry(3.6, 11, roofH * 0.62, 4);
   hip.rotateY(Math.PI / 4);
   hip.translate(0, body + roofH * 0.28, 0);

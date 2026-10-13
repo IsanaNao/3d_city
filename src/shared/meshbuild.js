@@ -342,52 +342,61 @@ function addBox(acc, cx, cz, hw, hd, y0, y1, color, a) {
   }
 }
 
-// Ordinary office towers are one OSM box. A stepped crown and a mechanical
-// penthouse give the skyline a setback instead of a flat top.
-function addTowerCrown(acc, ring, color, a) {
-  const height = a.top - a.base;
-  if (height < 75 || a.kind === KIND.LANDMARK || a.kind === KIND.HISTORIC) return;
-  if (a.kind !== KIND.OFFICE && a.kind !== KIND.COMMERCIAL) return;
+// OSM often splits a tower into short parts. Crown the part whose roof is
+// locally the highest, sized from the full height so the setback reads from
+// the Bund.
+function addTowerCrown(acc, ring, color, a, item, prepared) {
+  if (a.kind === KIND.LANDMARK || a.kind === KIND.HISTORIC) return;
+  if (a.kind !== KIND.OFFICE && a.kind !== KIND.COMMERCIAL && a.kind !== KIND.RESIDENTIAL) return;
   const pts = pairsOf(ring);
-  if (pts.length < 3 || pts.length > 12) return;
+  if (pts.length < 3 || pts.length > 28) return;
+  if (a.top - a.base < 12) return;
+  let cx = 0;
+  let cz = 0;
   let minX = Infinity;
   let maxX = -Infinity;
   let minZ = Infinity;
   let maxZ = -Infinity;
   for (const p of pts) {
+    cx += p[0];
+    cz += p[1];
     minX = Math.min(minX, p[0]);
     maxX = Math.max(maxX, p[0]);
     minZ = Math.min(minZ, p[1]);
     maxZ = Math.max(maxZ, p[1]);
   }
+  cx /= pts.length;
+  cz /= pts.length;
   const w = maxX - minX;
   const d = maxZ - minZ;
-  if (w < 14 || d < 14 || w > 90 || d > 90) return;
-  const cx = (minX + maxX) / 2;
-  const cz = (minZ + maxZ) / 2;
+  if (w < 16 || d < 16 || w > 110 || d > 110) return;
+  for (const other of prepared || []) {
+    if (other === item) continue;
+    if ((other.building?.topY ?? 0) < a.top + 4) continue;
+    const op = pairsOf(other.rings?.[0] || []);
+    if (op.length < 3) continue;
+    let ox = 0;
+    let oz = 0;
+    for (const p of op) { ox += p[0]; oz += p[1]; }
+    ox /= op.length;
+    oz /= op.length;
+    if (Math.hypot(ox - cx, oz - cz) < 24) return;
+  }
+  const towerH = a.top - Math.min(a.base, 15);
+  if (towerH < 64) return;
   const seed = a.seed || 1;
-  const inset = 0.12 + (seed % 5) * 0.02;
+  const inset = 0.18 + (seed % 4) * 0.025;
   const hw = w * (0.5 - inset);
   const hd = d * (0.5 - inset);
-  const crownH = Math.min(28, Math.max(7, height * (0.055 + (seed % 4) * 0.012)));
-  const metal = color.map((c) => Math.min(1, c * 0.62 + 0.12));
-  addBox(acc, cx, cz, hw, hd, a.top, a.top + crownH, metal, a);
-  if (seed % 3 !== 1) {
-    const hw2 = hw * (0.62 + (seed % 3) * 0.06);
-    const hd2 = hd * 0.58;
-    const step = crownH * 0.42;
-    addBox(acc, cx, cz, hw2, hd2, a.top + step, a.top + crownH + step * 0.35, metal, a);
-  }
-  const phW = Math.max(2.2, hw * 0.28);
-  const phD = Math.max(1.8, hd * 0.22);
-  const phH = 3.4 + (seed % 5) * 0.7;
-  const dark = color.map((c) => c * 0.4);
-  const ox = ((seed % 5) - 2) * hw * 0.12;
-  const oz = ((seed % 3) - 1) * hd * 0.1;
-  addBox(acc, cx + ox, cz + oz, phW, phD, a.top + crownH, a.top + crownH + phH, dark, a);
-  if (seed % 2 === 0) {
-    addBox(acc, cx - ox * 0.4, cz - oz, phW * 0.45, phD * 0.7, a.top + crownH, a.top + crownH + phH * 0.55, dark, a);
-  }
+  const crownH = Math.min(46, Math.max(14, towerH * 0.13));
+  const metal = color.map((c) => Math.min(1, c * 0.55 + 0.16));
+  addBox(acc, cx, cz, hw, hd, a.top, a.top + crownH * 0.62, metal, a);
+  const hw2 = hw * 0.62;
+  const hd2 = hd * 0.62;
+  addBox(acc, cx, cz, hw2, hd2, a.top + crownH * 0.5, a.top + crownH, metal, a);
+  const dark = color.map((c) => c * 0.38);
+  const phH = 4 + (seed % 4);
+  addBox(acc, cx + hw * 0.12, cz - hd * 0.08, Math.max(2.4, hw2 * 0.34), Math.max(2, hd2 * 0.28), a.top + crownH, a.top + crownH + phH, dark, a);
 }
 
 function addBalconies(acc, ring, color, a) {
@@ -502,7 +511,7 @@ export function buildBuildingGeometry(buildings) {
     } else {
       addRoof(acc, rings, building.topY, color, attrs, true);
       addParapet(acc, rings[0], color, attrs);
-      addTowerCrown(acc, rings[0], color, attrs);
+      addTowerCrown(acc, rings[0], color, attrs, item, prepared);
     }
     if (building.flags & BFLAG.FLOATING) addRoof(acc, rings, building.baseY, color, attrs, false);
     addBalconies(acc, rings[0], color, attrs);

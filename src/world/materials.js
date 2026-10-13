@@ -213,9 +213,11 @@ const FACADE_MAIN = /* glsl */`
       vec3 buff = vec3(0.58, 0.48, 0.38);
       float grain = 0.9 + 0.14 * vnoise(st * vec2(0.42, 0.9) + seed);
       wall = mix(wall, buff, 0.66) * grain;
-      float course = smoothstep(0.78, 0.92, fract(v * 1.25));
-      float podium = 1.0 - smoothstep(0.0, 6.0, v);
-      wall *= mix(1.0, 0.7, podium * (0.5 + 0.5 * course));
+      float course = smoothstep(0.72, 0.94, fract(v * 1.7));
+      float podium = 1.0 - smoothstep(0.0, 8.0, v);
+      wall *= mix(1.0, 0.62, podium * (0.45 + 0.55 * course));
+      float pierA = smoothstep(0.86, 0.98, fract(vWall.x / 6.4));
+      wall = mix(wall, wall * vec3(0.78, 0.74, 0.68), pierA * 0.7);
       float corn = smoothstep(0.82, 0.94, fract(v / 4.4));
       wall *= 1.0 - corn * 0.5;
       wall += vec3(0.05, 0.04, 0.028) * corn * 0.35;
@@ -373,6 +375,14 @@ const FACADE_MAIN = /* glsl */`
       float power = uNight * on * glow * 0.78 * 1.75;
       if (kind > 5.5) power *= 0.22;
       gEmissive += pane * (interior * daylight + room3 * soft * power);
+      if (tallOffice > 0.5) {
+        float bay = fract(vWall.x / 7.0);
+        float pierCut = 1.0 - smoothstep(0.0, 0.18, bay) * (1.0 - smoothstep(0.82, 1.0, bay));
+        float slab = 1.0 - smoothstep(0.0, 0.2, min(fract(v / floorH), 1.0 - fract(v / floorH)));
+        float gridCut = max(pierCut, slab * 0.8);
+        gEmissive *= mix(1.0, 0.1, gridCut);
+        diffuseColor.rgb *= mix(1.0, 0.48, gridCut * 0.85);
+      }
       if (kind > 5.5) {
         float stone = 1.0 - pane;
         float wash = 0.62 + 0.4 * bundGraze;
@@ -470,7 +480,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-15';
+  material.customProgramCacheKey = () => 'sh-facade-16';
   return material;
 }
 
