@@ -105,6 +105,31 @@ export function createPersonFleet(count) {
   return { mesh, legs, heads, dummy: new THREE.Object3D(), count };
 }
 
+export const WAKE_LAYER = 2;
+
+function wakeTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 32;
+  const g = canvas.getContext('2d');
+  const along = g.createLinearGradient(0, 0, 128, 0);
+  along.addColorStop(0, 'rgba(255,255,255,0)');
+  along.addColorStop(0.55, 'rgba(255,255,255,0.28)');
+  along.addColorStop(1, 'rgba(255,255,255,0.75)');
+  g.fillStyle = along;
+  g.fillRect(0, 0, 128, 32);
+  g.globalCompositeOperation = 'destination-in';
+  const across = g.createLinearGradient(0, 0, 0, 32);
+  across.addColorStop(0, 'rgba(0,0,0,0)');
+  across.addColorStop(0.5, 'rgba(0,0,0,1)');
+  across.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = across;
+  g.fillRect(0, 0, 128, 32);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export function createBoatFleet(count) {
   const hull = paint(new THREE.BoxGeometry(16, 1.15, 4.2).translate(0, 0.7, 0), 0xf4f1ea);
   const stripe = paint(new THREE.BoxGeometry(16.05, 0.28, 4.25).translate(0, 1.15, 0), 0x1a3a6b);
@@ -163,20 +188,30 @@ export function createBoatFleet(count) {
   }
   body.instanceColor.needsUpdate = true;
   const wake = new THREE.InstancedMesh(
-    new THREE.PlaneGeometry(22, 5.5).rotateX(-Math.PI / 2).translate(-18, 0.05, 0),
-    new THREE.MeshBasicMaterial({ color: 0xd5e6ee, transparent: true, opacity: 0.35, depthWrite: false }),
+    new THREE.PlaneGeometry(26, 2.4).rotateX(-Math.PI / 2).translate(-20, 0.08, 0),
+    new THREE.MeshBasicMaterial({
+      color: 0xc5d5de, map: wakeTexture(), transparent: true, opacity: 0.55, depthWrite: false,
+    }),
     count,
   );
+  wake.layers.set(WAKE_LAYER);
+  wake.renderOrder = 2;
   wake.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   wake.frustumCulled = false;
   return { body, glass, lamps, lampMat, wake, dummy: new THREE.Object3D(), count };
 }
 
+const _yaw = new THREE.Euler(0, 0, 0, 'YXZ');
+const _quat = new THREE.Quaternion();
+const _pos = new THREE.Vector3();
+const _scl = new THREE.Vector3();
+
 export function setVehicleMatrix(mesh, index, dummy, x, y, z, dx, dz, scale = 1) {
-  dummy.position.set(x, y, z);
-  dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
-  dummy.scale.set(scale, scale, scale);
-  dummy.updateMatrix();
+  _yaw.y = Math.atan2(-dz, dx);
+  _quat.setFromEuler(_yaw);
+  _pos.set(x, y, z);
+  _scl.set(scale, scale, scale);
+  dummy.matrix.compose(_pos, _quat, _scl);
   mesh.setMatrixAt(index, dummy.matrix);
 }
 

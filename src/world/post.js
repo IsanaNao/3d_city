@@ -89,7 +89,10 @@ export function createPost(renderer, scene, camera, { ao = true } = {}) {
   let aoPass = null;
   if (ao) {
     aoPass = new N8AOPostPass(scene, camera, window.innerWidth, window.innerHeight);
-    Object.assign(aoPass.configuration, { aoRadius: 7, distanceFalloff: 1, intensity: 2.6, halfRes: true, gammaCorrection: false });
+    Object.assign(aoPass.configuration, {
+      aoRadius: 7, distanceFalloff: 1, intensity: 2.6, halfRes: true, gammaCorrection: false,
+      aoSamples: 8, denoiseSamples: 4,
+    });
     aoPass.configuration.color = new THREE.Color(0.02, 0.02, 0.03);
     composer.addPass(aoPass);
   }
@@ -100,12 +103,13 @@ export function createPost(renderer, scene, camera, { ao = true } = {}) {
   const toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.NEUTRAL });
   const picture = new Picture();
   composer.addPass(new EffectPass(camera, balance, bloom, toneMapping, picture, new Dither()));
-  composer.addPass(new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.HIGH })));
+  composer.addPass(new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.MEDIUM })));
 
   return {
     composer,
     ao: aoPass,
     setSize(w, h) { composer.setSize(w, h); },
+    setInteractive(on) { if (aoPass) aoPass.enabled = !on; },
     // env: the Environment for this frame; ground: the height fog sits on.
     apply(env, ground) {
       balance.uniforms.get('gain').value.copy(env.balance).multiplyScalar(env.exposure);

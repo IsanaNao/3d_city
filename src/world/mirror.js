@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { cityUniforms } from './materials.js';
 
-// Full drawing-buffer resolution. A half-size target turned the towers into blocks.
+// Idle resolution. main.js lowers `scale` while the camera is moving; a lasting
+// half-size target turned the towers into blocks.
 const SCALE = 1;
 // Drop the river bed. A world clip, not an oblique near plane: Lengyel's
 // projection threw the skyline out of the mirror when the camera looked
@@ -44,13 +45,14 @@ export class WaterMirror {
     this.size = new THREE.Vector2();
     this.clear = new THREE.Color(0, 0, 0);
     this.enabled = true;
+    this.scale = SCALE;
   }
 
   // y: the water level, or null when no water is in view.
   update(scene, camera, y) {
     if (!this.enabled || y == null) { cityUniforms.uMirrorOn.value = 0; return; }
     const r = this.renderer;
-    r.getDrawingBufferSize(this.size).multiplyScalar(SCALE).floor();
+    r.getDrawingBufferSize(this.size).multiplyScalar(this.scale).floor();
     if (this.target.width !== this.size.x || this.target.height !== this.size.y) this.target.setSize(this.size.x, this.size.y);
 
     const cam = this.camera;

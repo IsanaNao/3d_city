@@ -174,8 +174,10 @@ const FACADE_MAIN = /* glsl */`
   bool glassy = vWall.z > 0.5 || kind > 4.5 && kind < 5.5;
   vec3 wall = pow(diffuseColor.rgb, vec3(2.2));
   vec2 st = isRoof ? vWorld.xz : vec2(vWall.x, vWorld.y);
-  wall *= 0.9 + 0.2 * vnoise(st * 0.11 + seed * 0.37);
-  wall *= 0.95 + 0.1 * vnoise(st * vec2(1.7, 3.1) + seed);
+    wall *= 0.9 + 0.2 * vnoise(st * 0.11 + seed * 0.37);
+    wall *= 0.95 + 0.1 * vnoise(st * vec2(1.7, 3.1) + seed);
+    float blot = vnoise(st * 0.028 + seed * 0.17);
+    wall *= 0.84 + 0.32 * blot;
   gRough = 0.86; gMetal = 0.0;
 
   float layer = -1.0, photo = -1.0, gGrime = 1.0;
@@ -184,7 +186,9 @@ const FACADE_MAIN = /* glsl */`
     pickPhoto(kind, height, sf, glassy, layer, photo);
     if (isRoof) { layer = W_ROOF; photo = -1.0; }
     int li = int(layer);
-    gUv = (isRoof ? vec2(vWorld.x, -vWorld.z) : vec2(vWall.x, -v)) * uWallScale[li] + fract(sf * vec2(13.1, 7.7));
+    vec2 repeat = kind > 5.5 ? vec2(1.0) : mix(vec2(0.68), vec2(1.42), fract(sf * vec2(2.3, 6.1)));
+    gUv = (isRoof ? vec2(vWorld.x, -vWorld.z) : vec2(vWall.x, -v)) * uWallScale[li] * repeat + fract(sf * vec2(13.1, 7.7));
+    if (kind < 5.5) gUv.x += step(0.5, fract((v + seed) / 14.0)) * 0.5;
     vec3 tex = texture(uWallAlb, vec3(gUv, layer)).rgb;
     wall = mix(wall * tex / uWallMean[li], tex * (0.9 + 0.2 * vnoise(st * 0.11 + seed * 0.37)), ownColour(layer));
     gNt = readNormal(uWallNor, gUv, layer);
@@ -316,7 +320,7 @@ const FACADE_MAIN = /* glsl */`
     }
     float cols = max(1.0, floor(vWall.y / pitch + 0.5));
     float cellW = max(vWall.y, 0.5) / cols;
-    float u = vWall.x / cellW;
+    float u = vWall.x / cellW + hash12(vec2(floor(v / max(floorH * 4.0, 1.0)), seed)) * 0.85;
     float fyAll = v / floorH, row = floor(fyAll), col = floor(u);
     vec2 room = vec2(col + mod(seed, 61.0) * 17.0, row + mod(seed, 53.0) * 13.0);
     float fx = fract(u), fy = fract(fyAll);
@@ -334,8 +338,15 @@ const FACADE_MAIN = /* glsl */`
     bool usePhoto = photo > -0.5 && !shop;
     vec4 ph = vec4(0.0);
     if (usePhoto) {
-      // shift each building's photo by whole cells so neighbours differ
+      // shift each building's photo by whole cells so neighbours differ,
+      // then slide and flip every few floors so one tile is not stamped down the wall
+      float band = floor(fyAll * 0.5);
+      float flip = step(0.5, hash12(vec2(band, seed + 2.0)));
+      float slide = hash12(vec2(band + 3.0, floor(seed))) - 0.5;
       vec2 puv = vec2((u + pgrid.z) / pgrid.x, -(fyAll + pgrid.w) / pgrid.y) + floor(fract(sf * vec2(5.3, 3.7)) * pgrid.xy) / pgrid.xy;
+      puv.x += slide * 0.7;
+      puv.x = mix(puv.x, -puv.x, flip);
+      puv *= mix(0.84, 1.26, fract(sf * 4.9));
       ph = texture(uFacade, vec3(puv, photo));
     }
     float valid = 1.0;
@@ -420,6 +431,7 @@ const FACADE_MAIN = /* glsl */`
       // the photo's own colours, nudged towards the building's tint
       vec3 tintBy = diffuseColor.rgb / max(dot(diffuseColor.rgb, vec3(0.333)), 1e-3);
       vec3 pc = ph.rgb * mix(vec3(1.0), tintBy, 0.2) * (0.85 + 0.3 * fract(sf * 9.1));
+      pc *= 0.78 + 0.44 * hash12(vec2(floor(fyAll), seed));
       diffuseColor.rgb = pc * gGrime;
       glassTint = mix(pc, glassTint, 0.25);
     }
@@ -586,7 +598,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-24';
+  material.customProgramCacheKey = () => 'sh-facade-25';
   return material;
 }
 
@@ -827,7 +839,7 @@ export function createWaterMaterial() {
       void main() {
         float t = uTime, e = 0.12;
         float dist = distance(cameraPosition, vWorld);
-        float amp = mix(0.012, 0.04, uDark) * clamp(180.0 / dist - 0.05, 0.15, 1.0);
+        float amp = mix(0.01, 0.02, uDark) * clamp(180.0 / dist - 0.05, 0.15, 1.0);
         vec2 slope = vec2(ripple(vWorld.xz + vec2(e, 0.0), t) - ripple(vWorld.xz - vec2(e, 0.0), t),
                           ripple(vWorld.xz + vec2(0.0, e), t) - ripple(vWorld.xz - vec2(0.0, e), t)) * (amp / (2.0 * e));
         // long swells that survive into the distance and break up the mirror a little
@@ -856,7 +868,7 @@ export function createWaterMaterial() {
           // floodlit wall covers the Bund reach instead of one fringe.
           float low = smoothstep(0.33, 0.43, uv.y);
           uv.y -= uDark * (onBund * (0.045 + 0.04 * low) + side * 0.105);
-          uv += vec2(n.x * mix(0.012, 0.028, uDark), n.z * mix(0.03, 0.09, uDark));
+          uv += vec2(n.x * mix(0.006, 0.012, uDark), n.z * mix(0.012, 0.028, uDark));
           float edge = max(max(-uv.x, uv.x - 1.0), max(-uv.y, uv.y - 1.0));
           float outside = mc.w < 0.0 ? 1.0 : smoothstep(-0.02, 0.08, edge);
           seen = texture2D(uMirror, clamp(uv, 0.002, 0.998)).rgb;

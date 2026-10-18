@@ -248,10 +248,13 @@ shanghaiGlass.onBeforeCompile = (shader, renderer) => {
   glassBlue.onBeforeCompile(shader, renderer);
   shader.fragmentShader = shader.fragmentShader.replace(
     'totalEmissiveRadiance += vec3(1.0, 0.86, 0.62) * pane * on * uNight * 0.7;',
-    'totalEmissiveRadiance += vec3(1.0, 0.86, 0.62) * pane * on * uNight * 0.7 * vColor.rgb;',
+    `float story = floor(vLm.y / 16.6);
+      float storyTint = 0.74 + 0.48 * fract(sin(story * 17.2) * 43758.5);
+      diffuseColor.rgb *= storyTint;
+      totalEmissiveRadiance += vec3(1.0, 0.86, 0.62) * pane * on * uNight * 0.7 * vColor.rgb * storyTint;`,
   );
 };
-shanghaiGlass.customProgramCacheKey = () => 'lm-shanghai-glass-2';
+shanghaiGlass.customProgramCacheKey = () => 'lm-shanghai-glass-3';
 shanghaiGlass.side = THREE.DoubleSide;
 const glassSilver = glassMaterial(0xb7c3ce);
 glassBlue.side = THREE.DoubleSide;
@@ -843,6 +846,21 @@ function shanghai(h) {
     lip.push(lipInner[s], lipInner[s2], lipOuter[s2], lipOuter[s]);
   }
   quadsMesh(g, lip, ribMat);
+  // Floor plates and a core, so the shaft is a building and not an empty skin.
+  for (let i = 2; i < steps; i += 4) {
+    const t = i / steps;
+    if (t > 0.84) break;
+    const u = t / 0.86;
+    const body = 1 - 0.5 * (u ** 1.22);
+    const y = t * h * yScale;
+    const deck = new THREE.CylinderGeometry(34 * body * 0.46, 34 * body * 0.46, 0.55, 18);
+    deck.translate(0, y, 0);
+    add(g, deck, dark);
+  }
+  const coreH = h * 0.8;
+  const core = new THREE.CylinderGeometry(5.2, 8.2, coreH, 10);
+  core.translate(0, coreH * 0.5, 0);
+  add(g, core, dark);
   return g;
 }
 
@@ -976,6 +994,17 @@ function swfc(h) {
   const roof = new THREE.BoxGeometry(crown.w, 1.5, crown.d);
   roof.translate(0, yOf(1) + 0.75, 0);
   add(g, roof, swfcEdgeMat);
+  for (let i = 1; i < 9; i++) {
+    const t = i / 9;
+    if (t > hole0 - 0.03 && t < hole1 + 0.05) continue;
+    const sec = swfcSection(t);
+    const slab = new THREE.BoxGeometry(sec.w * 0.9, 0.55, sec.d * 0.9);
+    slab.translate(0, yOf(t), 0);
+    add(g, slab, dark);
+  }
+  const core = new THREE.BoxGeometry(9, yOf(hole0 * 0.92), 9);
+  core.translate(0, yOf(hole0 * 0.46), 0);
+  add(g, core, dark);
   return g;
 }
 
@@ -998,6 +1027,8 @@ function jinmaoMaterial() {
         vec3 metal = vec3(0.78, 0.81, 0.84);
         vec3 glass = vec3(0.38, 0.50, 0.60);
         diffuseColor.rgb = mix(glass, metal, frame);
+        float tier = floor(vLm.y / 18.0);
+        diffuseColor.rgb *= 0.78 + 0.4 * fract(sin(tier * 13.7) * 43758.5);
         float pane = 1.0 - frame;
         float row = floor(vLm.y / 4.2);
         float col = floor(vGrid.x * 9.0);
@@ -1009,7 +1040,7 @@ function jinmaoMaterial() {
         totalEmissiveRadiance += vec3(1.0, 0.72, 0.22) * crown * uNight * (0.45 + frame * 0.8);
       `);
   };
-  jinGrid.customProgramCacheKey = () => 'lm-jin-grid-4';
+  jinGrid.customProgramCacheKey = () => 'lm-jin-grid-5';
   return jinGrid;
 }
 
@@ -1082,9 +1113,14 @@ function jinmao(h) {
       add(g, fin, jinmaoSteel());
     }
     if (i === 0) capRing(g, lower, dark);
+    const deck = shelf.map((p) => new THREE.Vector3(p.x * 0.9, p.y - 0.2, p.z * 0.9));
+    capRing(g, deck, dark);
     y += tierH;
     radius = next;
   });
+  const core = new THREE.CylinderGeometry(3.2 * s, 7.5 * s, Math.max(y, 1), 8);
+  core.translate(0, y * 0.5, 0);
+  add(g, core, dark);
   const spireH = Math.max(8 * s, h - y);
   const spire = new THREE.CylinderGeometry(0.28 * s, Math.max(radius * 0.92, 0.7), spireH, 8);
   spire.rotateY(-twist);

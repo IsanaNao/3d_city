@@ -17,7 +17,7 @@ import { syncBridgeNight } from './world/bridges.js';
 import { syncEmbankmentNight } from './world/embankment.js';
 import { loadPhotoTextures } from './world/textures.js';
 import { signMaterial } from './world/props.js';
-import { createBoatFleet, createCarFleet, createPersonFleet, createTrainMesh, setVehicleMatrix } from './world/vehicles.js';
+import { WAKE_LAYER, createBoatFleet, createCarFleet, createPersonFleet, createTrainMesh, setVehicleMatrix } from './world/vehicles.js';
 
 const base = import.meta.env.BASE_URL;
 const params = new URLSearchParams(location.search);
@@ -34,16 +34,19 @@ const trainsBox = document.querySelector('#trains');
 
 installSkyLight();
 const renderer = new THREE.WebGLRenderer({ antialias: false, stencil: false, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+const idleDpr = Math.min(window.devicePixelRatio || 1, 1.5);
+renderer.setPixelRatio(idleDpr);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.autoUpdate = false;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 stage.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 1.5, 22000);
 camera.layers.enable(WATER_LAYER);
+camera.layers.enable(WAKE_LAYER);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
@@ -66,6 +69,22 @@ const post = createPost(renderer, scene, camera, { ao: params.get('ao') !== '0' 
 const lampLight = new LampLight(renderer);
 const mirror = new WaterMirror(renderer);
 mirror.enabled = params.get('mirror') !== '0';
+let motionHold = 0;
+let motionOn = false;
+let shadowTiles = -1;
+let tilesDirty = false;
+let shadowPending = false;
+let shadowWait = 0;
+let statsTimer = 0;
+let frame = 0;
+controls.addEventListener('start', () => { motionHold = 0.45; });
+function applyResolution() {
+  renderer.setPixelRatio(motionOn ? 1 : idleDpr);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  post.setSize(window.innerWidth, window.innerHeight);
+  post.setInteractive(motionOn);
+  mirror.scale = motionOn ? 0.5 : 1;
+}
 if (params.has('clouds')) cityUniforms.uCloudCover.value = Number(params.get('clouds')) || 0;
 
 const sky = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 18), createSkyMaterial());
@@ -137,7 +156,7 @@ function applySun() {
   cityUniforms.uHaze.value = haze;
   if (haze > 0) env.fogColor.lerp(hazeFog, haze * 0.82);
   syncPearlShow(hour, pearlPin);
-  env.follow(controls.target, camera);
+  return env.follow(controls.target, camera);
   cityUniforms.uSkyGain.value = 1 / env.exposure;
   post.apply(env, controls.target.y);
   const night = env.night;
@@ -150,6 +169,47 @@ function applySun() {
   if (boatMesh) boatMesh.lampMat.emissiveIntensity = 0.2 + night * 2.4;
   if (trainMesh) trainMesh.windows.material.emissiveIntensity = night * 1.2;
   clockEl.textContent = formatHour(hour);
+}
+
+const _lastCam = new THREE.Vector3();
+const _lastTarget = new THREE.Vector3();
+const _moveDir = new THREE.Vector3();
+const _obstacles = [];
+let _haveView = false;
+
+function blockCamera() {
+  _obstacles.length = 0;
+  const picks = streamer.pickables;
+  for (let i = 0; i < picks.length; i++) _obstacles.push(picks[i]);
+  if (streamer.landmarks) _obstacles.push(streamer.landmarks);
+  if (!_haveView || !_obstacles.length) {
+    _haveView = true;
+    _lastCam.copy(camera.position);
+    _lastTarget.copy(controls.target);
+    return;
+  }
+  _moveDir.subVectors(camera.position, _lastCam);
+  const dist = _moveDir.length();
+  if (dist < 0.05) {
+    _lastCam.copy(camera.position);
+    _lastTarget.copy(controls.target);
+    return;
+  }
+  _moveDir.multiplyScalar(1 / dist);
+  raycaster.set(_lastCam, _moveDir);
+  raycaster.near = 0;
+  raycaster.far = dist;
+  const hit = raycaster.intersectObjects(_obstacles, true).find((item) => item.object.visible && item.distance < dist);
+  raycaster.far = Infinity;
+  if (hit) {
+    const keep = Math.max(0, (hit.distance - 2.8) / dist);
+    camera.position.lerpVectors(_lastCam, camera.position, keep);
+    if (controls.target.distanceTo(_lastTarget) > 0.02) {
+      controls.target.lerpVectors(_lastTarget, controls.target, keep);
+    }
+  }
+  _lastCam.copy(camera.position);
+  _lastTarget.copy(controls.target);
 }
 
 function moveTarget(dt) {
@@ -219,6 +279,8 @@ async function boot() {
   await streamer.start(city, signAtlas);
   waterLevel = city.manifest.waterLevel ?? streamer.heightAt(0, 0);
   beyond.position.y = Math.min(waterLevel, city.terrain.heights.reduce((a, b) => Math.min(a, b), Infinity)) - 1.5;
+  running = true;
+  await new Promise((resolve) => requestAnimationFrame(resolve));
 
   const graph = prepareGraph(city.roads);
   const count = Math.min(2800, Math.max(12, Math.round(graph.edges.reduce((s, e) => s + e.length, 0) / 180)));
@@ -298,8 +360,7 @@ window.addEventListener('keyup', (event) => keys.delete(event.key.toLowerCase())
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  post.setSize(window.innerWidth, window.innerHeight);
+  applyResolution();
 });
 renderer.domElement.addEventListener('pointerdown', (event) => { press = [event.clientX, event.clientY]; });
 renderer.domElement.addEventListener('pointerup', (event) => {
@@ -329,37 +390,49 @@ renderer.setAnimationLoop(() => {
   clock.update();
   const dt = Math.min(0.05, clock.getDelta());
   cityUniforms.uTime.value += dt;
-  controls.update();
+  const moved = controls.update();
   moveTarget(dt);
+  blockCamera();
+  if (keys.size || moved) motionHold = 0.35;
+  else motionHold = Math.max(0, motionHold - dt);
+  const interactive = motionHold > 0;
+  const wasMotion = motionOn;
+  if (interactive !== motionOn) {
+    motionOn = interactive;
+    applyResolution();
+  }
   if (running) {
     streamTimer += dt;
     if (streamTimer > 0.25) {
       streamer.update();
       streamTimer = 0;
     }
-    if (sim && trafficOn) stepSim(sim, dt);
-    if (crowd && trafficOn) stepCrowd(crowd, dt);
+    const simDt = motionOn ? dt * 2 : dt;
+    const simStep = !motionOn || (frame & 1) === 0;
+    if (sim && trafficOn && simStep) stepSim(sim, simDt);
+    if (crowd && trafficOn && simStep) stepCrowd(crowd, simDt);
     if (boats && trafficOn) stepBoats(boats, dt);
     if (trainsOn) stepTrains(trainList, dt);
     if (cars && sim) {
-      sim.cars.forEach((car, i) => {
-        const pose = carPose(sim, car);
-        if (!pose) return;
+      for (let i = frame & 1; i < sim.cars.length; i += 2) {
+        const pose = carPose(sim, sim.cars[i]);
+        if (!pose) continue;
         setVehicleMatrix(cars.body, i, cars.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
         setVehicleMatrix(cars.glass, i, cars.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
         setVehicleMatrix(cars.lamps, i, cars.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
-      });
+      }
       cars.body.instanceMatrix.needsUpdate = true;
       cars.glass.instanceMatrix.needsUpdate = true;
       cars.lamps.instanceMatrix.needsUpdate = true;
     }
     if (people && crowd && trafficOn) {
-      crowd.people.forEach((person, i) => {
+      for (let i = frame & 1; i < crowd.people.length; i += 2) {
+        const person = crowd.people[i];
         const pose = personPose(person);
         setVehicleMatrix(people.mesh, i, people.dummy, pose.x, pose.y + pose.bob, pose.z, pose.dx, pose.dz);
         setVehicleMatrix(people.legs, i, people.dummy, pose.x, pose.y + pose.bob, pose.z, pose.dx, pose.dz);
         setVehicleMatrix(people.heads, i, people.dummy, pose.x, pose.y + pose.bob, pose.z, pose.dx, pose.dz);
-      });
+      }
       people.mesh.instanceMatrix.needsUpdate = true;
       people.legs.instanceMatrix.needsUpdate = true;
       people.heads.instanceMatrix.needsUpdate = true;
@@ -397,13 +470,29 @@ renderer.setAnimationLoop(() => {
       trainMesh.mesh.instanceMatrix.needsUpdate = true;
       trainMesh.windows.instanceMatrix.needsUpdate = true;
     }
-    const phase = env.night < 0.35 ? '白天' : env.dark < 0.75 ? '黄昏' : '夜晚';
-    statsEl.textContent = `${phase} · 街区 ${streamer.loadedCount} / ${streamer.total} · 车辆 ${sim ? sim.cars.length : 0} · 列车 ${trainList.length}`;
+    statsTimer += dt;
+    if (statsTimer > 0.5) {
+      statsTimer = 0;
+      const phase = env.night < 0.35 ? '白天' : env.dark < 0.75 ? '黄昏' : '夜晚';
+      statsEl.textContent = `${phase} · 街区 ${streamer.loadedCount} / ${streamer.total} · 车辆 ${sim ? sim.cars.length : 0} · 列车 ${trainList.length}`;
+    }
+    if (streamer.loadedCount !== shadowTiles) {
+      shadowTiles = streamer.loadedCount;
+      tilesDirty = true;
+    }
   }
-  applySun();
-  lampLight.update(controls.target, camera.position, env.night);
+  if (applySun() || tilesDirty) shadowPending = true;
+  shadowWait = Math.max(0, shadowWait - dt);
+  if (!interactive && (wasMotion || (shadowWait <= 0 && shadowPending))) {
+    renderer.shadowMap.needsUpdate = true;
+    tilesDirty = false;
+    shadowPending = false;
+    shadowWait = 0.35;
+  }
+  if (!motionOn || (frame & 1) === 0) lampLight.update(controls.target, camera.position, env.night);
   mirror.update(scene, camera, running && streamer.hasWater ? waterLevel : null);
   post.render(dt);
+  frame += 1;
 });
 
 window.__app = { scene, camera, controls, renderer, env, post, streamer, lampLight, mirror, cityUniforms };

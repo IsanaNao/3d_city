@@ -232,7 +232,7 @@ export async function loadCity(area, base) {
     return r.json();
   });
   const [terrainBuf, roads, rails] = await Promise.all([
-    fetch(`${root}terrain.bin`).then((r) => r.arrayBuffer()),
+    fetch(`${root}terrain.tile`).then((r) => r.arrayBuffer()),
     fetch(`${root}roads.json`).then((r) => r.json()),
     fetch(`${root}rails.json`).then((r) => r.json()),
   ]);
@@ -365,7 +365,7 @@ export function createStreamer({ scene, getView }) {
     if (loaded.has(key) || loading.has(key) || !known.has(key)) return;
     loading.add(key);
     try {
-      const res = await fetch(`${root}t_${key}.bin`);
+      const res = await fetch(`${root}t_${key}.tile`);
       if (!res.ok) throw new Error(`tile ${key} ${res.status}`);
       const tile = decodeTile(await res.arrayBuffer());
       if (!known.has(key)) return;

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { cityUniforms, createSkyMaterial } from './materials.js';
 
-const SHADOW_SIZE = 4096;
+const SHADOW_SIZE = 2048;
 const SUN = 3.4;
 const EXPOSURE = { target: 1.25, least: 0.5, most: 1.55 };
 const BLOOM = { day: 0.36, night: 0.55 };
@@ -65,6 +65,7 @@ export class Environment {
     this.sun.shadow.normalBias = 0.5;
     this.sun.shadow.radius = 5;
     this.shadowExtent = 0;
+    this.shadowMark = '';
     this.sky = new THREE.HemisphereLight(0x000000, 0x000000, 1);
     this.bounce = new THREE.HemisphereLight(0x000000, 0x000000, 1);
     this.glow = new THREE.HemisphereLight(GLOW.sky, GLOW.ground, 0);
@@ -161,5 +162,9 @@ export class Environment {
     const fz = Math.round(focus.z / texel) * texel;
     this.sun.target.position.set(fx, focus.y, fz);
     this.sun.position.copy(this.sun.target.position).addScaledVector(this.sunDir, 2000);
+    const mark = `${extent}|${fx}|${fz}|${this.sunDir.x.toFixed(3)}|${this.sunDir.z.toFixed(3)}`;
+    const changed = mark !== this.shadowMark;
+    this.shadowMark = mark;
+    return changed;
   }
 }
