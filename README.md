@@ -175,3 +175,6 @@ Poly Haven 的条目在 [polyhaven.com](https://polyhaven.com/license)，ambient
 ## 许可
 
 本仓库代码使用 [MIT License](LICENSE)。OpenStreetMap 数据另行适用 ODbL，不能把数据的许可说成 MIT。照片纹理另行适用 CC0 1.0，不能把它们的许可说成 MIT。
+
+## 后记
+别问了，孩子只是想家了罢了
