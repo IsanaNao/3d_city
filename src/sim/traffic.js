@@ -62,20 +62,31 @@ function pickNext(sim, edge) {
   return weightedPick(pool, sim.rng);
 }
 
+// Cumulative spawn weight per edge, built once per graph: busy roads get more cars.
+function spawnTable(graph) {
+  if (graph.spawnTable) return graph.spawnTable;
+  const cum = new Float64Array(graph.edges.length);
+  let total = 0;
+  graph.edges.forEach((edge, i) => {
+    total += edge.length * (edge.cls <= 2 ? 6 : edge.cls === 5 ? 0.15 : 1);
+    cum[i] = total;
+  });
+  graph.spawnTable = cum;
+  return cum;
+}
+
 function spawn(sim, rng) {
   const edges = sim.graph.edges;
-  let pick = 0;
-  let total = 0;
-  const weights = edges.map((edge) => {
-    const w = edge.length * (edge.cls <= 2 ? 6 : edge.cls === 5 ? 0.15 : 1);
-    total += w;
-    return w;
-  });
-  let r = rng() * total;
-  for (let i = 0; i < weights.length; i++) {
-    r -= weights[i];
-    if (r <= 0) { pick = i; break; }
+  const cum = spawnTable(sim.graph);
+  const r = rng() * (cum[cum.length - 1] || 0);
+  let lo = 0;
+  let hi = cum.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid] < r) lo = mid + 1;
+    else hi = mid;
   }
+  const pick = Math.max(0, lo);
   const edge = edges[pick];
   return {
     edge: pick,
@@ -95,17 +106,22 @@ export function createSim(graph, { count = 80, seed = 1 } = {}) {
 
 export function stepSim(sim, dt) {
   sim.time += dt;
-  const buckets = new Map();
+  // Each car only needs the car just ahead on its edge. Sorting per edge once
+  // and linking neighbours keeps the step linear in the number of cars.
+  const buckets = sim.buckets || (sim.buckets = new Map());
+  for (const list of buckets.values()) list.length = 0;
   for (const car of sim.cars) {
     let list = buckets.get(car.edge);
     if (!list) buckets.set(car.edge, list = []);
     list.push(car);
   }
-  for (const list of buckets.values()) list.sort((a, b) => a.dist - b.dist);
-  const desired = new Map();
+  for (const list of buckets.values()) {
+    if (list.length > 1) list.sort((a, b) => a.dist - b.dist);
+    for (let i = 0; i < list.length; i++) list[i].ahead = list[i + 1] || null;
+  }
   for (const car of sim.cars) {
     const edge = sim.graph.edges[car.edge];
-    if (!edge) { desired.set(car, 0); continue; }
+    if (!edge) { car.want = 0; continue; }
     let want = edge.speed * car.rate;
     const node = sim.graph.nodes[edge.b];
     const remain = edge.length - car.dist;
@@ -114,13 +130,11 @@ export function stepSim(sim, dt) {
       if (car.dist >= stopAt) want = 0;
       else want = Math.min(want, (stopAt - car.dist) * 0.55);
     }
-    const list = buckets.get(car.edge) || [];
-    const index = list.indexOf(car);
-    if (index >= 0 && index < list.length - 1) {
-      const gap = list[index + 1].dist - car.dist;
+    if (car.ahead) {
+      const gap = car.ahead.dist - car.dist;
       if (gap < 12) want = Math.min(want, Math.max(0, gap - 7) * 1.15);
     }
-    desired.set(car, want);
+    car.want = want;
   }
   for (const car of sim.cars) {
     const edge = sim.graph.edges[car.edge];
@@ -128,7 +142,7 @@ export function stepSim(sim, dt) {
       Object.assign(car, spawn(sim, sim.rng));
       continue;
     }
-    const want = desired.get(car) ?? 0;
+    const want = car.want ?? 0;
     const accel = want >= car.speed ? 7 : 14;
     if (car.speed < want) car.speed = Math.min(want, car.speed + accel * dt);
     else car.speed = Math.max(want, car.speed - accel * dt);

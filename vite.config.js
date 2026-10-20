@@ -23,6 +23,21 @@ function cityTileMiddleware(req, res, next) {
   });
 }
 
+// A static build has no middleware, so dist/ carries the *.tile names itself.
+function renameTiles(dir) {
+  if (!fs.existsSync(dir)) return 0;
+  let n = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) n += renameTiles(file);
+    else if (entry.name.endsWith('.bin')) {
+      fs.renameSync(file, file.replace(/\.bin$/, '.tile'));
+      n += 1;
+    }
+  }
+  return n;
+}
+
 export default defineConfig({
   // Relative base so the same build works at a domain root or under GitHub Pages.
   base: './',
@@ -33,6 +48,9 @@ export default defineConfig({
     },
     configurePreviewServer(server) {
       server.middlewares.use(cityTileMiddleware);
+    },
+    writeBundle(options) {
+      renameTiles(path.join(options.dir || 'dist', 'tiles'));
     },
   }],
   server: { host: '127.0.0.1', port: 4317, strictPort: true },

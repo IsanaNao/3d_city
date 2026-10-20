@@ -10,6 +10,9 @@ const SCALE = 1;
 const CLIP = 0.35;
 // Water meshes live on this layer only, so the mirror camera never sees them.
 export const WATER_LAYER = 1;
+// Ground, roads and street furniture: drawn in the view, left out of the
+// mirror, where they would sit below the water line or be a pixel wide.
+export const DETAIL_LAYER = 3;
 // Night keeps the view's horizontal field and opens the vertical one so the
 // mirrored camera holds each tower from the waterline to its crown.
 const NIGHT_Y_FOV = 118;

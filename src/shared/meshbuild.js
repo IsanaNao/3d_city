@@ -230,54 +230,7 @@ function subtractRanges(y0, y1, ranges) {
   return bands;
 }
 
-function towerMass(ring, base, top, kind, seed) {
-  if (kind === KIND.HISTORIC || kind === KIND.INDUSTRIAL) return null;
-  const height = top - base;
-  if (height < 78) return null;
-  const pts = pairsOf(ring);
-  if (pts.length < 3 || pts.length > 28) return null;
-  let cx = 0;
-  let cz = 0;
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minZ = Infinity;
-  let maxZ = -Infinity;
-  for (const p of pts) {
-    cx += p[0];
-    cz += p[1];
-    minX = Math.min(minX, p[0]);
-    maxX = Math.max(maxX, p[0]);
-    minZ = Math.min(minZ, p[1]);
-    maxZ = Math.max(maxZ, p[1]);
-  }
-  cx /= pts.length;
-  cz /= pts.length;
-  const w = maxX - minX;
-  const d = maxZ - minZ;
-  if (w < 18 || d < 18 || w > 120 || d > 120) return null;
-  const inset = 0.055 + (seed % 5) * 0.008;
-  return {
-    cx,
-    cz,
-    podium: base + Math.min(18, height * 0.1),
-    inset,
-    taperAt: height > 140 ? base + height * 0.62 : null,
-    taper: inset + 0.06,
-  };
-}
-
-function insetCorner(p, mass, amount) {
-  if (!mass || amount <= 0) return p;
-  return [p[0] + (mass.cx - p[0]) * amount, p[1] + (mass.cz - p[1]) * amount];
-}
-
-function insetOf(mass, y) {
-  if (!mass || y <= mass.podium + 0.2) return 0;
-  if (mass.taperAt && y >= mass.taperAt) return mass.taper;
-  return mass.inset;
-}
-
-function emitWall(acc, w, covers, color, attrs, mass) {
+function emitWall(acc, w, covers, color, attrs) {
   const dx = w.b[0] - w.a[0];
   const dz = w.b[1] - w.a[1];
   const point = (t) => [w.a[0] + dx * (t / w.len), w.a[1] + dz * (t / w.len)];
@@ -288,28 +241,15 @@ function emitWall(acc, w, covers, color, attrs, mass) {
     const len = Math.hypot(x, z) || 1;
     return [x / len, z / len];
   };
-  const yCuts = [w.y0, w.y1];
-  if (mass && mass.podium > w.y0 + 0.5 && mass.podium < w.y1 - 0.5) yCuts.push(mass.podium);
-  if (mass && mass.taperAt && mass.taperAt > w.y0 + 0.5 && mass.taperAt < w.y1 - 0.5) yCuts.push(mass.taperAt);
-  yCuts.sort((a, b) => a - b);
+  // One straight wall per span. Towers used to be pulled in above a made-up
+  // podium and again near the top; the bare ledges and the window grid that
+  // no longer lined up across them read as a break in the building. Real
+  // setbacks come from OSM building:part outlines.
   const paint = (p, q, y0, y1, t0, t1) => {
     if (y1 - y0 < 0.2) return;
-    const amount = insetOf(mass, (y0 + y1) * 0.5);
-    const p0 = insetCorner(p, mass, amount);
-    const q0 = insetCorner(q, mass, amount);
-    addWall(acc, p0[0], p0[1], q0[0], q0[1], y0, y1, color, attrs, {
+    addWall(acc, p[0], p[1], q[0], q[1], y0, y1, color, attrs, {
       n0: normalAt(t0), n1: normalAt(t1), u0: t0, u1: t1, wallLen: w.len,
     });
-  };
-  const ledge = (p, q, y, inner, outer) => {
-    if (!mass || Math.abs(inner - outer) < 0.01) return;
-    const a0 = insetCorner(p, mass, outer);
-    const b0 = insetCorner(q, mass, outer);
-    const a1 = insetCorner(p, mass, inner);
-    const b1 = insetCorner(q, mass, inner);
-    const slab = color.map((c) => Math.min(1, c * 0.82 + 0.08));
-    pushTri(acc, [a0[0], y, a0[1]], [b0[0], y, b0[1]], [b1[0], y, b1[1]], slab, attrs);
-    pushTri(acc, [a0[0], y, a0[1]], [b1[0], y, b1[1]], [a1[0], y, a1[1]], slab, attrs);
   };
   const spans = !covers.length
     ? [[point(0), point(w.len), w.y0, w.y1, 0, w.len]]
@@ -329,14 +269,7 @@ function emitWall(acc, w, covers, color, attrs, mass) {
       for (const [y0, y1] of subtractRanges(w.y0, w.y1, ranges)) spans.push([p, q, y0, y1, t0, t1]);
     }
   }
-  for (const [p, q, y0, y1, t0, t1] of spans) {
-    const bands = yCuts.filter((y) => y > y0 + 0.2 && y < y1 - 0.2);
-    const stops = [y0, ...bands, y1];
-    for (let i = 0; i < stops.length - 1; i++) {
-      paint(p, q, stops[i], stops[i + 1], t0, t1);
-      if (i > 0) ledge(p, q, stops[i], insetOf(mass, stops[i] + 0.3), insetOf(mass, stops[i] - 0.3));
-    }
-  }
+  for (const [p, q, y0, y1, t0, t1] of spans) paint(p, q, y0, y1, t0, t1);
 }
 
 function addRoof(acc, rings, y, color, a, facingUp) {
@@ -372,7 +305,7 @@ function addRoof(acc, rings, y, color, a, facingUp) {
 }
 
 function addParapet(acc, ring, color, a) {
-  const height = a.top - a.base;
+  const height = a.wallTop - a.wallBase;
   if (height < 6 || height > 140 || a.kind === KIND.LANDMARK) return;
   const pts = pairsOf(ring);
   const flags = flagsOf(ring, pts.length);
@@ -395,7 +328,7 @@ function addParapet(acc, ring, color, a) {
       acc,
       a0[0] - nx * inset, a0[1] - nz * inset,
       b0[0] - nx * inset, b0[1] - nz * inset,
-      a.top, a.top + lip,
+      a.wallTop, a.wallTop + lip,
       darker, a,
     );
   }
@@ -426,7 +359,7 @@ function addTowerCrown(acc, ring, color, a, item, prepared) {
   if (a.kind === KIND.HISTORIC || a.kind === KIND.INDUSTRIAL) return;
   const pts = pairsOf(ring);
   if (pts.length < 3 || pts.length > 28) return;
-  if (a.top - a.base < 12) return;
+  if (a.wallTop - a.wallBase < 12) return;
   let cx = 0;
   let cz = 0;
   let minX = Infinity;
@@ -448,7 +381,7 @@ function addTowerCrown(acc, ring, color, a, item, prepared) {
   if (w < 16 || d < 16 || w > 110 || d > 110) return;
   for (const other of prepared || []) {
     if (other === item) continue;
-    if ((other.building?.topY ?? 0) < a.top + 4) continue;
+    if ((other.building?.topY ?? 0) < a.wallTop + 4) continue;
     const op = pairsOf(other.rings?.[0] || []);
     if (op.length < 3) continue;
     let ox = 0;
@@ -458,7 +391,7 @@ function addTowerCrown(acc, ring, color, a, item, prepared) {
     oz /= op.length;
     if (Math.hypot(ox - cx, oz - cz) < 24) return;
   }
-  const towerH = a.top - Math.min(a.base, 15);
+  const towerH = a.wallTop - Math.min(a.wallBase, 15);
   if (towerH < 64) return;
   const seed = a.seed || 1;
   // Crown choice is not the facade style, and the hip is light stone rather
@@ -478,7 +411,7 @@ function addTowerCrown(acc, ring, color, a, item, prepared) {
   const alt = tints[(seed + 2) % 5];
   const frame = [0.86, 0.88, 0.90];
   const stone = [0.80, 0.76, 0.68];
-  const y0 = a.top;
+  const y0 = a.wallTop;
   if (style === 0) {
     addBox(acc, cx, cz, hw * 0.62, hd * 0.62, y0, y0 + crownH * 0.82, glass, a);
     addBox(acc, cx, cz, hw * 0.78, Math.max(1.1, hd * 0.12), y0 + crownH * 0.74, y0 + crownH, frame, a);
@@ -540,7 +473,7 @@ function addSlope(acc, p0, p1, p2, p3, color, a) {
 
 function addBalconies(acc, ring, color, a) {
   if (a.kind !== KIND.RESIDENTIAL) return;
-  const height = a.top - a.base;
+  const height = a.wallTop - a.wallBase;
   if (height < 9 || height > 80) return;
   const pts = pairsOf(ring);
   const flags = flagsOf(ring, pts.length);
@@ -569,7 +502,7 @@ function addBalconies(acc, ring, color, a) {
   let made = 0;
   const slab = color.map((c) => Math.min(1, c * 1.05));
   for (let f = 2; f < floors && made < 7; f += 2) {
-    const y = a.base + f * 3.05;
+    const y = a.wallBase + f * 3.05;
     const depth = 0.85;
     const ox = nx * depth;
     const oz = nz * depth;
@@ -598,6 +531,64 @@ function hasCutEdge(ring) {
   return Boolean(ring.flags && Array.prototype.some.call(ring.flags, (f) => f));
 }
 
+function inRing(x, z, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, zi] = pts[i];
+    const [xj, zj] = pts[j];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / ((zj - zi) || 1e-12) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// OSM splits many towers into stacked building:part outlines. Each part used
+// to draw its own random facade, colour and floor grid, so the joins showed
+// as breaks. Parts whose plans overlap form one family and take the tallest
+// member's look, measured from the family's lowest base to its highest top,
+// so floors, refuge bands and window style run through.
+function families(prepared) {
+  const parent = prepared.map((_, i) => i);
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const info = prepared.map(({ rings }) => {
+    const pts = rings.length ? pairsOf(rings[0]) : [];
+    if (pts.length < 3) return null;
+    const [cx, cz] = ringCentroid(pts);
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const [x, z] of pts) {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+    }
+    return { pts, cx, cz, minX, maxX, minZ, maxZ };
+  });
+  for (let i = 0; i < info.length; i++) {
+    const a = info[i];
+    if (!a) continue;
+    for (let j = i + 1; j < info.length; j++) {
+      const b = info[j];
+      if (!b || b.minX > a.maxX || b.maxX < a.minX || b.minZ > a.maxZ || b.maxZ < a.minZ) continue;
+      const ka = prepared[i].building.kind;
+      const kb = prepared[j].building.kind;
+      if (ka === KIND.HISTORIC || kb === KIND.HISTORIC) continue;
+      if (inRing(a.cx, a.cz, b.pts) || inRing(b.cx, b.cz, a.pts)) parent[find(i)] = find(j);
+    }
+  }
+  const groups = new Map();
+  prepared.forEach((item, i) => {
+    const root = find(i);
+    let g = groups.get(root);
+    if (!g) groups.set(root, g = { lead: item, base: Infinity, top: -Infinity, size: 0 });
+    const b = item.building;
+    if (b.topY > g.lead.building.topY) g.lead = item;
+    g.base = Math.min(g.base, b.baseY);
+    g.top = Math.max(g.top, item.wallTop);
+    g.size += 1;
+    item.family = g;
+  });
+}
+
 export function buildBuildingGeometry(buildings) {
   const acc = createAcc();
   const prepared = buildings.map((building, index) => {
@@ -620,19 +611,26 @@ export function buildBuildingGeometry(buildings) {
     }
   }
 
+  families(prepared);
+
   for (const item of prepared) {
     const { building, index, rings, shaped, wallTop } = item;
     if (!rings.length) continue;
-    const color = unpack(building.color >>> 0);
+    const fam = item.family;
+    const lead = fam.size > 1 ? fam.lead.building : building;
+    const color = unpack(lead.color >>> 0);
     const attrs = {
       id: index,
-      seed: seedOf(building, index),
-      base: building.baseY,
-      top: wallTop,
-      kind: building.kind,
-      glass: building.flags & BFLAG.GLASS ? 1 : 0,
+      seed: seedOf(lead, fam.size > 1 ? fam.lead.index : index),
+      base: fam.size > 1 ? fam.base : building.baseY,
+      top: fam.size > 1 ? Math.max(fam.top, wallTop) : wallTop,
+      kind: lead.kind,
+      glass: lead.flags & BFLAG.GLASS ? 1 : 0,
+      // Parapets, crowns and balconies are placed on this part's own walls;
+      // base and top above are what the facade shader measures floors from.
+      wallBase: building.baseY,
+      wallTop,
     };
-    const mass = towerMass(rings[0], building.baseY, wallTop, attrs.kind, attrs.seed);
     for (const w of item.walls) {
       const seen = new Set();
       const covers = [];
@@ -644,15 +642,10 @@ export function buildBuildingGeometry(buildings) {
           if (cover) covers.push(cover);
         }
       }
-      emitWall(acc, w, covers, color, attrs, mass);
+      emitWall(acc, w, covers, color, attrs);
     }
     if (shaped) {
       addShapedRoof(acc, rings[0], wallTop, building.topY - wallTop, building.roofShape, color, attrs);
-    } else if (mass) {
-      const cap = mass.taperAt ? mass.taper : mass.inset;
-      const pts = pairsOf(rings[0]).map((p) => insetCorner(p, mass, cap));
-      addRoof(acc, [{ points: pts }], wallTop, color, attrs, true);
-      addTowerCrown(acc, rings[0], color, attrs, item, prepared);
     } else {
       addRoof(acc, rings, building.topY, color, attrs, true);
       addParapet(acc, rings[0], color, attrs);

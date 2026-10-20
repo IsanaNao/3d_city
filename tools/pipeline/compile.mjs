@@ -1192,7 +1192,12 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
     },
     view: area.view || { position: presets[0].position, target: presets[0].target },
     presets,
-    landmarks: landmarks.map(({ id, name, x, z, y, h, yaw }) => ({ id, name, x, z, y, h, yaw })),
+    // The outline lets a model that is more than a tower (the Peace Hotel's
+    // wing, the Bank of China's block) fill the footprint it replaces.
+    landmarks: landmarks.map(({ id, name, x, z, y, h, yaw, ring }) => ({
+      id, name, x, z, y, h, yaw,
+      ring: ring?.map(([px, pz]) => [Math.round(px * 10) / 10, Math.round(pz * 10) / 10]),
+    })),
     bridges: bridges.map(({ id, name, kind, style, towerH, mainSpan, points }) => ({
       id, name, kind, style, towerH, mainSpan, points,
     })),

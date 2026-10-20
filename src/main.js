@@ -11,13 +11,15 @@ import { cityUniforms, createSkyMaterial, makeSignAtlas } from './world/material
 import { Environment, installSkyLight } from './world/environment.js';
 import { createPost } from './world/post.js';
 import { LampLight } from './world/lamplight.js';
-import { WaterMirror, WATER_LAYER } from './world/mirror.js';
+import { DETAIL_LAYER, WaterMirror, WATER_LAYER } from './world/mirror.js';
 import { createStreamer, loadCity } from './world/streamer.js';
 import { syncBridgeNight } from './world/bridges.js';
 import { syncEmbankmentNight } from './world/embankment.js';
 import { loadPhotoTextures } from './world/textures.js';
 import { signMaterial } from './world/props.js';
-import { WAKE_LAYER, createBoatFleet, createCarFleet, createPersonFleet, createTrainMesh, setVehicleMatrix } from './world/vehicles.js';
+import {
+  WAKE_LAYER, carPaint, createBoatFleet, createCarFleet, createPersonFleet, createTrainMesh, pantsPaint, setVehicleMatrix, shirtPaint,
+} from './world/vehicles.js';
 
 const base = import.meta.env.BASE_URL;
 const params = new URLSearchParams(location.search);
@@ -46,6 +48,7 @@ stage.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 1.5, 22000);
 camera.layers.enable(WATER_LAYER);
+camera.layers.enable(DETAIL_LAYER);
 camera.layers.enable(WAKE_LAYER);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -156,7 +159,7 @@ function applySun() {
   cityUniforms.uHaze.value = haze;
   if (haze > 0) env.fogColor.lerp(hazeFog, haze * 0.82);
   syncPearlShow(hour, pearlPin);
-  return env.follow(controls.target, camera);
+  const shadowMoved = env.follow(controls.target, camera);
   cityUniforms.uSkyGain.value = 1 / env.exposure;
   post.apply(env, controls.target.y);
   const night = env.night;
@@ -169,6 +172,7 @@ function applySun() {
   if (boatMesh) boatMesh.lampMat.emissiveIntensity = 0.2 + night * 2.4;
   if (trainMesh) trainMesh.windows.material.emissiveIntensity = night * 1.2;
   clockEl.textContent = formatHour(hour);
+  return shadowMoved;
 }
 
 const _lastCam = new THREE.Vector3();
@@ -241,6 +245,76 @@ function showBuilding(hit) {
   inspect.innerHTML = `<h2>${info.name || '未命名建筑'}</h2><p>${info.kind} · ${info.storeys} 层 · 约 ${Math.round(info.height)} 米</p>`;
 }
 
+// Cars and people a few pixels long are not drawn: the ones near the camera
+// are packed into the first instance slots and the meshes draw only those.
+// A slot is repainted only when a different agent lands in it.
+const CAR_RANGE = 1600;
+const PERSON_RANGE = 650;
+const _paint = new THREE.Color();
+let carSlots = null;
+let personSlots = null;
+
+function nearEye(x, y, z, range) {
+  const p = camera.position;
+  const dx = x - p.x;
+  const dy = y - p.y;
+  const dz = z - p.z;
+  return dx * dx + dy * dy + dz * dz < range * range;
+}
+
+function packCars() {
+  if (!carSlots) carSlots = new Int32Array(sim.cars.length).fill(-1);
+  let n = 0;
+  let repaint = false;
+  for (let i = 0; i < sim.cars.length; i++) {
+    const pose = carPose(sim, sim.cars[i]);
+    if (!pose || !nearEye(pose.x, pose.y, pose.z, CAR_RANGE)) continue;
+    setVehicleMatrix(cars.body, n, cars.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
+    setVehicleMatrix(cars.glass, n, cars.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
+    setVehicleMatrix(cars.lamps, n, cars.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
+    if (carSlots[n] !== i) {
+      carSlots[n] = i;
+      cars.body.setColorAt(n, carPaint(i, _paint));
+      repaint = true;
+    }
+    n += 1;
+  }
+  cars.body.count = cars.glass.count = cars.lamps.count = cars.beams.count = n;
+  cars.body.instanceMatrix.needsUpdate = true;
+  cars.glass.instanceMatrix.needsUpdate = true;
+  cars.lamps.instanceMatrix.needsUpdate = true;
+  if (repaint) cars.body.instanceColor.needsUpdate = true;
+}
+
+function packPeople() {
+  if (!personSlots) personSlots = new Int32Array(crowd.people.length).fill(-1);
+  let n = 0;
+  let repaint = false;
+  for (let i = 0; i < crowd.people.length; i++) {
+    const pose = personPose(crowd.people[i]);
+    if (!nearEye(pose.x, pose.y, pose.z, PERSON_RANGE)) continue;
+    const y = pose.y + pose.bob;
+    setVehicleMatrix(people.mesh, n, people.dummy, pose.x, y, pose.z, pose.dx, pose.dz);
+    setVehicleMatrix(people.legs, n, people.dummy, pose.x, y, pose.z, pose.dx, pose.dz);
+    setVehicleMatrix(people.heads, n, people.dummy, pose.x, y, pose.z, pose.dx, pose.dz);
+    if (personSlots[n] !== i) {
+      personSlots[n] = i;
+      people.mesh.setColorAt(n, shirtPaint(i, _paint));
+      people.legs.setColorAt(n, pantsPaint(i, _paint));
+      repaint = true;
+    }
+    n += 1;
+  }
+  people.mesh.count = people.legs.count = people.heads.count = n;
+  people.mesh.instanceMatrix.needsUpdate = true;
+  people.legs.instanceMatrix.needsUpdate = true;
+  people.heads.instanceMatrix.needsUpdate = true;
+  if (repaint) {
+    people.mesh.instanceColor.needsUpdate = true;
+    people.legs.instanceColor.needsUpdate = true;
+  }
+}
+
 function presetsFor(bounds) {
   const cx = (bounds.minX + bounds.maxX) / 2;
   const cz = (bounds.minZ + bounds.maxZ) / 2;
@@ -255,6 +329,8 @@ function flyTo(position, target) {
   camera.position.set(position[0], position[1], position[2]);
   controls.target.set(target[0], target[1], target[2]);
   controls.update();
+  // A jump is not a walk: the collision check starts again from here.
+  _haveView = false;
 }
 
 async function boot() {
@@ -276,43 +352,8 @@ async function boot() {
   subtitle.textContent = city.manifest.name;
   document.title = `${city.manifest.name} · 上海三维`;
   credit.innerHTML = `${city.manifest.attribution.osm}<br>${city.manifest.attribution.dem}<br>照片纹理 Poly Haven · ambientCG (CC0)<br>做法来自 <a href="https://github.com/jeantimex/tokyo">jeantimex/tokyo</a>`;
-  await streamer.start(city, signAtlas);
-  waterLevel = city.manifest.waterLevel ?? streamer.heightAt(0, 0);
-  beyond.position.y = Math.min(waterLevel, city.terrain.heights.reduce((a, b) => Math.min(a, b), Infinity)) - 1.5;
-  running = true;
-  await new Promise((resolve) => requestAnimationFrame(resolve));
 
-  const graph = prepareGraph(city.roads);
-  const count = Math.min(2800, Math.max(12, Math.round(graph.edges.reduce((s, e) => s + e.length, 0) / 180)));
-  sim = graph.edges.length ? createSim(graph, { count, seed: 7 }) : null;
-  if (sim) {
-    cars = createCarFleet(sim.cars.length);
-    scene.add(cars.body, cars.glass, cars.lamps);
-    crowd = createCrowd(graph, { seed: 11 });
-    people = crowd.people.length ? createPersonFleet(crowd.people.length) : null;
-    if (people) scene.add(people.mesh, people.legs, people.heads);
-  }
-  boats = createBoats(waterLevel, city.manifest.riverCenter);
-  boatMesh = createBoatFleet(boats.length);
-  scene.add(boatMesh.body, boatMesh.glass, boatMesh.lamps, boatMesh.wake);
-  const lines = prepareLines(city.rails);
-  trainList = createTrains(lines);
-  if (trainList.length) {
-    const carriageCount = trainList.reduce((s, t) => s + t.line.carriages, 0);
-    trainMesh = createTrainMesh(carriageCount);
-    const color = new THREE.Color();
-    let cursor = 0;
-    for (const train of trainList) {
-      for (let i = 0; i < train.line.carriages; i++) {
-        color.setHex(train.line.color);
-        trainMesh.mesh.setColorAt(cursor, color);
-        cursor += 1;
-      }
-    }
-    trainMesh.mesh.instanceColor.needsUpdate = true;
-    scene.add(trainMesh.mesh, trainMesh.windows);
-  }
-
+  // Place the camera first, so the first tiles requested are the ones in view.
   const presetHost = document.querySelector('#presets');
   const presets = (city.manifest.presets?.length ? city.manifest.presets : presetsFor(city.manifest.bounds).map(([id, name, position, target]) => ({
     id, name, position, target,
@@ -333,7 +374,54 @@ async function boot() {
     button.addEventListener('click', () => flyTo(preset.position, preset.target));
     presetHost.appendChild(button);
   }
+
+  await streamer.start(city, signAtlas);
+  waterLevel = city.manifest.waterLevel ?? streamer.heightAt(0, 0);
+  let lowest = Infinity;
+  for (const h of city.terrain.heights) if (h < lowest) lowest = h;
+  beyond.position.y = Math.min(waterLevel, lowest) - 1.5;
+
+  boats = createBoats(waterLevel, city.manifest.riverCenter);
+  boatMesh = createBoatFleet(boats.length);
+  scene.add(boatMesh.body, boatMesh.glass, boatMesh.lamps, boatMesh.wake);
+  const lines = prepareLines(city.rails);
+  trainList = createTrains(lines);
+  if (trainList.length) {
+    const carriageCount = trainList.reduce((s, t) => s + t.line.carriages, 0);
+    trainMesh = createTrainMesh(carriageCount);
+    const color = new THREE.Color();
+    let cursor = 0;
+    for (const train of trainList) {
+      for (let i = 0; i < train.line.carriages; i++) {
+        color.setHex(train.line.color);
+        trainMesh.mesh.setColorAt(cursor, color);
+        cursor += 1;
+      }
+    }
+    trainMesh.mesh.instanceColor.needsUpdate = true;
+    scene.add(trainMesh.mesh, trainMesh.windows);
+  }
   running = true;
+  applySun();
+
+  // Street traffic waits for the road graph, which loads behind the first frames.
+  const roads = await city.roads.catch((error) => {
+    console.warn('No road graph, the city runs without street traffic:', error);
+    return null;
+  });
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  if (!roads) return;
+  streamer.paintRoads(roads);
+  const graph = prepareGraph(roads);
+  const count = Math.min(2800, Math.max(12, Math.round(graph.edges.reduce((s, e) => s + e.length, 0) / 180)));
+  sim = graph.edges.length ? createSim(graph, { count, seed: 7 }) : null;
+  if (sim) {
+    cars = createCarFleet(sim.cars.length);
+    scene.add(cars.body, cars.glass, cars.lamps);
+    crowd = createCrowd(graph, { seed: 11 });
+    people = crowd.people.length ? createPersonFleet(crowd.people.length) : null;
+    if (people) scene.add(people.mesh, people.legs, people.heads);
+  }
   applySun();
 }
 
@@ -413,30 +501,8 @@ renderer.setAnimationLoop(() => {
     if (crowd && trafficOn && simStep) stepCrowd(crowd, simDt);
     if (boats && trafficOn) stepBoats(boats, dt);
     if (trainsOn) stepTrains(trainList, dt);
-    if (cars && sim) {
-      for (let i = frame & 1; i < sim.cars.length; i += 2) {
-        const pose = carPose(sim, sim.cars[i]);
-        if (!pose) continue;
-        setVehicleMatrix(cars.body, i, cars.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
-        setVehicleMatrix(cars.glass, i, cars.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
-        setVehicleMatrix(cars.lamps, i, cars.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
-      }
-      cars.body.instanceMatrix.needsUpdate = true;
-      cars.glass.instanceMatrix.needsUpdate = true;
-      cars.lamps.instanceMatrix.needsUpdate = true;
-    }
-    if (people && crowd && trafficOn) {
-      for (let i = frame & 1; i < crowd.people.length; i += 2) {
-        const person = crowd.people[i];
-        const pose = personPose(person);
-        setVehicleMatrix(people.mesh, i, people.dummy, pose.x, pose.y + pose.bob, pose.z, pose.dx, pose.dz);
-        setVehicleMatrix(people.legs, i, people.dummy, pose.x, pose.y + pose.bob, pose.z, pose.dx, pose.dz);
-        setVehicleMatrix(people.heads, i, people.dummy, pose.x, pose.y + pose.bob, pose.z, pose.dx, pose.dz);
-      }
-      people.mesh.instanceMatrix.needsUpdate = true;
-      people.legs.instanceMatrix.needsUpdate = true;
-      people.heads.instanceMatrix.needsUpdate = true;
-    }
+    if (cars && sim) packCars();
+    if (people && crowd) packPeople();
     if (boatMesh && boats) {
       boats.forEach((boat, i) => {
         const pose = boatPose(boat);
@@ -495,4 +561,4 @@ renderer.setAnimationLoop(() => {
   frame += 1;
 });
 
-window.__app = { scene, camera, controls, renderer, env, post, streamer, lampLight, mirror, cityUniforms };
+window.__app = { scene, camera, controls, renderer, env, post, streamer, lampLight, mirror, cityUniforms, flyTo };

@@ -7,14 +7,22 @@ import { decodeTile } from '../shared/tileformat.js';
 import { KIND_NAME } from '../shared/kinds.js';
 import { createBuildingMaterial, createGroundMaterial, createRoadMaterial, createWaterMaterial } from './materials.js';
 import { lampPools, lampScene } from './lamplight.js';
-import { WATER_LAYER } from './mirror.js';
+import { DETAIL_LAYER, WATER_LAYER } from './mirror.js';
 import { createBridges, syncBridgeNight } from './bridges.js';
 import { createEmbankments, embankmentSegments } from './embankment.js';
 import { createLandmarks, syncLandmarkNight } from './landmarks.js';
+import { mergeChildren } from './merge.js';
+import { createClusters } from './clusters.js';
+import { buildTerrainChunks, repaintTerrain, updateTerrainLod } from './terrainlod.js';
 import {
   cupolaMesh, instanceProps, lampGeometries, lampHeadMaterial, signMesh, signalGeometry, staticPropMesh, treeGeometry, treeGeometryFar,
 } from './props.js';
 import { PROP } from '../shared/kinds.js';
+
+// Beyond these distances (metres from the eye to the tile centre) the small
+// props and the simple tree crowns are hidden.
+const PROP_RANGE = 1100;
+const TREE_RANGE = 2200;
 
 function setAttr(geo, name, array, size) {
   geo.setAttribute(name, new THREE.BufferAttribute(array, size));
@@ -66,7 +74,7 @@ function blockHash(ix, iz) {
 function hardBankHash(segments) {
   const cell = 48;
   const buckets = new Map();
-  const key = (ix, iz) => `${ix},${iz}`;
+  const key = (ix, iz) => (ix + 32768) * 65536 + (iz + 32768);
   for (const seg of segments) {
     const minX = Math.min(seg.ax, seg.bx) - seg.width - 8;
     const maxX = Math.max(seg.ax, seg.bx) + seg.width + 8;
@@ -101,97 +109,102 @@ function hardBankHash(segments) {
   };
 }
 
-function terrainGeometry(grid, roads, waterLevel, embankments) {
-  const { originX, originZ, step, cols, rows, heights } = grid;
-  const nearRoad = new Float32Array(cols * rows);
-  nearRoad.fill(40);
-  const edges = roads?.edges || [];
-  for (const edge of edges) {
-    const p = edge.points;
-    if (!p || p.length < 6) continue;
-    for (let k = 0; k + 5 < p.length; k += 3) {
-      const ax = p[k];
-      const az = p[k + 2];
-      const bx = p[k + 3];
-      const bz = p[k + 5];
-      const pad = 22;
-      const c0 = Math.max(0, Math.floor((Math.min(ax, bx) - pad - originX) / step));
-      const c1 = Math.min(cols - 1, Math.floor((Math.max(ax, bx) + pad - originX) / step));
-      const r0 = Math.max(0, Math.floor((Math.min(az, bz) - pad - originZ) / step));
-      const r1 = Math.min(rows - 1, Math.floor((Math.max(az, bz) + pad - originZ) / step));
-      for (let r = r0; r <= r1; r++) {
-        const z = originZ + r * step;
-        for (let c = c0; c <= c1; c++) {
-          const x = originX + c * step;
-          const d = segDist(x, z, ax, az, bx, bz);
-          const i = r * cols + c;
-          if (d < nearRoad[i]) nearRoad[i] = d;
-        }
+// For every grid point, the distance to the nearest segment less its half
+// width, written only within `pad` metres of a segment.
+function distanceField(grid, segments, pad, field) {
+  const { originX, originZ, step, cols, rows } = grid;
+  for (const seg of segments) {
+    const reach = pad + (seg.width || 0);
+    const c0 = Math.max(0, Math.floor((Math.min(seg.ax, seg.bx) - reach - originX) / step));
+    const c1 = Math.min(cols - 1, Math.ceil((Math.max(seg.ax, seg.bx) + reach - originX) / step));
+    const r0 = Math.max(0, Math.floor((Math.min(seg.az, seg.bz) - reach - originZ) / step));
+    const r1 = Math.min(rows - 1, Math.ceil((Math.max(seg.az, seg.bz) + reach - originZ) / step));
+    for (let r = r0; r <= r1; r++) {
+      const z = originZ + r * step;
+      for (let c = c0; c <= c1; c++) {
+        const d = segDist(originX + c * step, z, seg.ax, seg.az, seg.bx, seg.bz) - (seg.width || 0);
+        const i = r * cols + c;
+        if (d < field[i]) field[i] = d;
       }
     }
   }
-  const onPromenade = hardBankHash(embankmentSegments(embankments));
+  return field;
+}
+
+function roadSegments(roads) {
+  const out = [];
+  for (const edge of roads?.edges || []) {
+    const p = edge.points;
+    if (!p || p.length < 6) continue;
+    for (let k = 0; k + 5 < p.length; k += 3) out.push({ ax: p[k], az: p[k + 2], bx: p[k + 3], bz: p[k + 5] });
+  }
+  return out;
+}
+
+// The terrain sheet: positions now, colours painted by paintTerrain. The
+// first paint runs before roads.json has arrived; a second one adds the
+// pavement beside the carriageways once it has.
+function terrainSheet(grid, waterLevel, embankments) {
+  const { originX, originZ, step, cols, rows, heights } = grid;
+  const segments = embankmentSegments(embankments);
+  const onPromenade = hardBankHash(segments);
+  const bank = distanceField(grid, segments, 4, new Float32Array(cols * rows).fill(1e9));
   const pos = new Float32Array(cols * rows * 3);
-  const col = new Float32Array(cols * rows * 3);
-  const wet = Number.isFinite(waterLevel) ? waterLevel : -1e9;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const i = r * cols + c;
-      const x = originX + c * step;
-      const z = originZ + r * step;
-      const y = heights[i];
-      pos[i * 3] = x;
-      pos[i * 3 + 1] = y;
-      pos[i * 3 + 2] = z;
-      const shade = 0.94 + 0.08 * blockHash(Math.floor(x / 18), Math.floor(z / 18));
-      let cr;
-      let cg;
-      let cb;
-      if (y < wet + 0.35) {
-        cr = 0.1; cg = 0.18; cb = 0.2;
-      } else if (onPromenade(x, z, 2)) {
-        cr = 0.62; cg = 0.58; cb = 0.52;
-      } else if (nearRoad[i] < 16) {
-        const t = Math.min(1, nearRoad[i] / 16);
-        cr = 0.5 + 0.08 * t;
-        cg = 0.48 + 0.08 * t;
-        cb = 0.45 + 0.06 * t;
-      } else {
-        const h = blockHash(Math.floor(x / 32), Math.floor(z / 32));
-        if (h < 0.58) { cr = 0.38; cg = 0.5; cb = 0.3; }
-        else if (h < 0.82) { cr = 0.62; cg = 0.6; cb = 0.54; }
-        else { cr = 0.46; cg = 0.52; cb = 0.36; }
-      }
-      col[i * 3] = cr * shade;
-      col[i * 3 + 1] = cg * shade;
-      col[i * 3 + 2] = cb * shade;
+      pos[i * 3] = originX + c * step;
+      pos[i * 3 + 1] = heights[i];
+      pos[i * 3 + 2] = originZ + r * step;
     }
   }
-  const idx = [];
-  const vi = (c, r) => r * cols + c;
   const yOf = (i) => pos[i * 3 + 1];
-  for (let r = 0; r < rows - 1; r++) {
-    for (let c = 0; c < cols - 1; c++) {
-      const a = vi(c, r);
-      const b = vi(c + 1, r);
-      const d = vi(c, r + 1);
-      const e = vi(c + 1, r + 1);
-      const drop = Math.max(yOf(a), yOf(b), yOf(d), yOf(e)) - Math.min(yOf(a), yOf(b), yOf(d), yOf(e));
-      if (drop > 4.5) {
-        const mx = (pos[a * 3] + pos[b * 3] + pos[d * 3] + pos[e * 3]) / 4;
-        const mz = (pos[a * 3 + 2] + pos[b * 3 + 2] + pos[d * 3 + 2] + pos[e * 3 + 2]) / 4;
-        // The flood wall closes this gap. A park bank is not in the hash, so its slope stays.
-        if (onPromenade(mx, mz, 10)) continue;
-      }
-      idx.push(a, d, b, b, d, e);
+  const keepCell = (a, b, d, e) => {
+    const drop = Math.max(yOf(a), yOf(b), yOf(d), yOf(e)) - Math.min(yOf(a), yOf(b), yOf(d), yOf(e));
+    if (drop <= 4.5) return true;
+    const mx = (pos[a * 3] + pos[b * 3] + pos[d * 3] + pos[e * 3]) / 4;
+    const mz = (pos[a * 3 + 2] + pos[b * 3 + 2] + pos[d * 3 + 2] + pos[e * 3 + 2]) / 4;
+    // The flood wall closes this gap. A park bank is not in the hash, so its slope stays.
+    return !onPromenade(mx, mz, 10);
+  };
+  return {
+    grid, pos, col: new Float32Array(cols * rows * 3), bank, cols, rows, step, keepCell,
+    wet: Number.isFinite(waterLevel) ? waterLevel : -1e9,
+  };
+}
+
+function paintTerrain(sheet, roads) {
+  const { grid, pos, col, bank, wet } = sheet;
+  const nearRoad = distanceField(grid, roadSegments(roads), 22, new Float32Array(grid.cols * grid.rows).fill(40));
+  const n = grid.cols * grid.rows;
+  for (let i = 0; i < n; i++) {
+    const x = pos[i * 3];
+    const y = pos[i * 3 + 1];
+    const z = pos[i * 3 + 2];
+    const shade = 0.94 + 0.08 * blockHash(Math.floor(x / 18), Math.floor(z / 18));
+    let cr;
+    let cg;
+    let cb;
+    if (y < wet + 0.35) {
+      cr = 0.1; cg = 0.18; cb = 0.2;
+    } else if (bank[i] < 2) {
+      cr = 0.62; cg = 0.58; cb = 0.52;
+    } else if (nearRoad[i] < 16) {
+      const t = Math.min(1, nearRoad[i] / 16);
+      cr = 0.5 + 0.08 * t;
+      cg = 0.48 + 0.08 * t;
+      cb = 0.45 + 0.06 * t;
+    } else {
+      const h = blockHash(Math.floor(x / 32), Math.floor(z / 32));
+      if (h < 0.58) { cr = 0.38; cg = 0.5; cb = 0.3; }
+      else if (h < 0.82) { cr = 0.62; cg = 0.6; cb = 0.54; }
+      else { cr = 0.46; cg = 0.52; cb = 0.36; }
     }
+    col[i * 3] = cr * shade;
+    col[i * 3 + 1] = cg * shade;
+    col[i * 3 + 2] = cb * shade;
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
+  return sheet;
 }
 
 // A riverside park is meshed as one sheet. Triangles that fall onto the flood
@@ -231,9 +244,14 @@ export async function loadCity(area, base) {
     if (!r.ok) throw new Error(`没有找到 ${area} 的 manifest`);
     return r.json();
   });
-  const [terrainBuf, roads, rails] = await Promise.all([
+  // The road graph is ~15 MB of JSON. The city draws without it; traffic
+  // and the pavement tint wait for this promise.
+  const roads = fetch(`${root}roads.json`).then((r) => {
+    if (!r.ok) throw new Error(`roads.json ${r.status}`);
+    return r.json();
+  });
+  const [terrainBuf, rails] = await Promise.all([
     fetch(`${root}terrain.tile`).then((r) => r.arrayBuffer()),
-    fetch(`${root}roads.json`).then((r) => r.json()),
     fetch(`${root}rails.json`).then((r) => r.json()),
   ]);
   return { manifest, terrain: decodeTerrain(terrainBuf), roads, rails, root };
@@ -252,11 +270,13 @@ export function createStreamer({ scene, getView }) {
   const loaded = new Map();
   const loading = new Set();
   const pickables = [];
+  const clusters = createClusters(scene);
   let known = new Set();
   let root = '';
   let grid = null;
   let waterLevel = 0;
   let terrainMesh = null;
+  let sheet = null;
   let onBank = () => false;
   const signAtlas = { current: null };
 
@@ -274,6 +294,11 @@ export function createStreamer({ scene, getView }) {
       storeys: b.storeys,
       height: Math.max(0, b.topY - b.baseY),
     }));
+    // The meshes a distant block of tiles merges into one draw each.
+    const parts = {
+      building: null, land: null, road: null, water: null,
+    };
+    group.userData.parts = parts;
     const built = buildBuildingGeometry(tile.buildings);
     if (built.position.length) {
       const geo = new THREE.BufferGeometry();
@@ -292,6 +317,7 @@ export function createStreamer({ scene, getView }) {
       mesh.userData.buildings = group.userData.buildings;
       group.add(mesh);
       pickables.push(mesh);
+      parts.building = mesh;
     }
     const opaque = tile.land.filter((f) => f.kind !== LAND.WATER);
     const water = tile.land.filter((f) => f.kind === LAND.WATER);
@@ -303,7 +329,9 @@ export function createStreamer({ scene, getView }) {
       setAttr(geo, 'color', landGeo.color, 3);
       const mesh = new THREE.Mesh(geo, groundMat);
       mesh.receiveShadow = true;
+      mesh.layers.set(DETAIL_LAYER);
       group.add(mesh);
+      parts.land = mesh;
     }
     const waterGeo = buildLandGeometry(water, yAt);
     if (waterGeo.position.length) {
@@ -313,13 +341,16 @@ export function createStreamer({ scene, getView }) {
       const mesh = new THREE.Mesh(geo, waterMat);
       mesh.layers.set(WATER_LAYER);
       group.add(mesh);
+      parts.water = mesh;
       group.userData.water = true;
     }
     const roads = roadGeometry(tile.roads);
     if (roads) {
       const mesh = new THREE.Mesh(roads, roadMat);
       mesh.receiveShadow = true;
+      mesh.layers.set(DETAIL_LAYER);
       group.add(mesh);
+      parts.road = mesh;
     }
     const trees = tile.props.filter((p) => p.kind === PROP.TREE);
     const lights = tile.props.filter((p) => p.kind === PROP.LIGHT);
@@ -358,6 +389,14 @@ export function createStreamer({ scene, getView }) {
     if (blocksMesh) group.add(blocksMesh);
     const roofs = cupolaMesh(cupolas);
     if (roofs) group.add(roofs);
+    // Street furniture is a few pixels past a kilometre and never reads in
+    // the river; it stays out of the mirror and drops out with distance.
+    const props = [tree, treeFar, signals, poles, heads, sign, blocksMesh, roofs].filter(Boolean);
+    for (const mesh of props) mesh.layers.set(DETAIL_LAYER);
+    group.userData.props = [signals, poles, heads, sign, blocksMesh, roofs].filter(Boolean);
+    group.userData.cx = (tile.tx + 0.5) * TILE;
+    group.userData.cz = (tile.tz + 0.5) * TILE;
+    group.userData.near = true;
     return group;
   }
 
@@ -372,6 +411,7 @@ export function createStreamer({ scene, getView }) {
       const group = meshTile(tile);
       group.userData.key = key;
       scene.add(group);
+      clusters.add(group, tile.tx, tile.tz);
       if (group.userData.pools) lampScene.add(group.userData.pools);
       if (group.userData.water) waterCount += 1;
       loaded.set(key, group);
@@ -386,6 +426,7 @@ export function createStreamer({ scene, getView }) {
     const group = loaded.get(key);
     if (!group) return;
     scene.remove(group);
+    clusters.remove(group);
     if (group.userData.pools) {
       lampScene.remove(group.userData.pools);
       group.userData.pools.dispose();
@@ -417,22 +458,27 @@ export function createStreamer({ scene, getView }) {
       onBank = hardBankHash(embankmentSegments(city.manifest.embankments));
       known = new Set(city.manifest.tiles);
       signAtlas.current = atlas;
-      const geo = terrainGeometry(grid, city.roads, waterLevel, city.manifest.embankments);
-      terrainMesh = new THREE.Mesh(geo, groundMat);
-      terrainMesh.receiveShadow = true;
+      sheet = paintTerrain(terrainSheet(grid, waterLevel, city.manifest.embankments), null);
+      terrainMesh = buildTerrainChunks(sheet, groundMat);
       scene.add(terrainMesh);
       this.update();
       if (city.manifest.landmarks?.length) {
-        const models = createLandmarks(city.manifest.landmarks);
+        const models = mergeChildren(createLandmarks(city.manifest.landmarks));
         scene.add(models);
         this.landmarks = models;
       }
       if (city.manifest.bridges?.length) {
-        scene.add(createBridges(city.manifest.bridges));
+        scene.add(mergeChildren(createBridges(city.manifest.bridges)));
       }
       if (city.manifest.embankments?.length) {
         scene.add(createEmbankments(city.manifest.embankments, grid, waterLevel));
       }
+    },
+    // roads.json arrives after the first frame; the pavement beside each
+    // carriageway is painted into the terrain then.
+    paintRoads(roads) {
+      if (!sheet || !terrainMesh) return;
+      repaintTerrain(terrainMesh, paintTerrain(sheet, roads).col);
     },
     syncNight(night) {
       syncLandmarkNight(night);
@@ -461,16 +507,26 @@ export function createStreamer({ scene, getView }) {
       };
       cover(target.x, target.z, reach);
       cover(camera.position.x, camera.position.z, reach * 0.65);
+      if (terrainMesh) updateTerrainLod(terrainMesh, camera);
+      const eyeY = Math.max(0, camera.position.y);
       for (const group of loaded.values()) {
+        const { cx, cz } = group.userData;
+        const flat = Math.hypot(camera.position.x - cx, camera.position.z - cz);
+        const dist = Math.hypot(flat, eyeY);
+        const near = dist < PROP_RANGE;
+        if (near !== group.userData.near) {
+          group.userData.near = near;
+          for (const mesh of group.userData.props) mesh.visible = near;
+        }
         const lod = group.userData.treeLod;
         if (!lod?.near) continue;
-        const dist = Math.hypot(camera.position.x - lod.cx, camera.position.z - lod.cz);
-        const far = dist > 170;
+        const far = flat > 170;
         lod.near.visible = !far;
-        if (lod.far) lod.far.visible = far;
+        if (lod.far) lod.far.visible = far && dist < TREE_RANGE;
       }
       for (const key of loaded.keys()) if (!want.has(key)) unload(key);
       for (const key of want) loadTile(key);
+      clusters.update(camera.position);
     },
     heightAt(x, z) {
       return grid ? sampleGrid(grid, x, z) : 0;

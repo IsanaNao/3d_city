@@ -73,12 +73,13 @@ function partBox(model, part) {
   return box;
 }
 
+// The outer skin only: floor plates and the core sit inside it.
 function vertexRadii(model, y0, y1) {
   let maxR = 0;
   let minR = Infinity;
   model.traverse((obj) => {
     const pos = obj.geometry?.getAttribute?.('position');
-    if (!pos) return;
+    if (!pos || obj.userData?.part === 'interior') return;
     for (let i = 0; i < pos.count; i++) {
       const y = pos.getY(i);
       if (y < y0 || y > y1) continue;
@@ -137,7 +138,7 @@ function planAngle(model, y0, y1) {
   let xz = 0;
   model.traverse((obj) => {
     const pos = obj.geometry?.getAttribute?.('position');
-    if (!pos) return;
+    if (!pos || obj.userData?.part === 'interior') return;
     for (let i = 0; i < pos.count; i++) {
       const y = pos.getY(i);
       if (y < y0 || y > y1) continue;
@@ -229,7 +230,7 @@ test('pearl stands on a stepped circular plinth with stairs', () => {
   assert.ok(plinth.max.y > 5 && plinth.max.y < 7);
   assert.ok(plinth.max.x > 70, 'the lowest terrace is a wide circle');
   const legs = partBox(model, 'leg');
-  assert.ok(legs.min.y > 4, 'the tripod stands on the upper terrace');
+  assert.ok(legs.min.y > 0.5, 'the tripod stands on the podium');
 });
 
 test('white magnolia has an open observation crown', () => {
@@ -309,7 +310,8 @@ test('pearl spheres are a closed glass skin, with the panel grid only in the sha
   model.traverse((obj) => {
     if (obj.geometry?.type === 'TorusGeometry') rings += 1;
   });
-  assert.ok(rings >= 7, `observation rings ${rings}`);
+  // One observation band per sphere (lower, upper, capsule), not a stack of hoops.
+  assert.equal(rings, 3, `observation rings ${rings}`);
 });
 
 test('bund historic row builds a clock tower, a dome and a copper roof', () => {
@@ -559,4 +561,38 @@ test('named crossings become a truss and two cable-stayed bridges', () => {
   const s0 = sep(towers[0][0], towers[0][1]);
   const s1 = sep(towers[1][0], towers[1][1]);
   assert.ok(Math.abs(s0.dot(s1)) > 0.98, 'the two H frames are parallel');
+});
+
+test('jin mao shell faces outward, so the near side is not culled', () => {
+  const jin = createLandmarks([{ id: 'jinmao', x: 0, z: 0, y: 0, h: 421, yaw: 0 }]).children[0];
+  let out = 0;
+  let inward = 0;
+  jin.traverse((obj) => {
+    if (!obj.isMesh || obj.material.side !== THREE.FrontSide || !obj.geometry.getAttribute('uv')) return;
+    if (obj.userData?.part === 'interior') return;
+    const pos = obj.geometry.getAttribute('position');
+    const nrm = obj.geometry.getAttribute('normal');
+    if (!nrm || obj.geometry.type !== 'BufferGeometry') return;
+    for (let i = 0; i < pos.count; i++) {
+      const radial = pos.getX(i) * nrm.getX(i) + pos.getZ(i) * nrm.getZ(i);
+      if (Math.abs(nrm.getY(i)) > 0.5) continue;
+      if (radial > 0) out += 1;
+      else inward += 1;
+    }
+  });
+  assert.ok(out > 100 && inward < out * 0.05, `shell normals ${out} out, ${inward} in`);
+});
+
+test('the peace hotel fills its footprint and keeps its tower on the river end', () => {
+  // A wedge 150 m deep along Nanjing Road, narrow at the Bund (+X in world).
+  const ring = [[-1300, -260], [-1290, -200], [-1180, -225], [-1180, -245]];
+  const item = { id: 'peace', x: -1240, z: -233, y: 0, h: 77, yaw: 0, ring };
+  const model = createLandmarks([item]).children[0];
+  model.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(model);
+  assert.ok(box.max.x - box.min.x > 100, `the wing spans ${box.max.x - box.min.x} m`);
+  let roof = null;
+  model.traverse((obj) => { if (obj.userData?.part === 'peace-roof') roof = obj; });
+  const at = new THREE.Box3().setFromObject(roof).getCenter(new THREE.Vector3());
+  assert.ok(at.x > -1200, `the pyramid stands at x ${at.x.toFixed(1)}, not by the river`);
 });

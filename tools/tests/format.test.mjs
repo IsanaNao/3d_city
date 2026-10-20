@@ -208,3 +208,38 @@ test('a tall office grows a setback crown above the roof', () => {
   for (let i = 1; i < low.position.length; i += 3) lowTop = Math.max(lowTop, low.position[i]);
   assert.ok(lowTop < 42, `short office top ${lowTop}`);
 });
+
+test('a tall tower keeps straight walls, with no made-up podium ledge', () => {
+  const geo = buildBuildingGeometry([part(box(0, 0, 40, 30), 0, 160)]);
+  // Every facade vertex stays on the footprint edge all the way up.
+  for (let v = 0; v < geo.position.length / 3; v++) {
+    if (geo.wall[v * 3 + 1] < 0 || geo.position[v * 3 + 1] > 159.9) continue;
+    const x = geo.position[v * 3];
+    const z = geo.position[v * 3 + 2];
+    const onEdge = Math.abs(x) < 1e-3 || Math.abs(x - 40) < 1e-3 || Math.abs(z) < 1e-3 || Math.abs(z - 30) < 1e-3;
+    assert.ok(onEdge, `wall vertex pulled in to (${x.toFixed(2)}, ${z.toFixed(2)})`);
+  }
+});
+
+test('stacked parts of one tower share a facade and a floor grid', () => {
+  const podium = part(box(0, 0, 60, 50), 0, 24, { color: 0x887766 });
+  const shaft = part(box(10, 10, 50, 40), 24, 180, { color: 0x6688aa, flags: 0 });
+  const geo = buildBuildingGeometry([podium, shaft]);
+  const seeds = new Set();
+  const bases = new Set();
+  const colors = new Set();
+  for (let v = 0; v < geo.seed.length; v++) {
+    seeds.add(geo.seed[v]);
+    bases.add(geo.base[v]);
+  }
+  // Facade triangles of the podium and of the shaft, away from parapets and crown.
+  for (let v = 0; v < geo.seed.length; v += 3) {
+    const mid = (geo.position[v * 3 + 1] + geo.position[v * 3 + 4] + geo.position[v * 3 + 7]) / 3;
+    if (geo.wall[v * 3 + 1] >= 0 && (mid < 20 || (mid > 30 && mid < 170))) colors.add(geo.color[v * 3].toFixed(3));
+  }
+  assert.equal(seeds.size, 1, 'one facade seed for both parts');
+  assert.deepEqual([...bases], [0], 'floors are counted from the podium base');
+  assert.equal(colors.size, 1, 'both parts wear the tower colour');
+  const apart = buildBuildingGeometry([part(box(0, 0, 20, 20), 0, 60), part(box(100, 0, 120, 20), 0, 90)]);
+  assert.equal(new Set(apart.seed).size, 2, 'separate buildings keep their own facades');
+});

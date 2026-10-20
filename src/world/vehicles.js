@@ -27,6 +27,12 @@ function carGeometry() {
 
 const PAINTS = [0xf4f4f2, 0x23272c, 0x8e969e, 0xb4232a, 0x1d4f8c, 0xd6a31c, 0x1e6b4c, 0xe7e2d8];
 
+// Paint belongs to the car, not to its instance slot: main.js packs the cars
+// near the camera into the first slots and repaints a slot when its car changes.
+export function carPaint(i, color) {
+  return color.setHex(i % 7 === 0 ? 0xd6a31c : PAINTS[i % PAINTS.length]);
+}
+
 export function createCarFleet(count) {
   const geo = carGeometry();
   const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.45 });
@@ -49,10 +55,7 @@ export function createCarFleet(count) {
   const lamps = new THREE.InstancedMesh(lampsGeo, lampMat, count);
   lamps.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   const color = new THREE.Color();
-  for (let i = 0; i < count; i++) {
-    color.setHex(i % 7 === 0 ? 0xd6a31c : PAINTS[i % PAINTS.length]);
-    body.setColorAt(i, color);
-  }
+  for (let i = 0; i < count; i++) body.setColorAt(i, carPaint(i, color));
   body.instanceColor.needsUpdate = true;
   const beams = new THREE.InstancedMesh(beamGeometry(4.2), beamMaterial, count);
   beams.instanceMatrix = body.instanceMatrix;
@@ -69,6 +72,14 @@ export function createCarFleet(count) {
 const CLOTHES = [0x243044, 0x8c3a3a, 0x2f4a38, 0xc4b8a4, 0x1d3d6e, 0x6b5344, 0xd8d4cc, 0x3d3a44];
 
 const PANTS = [0x1c1e22, 0x243044, 0x3a322c, 0x2c3340, 0x4a4036, 0x1a2744];
+
+export function shirtPaint(i, color) {
+  return color.setHex(CLOTHES[i % CLOTHES.length]);
+}
+
+export function pantsPaint(i, color) {
+  return color.setHex(PANTS[(i * 3) % PANTS.length]);
+}
 
 export function createPersonFleet(count) {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0 });
@@ -95,10 +106,8 @@ export function createPersonFleet(count) {
   heads.frustumCulled = false;
   const color = new THREE.Color();
   for (let i = 0; i < count; i++) {
-    color.setHex(CLOTHES[i % CLOTHES.length]);
-    mesh.setColorAt(i, color);
-    color.setHex(PANTS[(i * 3) % PANTS.length]);
-    legs.setColorAt(i, color);
+    mesh.setColorAt(i, shirtPaint(i, color));
+    legs.setColorAt(i, pantsPaint(i, color));
   }
   mesh.instanceColor.needsUpdate = true;
   legs.instanceColor.needsUpdate = true;

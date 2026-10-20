@@ -375,6 +375,15 @@ const FACADE_MAIN = /* glsl */`
     float pier = tallOffice * (1.0 - smoothstep(0.02, 0.1, abs(fract((col + 0.5) / 5.0) - 0.5)));
     frame = max(frame, pier);
     float pane = inWin * (1.0 - frame);
+    // Refuge and plant floors: Chinese towers over 100 m give up a storey
+    // every 15 to 18 to louvres. The band stays dark at night and breaks the
+    // shaft into the stacks a real tower reads as.
+    float refugeEvery = 15.0 + floor(hash12(vec2(seed, 9.0)) * 4.0);
+    float refugePhase = floor(hash12(vec2(seed, 13.0)) * 6.0);
+    float refuge = (height > 100.0 && !shop && !usePhoto && !podiumBlock && v > 28.0 && v < height - 10.0
+      && mod(row + refugePhase, refugeEvery) < 0.5) ? 1.0 : 0.0;
+    float louvre = refuge * inWin * (1.0 - frame);
+    pane *= 1.0 - refuge;
 
     // interior mapping: the view ray meets a room box behind the glass
     vec3 V = normalize(vWorld - cameraPosition);
@@ -437,6 +446,8 @@ const FACADE_MAIN = /* glsl */`
     }
     diffuseColor.rgb = mix(diffuseColor.rgb, frameCol, inWin * frame);
     diffuseColor.rgb = mix(diffuseColor.rgb, glassTint, pane);
+    float slat = smoothstep(0.35, 0.5, fract(pm.y / 0.32)) * (1.0 - far);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.32, 0.34) * (0.72 + 0.28 * slat), louvre);
     if (tallOffice > 0.5 && !usePhoto) {
       float spandrel = 1.0 - smoothstep(0.0, 0.18, min(fy, 1.0 - fy));
       float spandrelAmt = towerStyle < 0.5 ? 0.32
@@ -598,7 +609,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-25';
+  material.customProgramCacheKey = () => 'sh-facade-26';
   return material;
 }
 
