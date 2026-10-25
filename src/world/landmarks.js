@@ -29,15 +29,44 @@ uniform float uShowPhase;
 vec3 pearlHue(float h) {
   return clamp(abs(fract(h + vec3(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
 }
+// Set by the sphere shader before showColor: which ball (0 lower, 1 upper,
+// 0.5 anything else) and the true azimuth 0..1. The patterned schemes need
+// both; the plain colours ignore them, so member shaders can leave defaults.
+float gPearlOrb = 0.5;
+float gPearlLon = 0.0;
 vec3 schemeColor(float id, float lat, float lon) {
-  float i = mod(id, 7.0);
+  float i = mod(id, 11.0);
   if (i < 0.5) return vec3(1.0, 0.05, 0.10);
   if (i < 1.5) return vec3(1.0, 0.06, 0.52);
   if (i < 2.5) return vec3(0.15, 0.45, 1.0);
   if (i < 3.5) return vec3(0.55, 0.16, 1.0);
   if (i < 4.5) return vec3(1.0, 0.72, 0.22);
   if (i < 5.5) return vec3(0.15, 0.95, 0.35);
-  return pearlHue(fract(lat * 1.7 + lon * 0.35 + uShowPhase));
+  if (i < 6.5) return pearlHue(fract(lat * 1.7 + lon * 0.35 + uShowPhase));
+  // Patterns move a few cycles per twenty-minute slot: slow enough to read
+  // as a drift, never a flicker. lat runs 0 at the top to 1 at the bottom.
+  if (i < 7.5) {
+    // One broad gradient across both balls, drifting round the tower.
+    float t = 0.5 + 0.5 * sin(lat * 2.4 + gPearlLon * 6.2831853 + uShowPhase * 6.2831853 * 3.0);
+    return mix(vec3(0.55, 0.12, 1.0), vec3(0.1, 0.85, 1.0), t);
+  }
+  if (i < 8.5) {
+    // A soft colour wave rising from the bottom of each ball.
+    float w = fract(lat * 1.2 + uShowPhase * 8.0);
+    float t = smoothstep(0.0, 0.35, w) * (1.0 - smoothstep(0.55, 0.95, w));
+    return mix(vec3(0.15, 0.4, 1.0), vec3(1.0, 0.08, 0.5), t);
+  }
+  if (i < 9.5) {
+    // Six meridian stripes turning slowly about the axis.
+    float st = 0.5 + 0.5 * sin((gPearlLon + uShowPhase * 4.0) * 6.2831853 * 6.0);
+    // Red against saturated gold: a pale stripe is normalised down to grey.
+    return mix(vec3(1.0, 0.04, 0.1), vec3(1.0, 0.62, 0.08), smoothstep(0.25, 0.75, st));
+  }
+  // Upper and lower balls trade gold and pink back and forth.
+  // Cosine so the slot opens on full contrast, not the shared midpoint.
+  float k = 0.5 + 0.5 * cos(uShowPhase * 6.2831853 * 10.0);
+  float side = gPearlOrb < 0.25 ? k : gPearlOrb > 0.75 ? 1.0 - k : 0.5;
+  return mix(vec3(1.0, 0.05, 0.5), vec3(0.2, 0.5, 1.0), side);
 }
 vec3 showColor(float lat, float lon) {
   return mix(schemeColor(uShowScheme, lat, lon), schemeColor(uShowNext, lat, lon), uShowFade);
@@ -103,6 +132,10 @@ pearlMat.onBeforeCompile = (shader) => {
       // Mullions are a lighter rose-silver, not white: from a distance the
       // shell reads as one smooth colour, as it does in photographs.
       vec3 mullion = mix(vec3(0.82, 0.34, 0.38), vec3(0.78, 0.76, 0.78), 0.45);
+      // Only the two main balls are painted 44 and 36 rows high, so the paint
+      // grid tells them apart without another vertex attribute.
+      gPearlOrb = vGrid.y > 40.0 ? 0.0 : vGrid.y > 30.0 ? 1.0 : 0.5;
+      gPearlLon = vPane.x;
       vec3 show = showColor(vLat, pane.x);
       vec3 showN = showNorm(show, 0.42);
       // The shell is an even field of LED points, brightest round the middle.
@@ -143,7 +176,7 @@ pearlMat.onBeforeCompile = (shader) => {
       reflectedLight.indirectSpecular *= 0.32;
       #include <opaque_fragment>`);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-17';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-19';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
@@ -179,13 +212,13 @@ function pearlMemberShader(shader, rings, metal) {
     `);
 }
 columnMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 4, 'vec3(0.96, 0.97, 0.98)');
-columnMat.customProgramCacheKey = () => 'lm-pearl-column-14';
+columnMat.customProgramCacheKey = () => 'lm-pearl-column-16';
 const legMat = new THREE.MeshStandardMaterial({
   color: 0xe2dfd8, metalness: 0.04, roughness: 0.74,
   emissive: new THREE.Color(0x000000), emissiveIntensity: 0,
 });
 legMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 3, 'vec3(0.90, 0.91, 0.92)');
-legMat.customProgramCacheKey = () => 'lm-pearl-leg-8';
+legMat.customProgramCacheKey = () => 'lm-pearl-leg-10';
 const shanghaiCrownMat = new THREE.MeshStandardMaterial({
   color: 0x9eb4c6, metalness: 0.62, roughness: 0.16,
   emissive: new THREE.Color(0x3aa0ff), emissiveIntensity: 0,
