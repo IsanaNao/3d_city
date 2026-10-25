@@ -4,7 +4,7 @@ import test from 'node:test';
 import { TILE, makeProjection, tileOf } from '../../src/shared/geo.js';
 import { KIND, ROOF } from '../../src/shared/kinds.js';
 import { buildBuildingGeometry } from '../../src/shared/meshbuild.js';
-import { classifyKind, defaultHeight, resolveVertical } from '../../src/shared/heights.js';
+import { classifyKind, defaultHeight, materialColour, parseColour, resolveVertical, roofColour, wallColor } from '../../src/shared/heights.js';
 import { blueHour, daylight, duskHaze, nightFactor, sunVector } from '../../src/shared/sun.js';
 import { NAMED_TOWERS } from '../../src/shared/towers.js';
 import { CROWN_RGB, PEARL_SCHEMES, pearlShow, SCHEME_RGB } from '../../src/shared/show.js';
@@ -180,6 +180,36 @@ test('blue hour peaks a few degrees after sunset and leaves noon and night alone
   // At Shanghai midsummer, 19:45 is inside the window.
   const deg = sunVector(19.45, 172).altitude * 180 / Math.PI;
   assert.ok(blueHour(deg) > 0.9);
+});
+
+test('OSM colours parse from names, hex and short hex', () => {
+  assert.equal(parseColour('#a0b1c2'), 0xa0b1c2);
+  assert.equal(parseColour('A0B1C2'), 0xa0b1c2);
+  assert.equal(parseColour('#fa0'), 0xffaa00);
+  assert.equal(parseColour('Grey'), parseColour('gray'));
+  assert.ok(parseColour('dark red') < parseColour('red'));
+  assert.equal(parseColour('light_grey') > parseColour('grey'), true);
+  assert.equal(parseColour('beautiful'), null);
+  assert.equal(parseColour(''), null);
+  assert.equal(roofColour({ 'roof:colour': '#336633' }), 0x336633);
+  assert.equal(roofColour({}), null);
+  assert.equal(materialColour({ 'building:material': 'brick' }) !== null, true);
+  // A tagged colour beats the material, the material beats the random tone.
+  const seedless = (tags) => wallColor(1, 0, 30, tags);
+  assert.notEqual(seedless({ 'building:material': 'brick' }), seedless({}));
+  assert.equal(seedless({ 'building:colour': 'white', 'building:material': 'brick' }), seedless({ 'building:colour': 'white' }));
+});
+
+test('tiles carry the roof colour and old tiles fail clearly', () => {
+  const tile = { tx: 0, tz: 0, land: [], props: [], roadVerts: new Float32Array(0), roadIdx: new Uint32Array(0),
+    buildings: [{ kind: 1, storeys: 3, flags: 0, baseY: 0, topY: 10, color: 0x123456, roofColor: 0x00ff00, name: '', rings: [[[0, 0], [10, 0], [10, 10]]] },
+      { kind: 1, storeys: 3, flags: 0, baseY: 0, topY: 10, color: 0x123456, name: '', rings: [[[0, 0], [10, 0], [10, 10]]] }] };
+  const out = decodeTile(encodeTile(tile));
+  assert.equal(out.buildings[0].roofColor, 0x00ff00);
+  assert.equal(out.buildings[1].roofColor, null);
+  const buf = new Uint8Array(encodeTile(tile));
+  buf[4] = 2;
+  assert.throws(() => decodeTile(buf.buffer), /npm run compile/);
 });
 
 function box(x0, z0, x1, z1) {

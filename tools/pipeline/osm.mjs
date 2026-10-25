@@ -1,5 +1,5 @@
 import { BFLAG, KIND, LAND, ROAD, ROOF } from '../../src/shared/kinds.js';
-import { classifyKind, parseMetres, resolveVertical, wallColor } from '../../src/shared/heights.js';
+import { classifyKind, parseMetres, resolveVertical, roofColour, wallColor } from '../../src/shared/heights.js';
 import { hashString } from '../../src/shared/rng.js';
 import {
   bufferOpen, centroid, cleanRing, ensureWinding, pointInPoly, polygonArea,
@@ -303,7 +303,8 @@ function roofOf(tags, area, wallHeight) {
 
 function isGlass(tags) {
   const material = String(tags['building:material'] || tags['building:facade:material'] || '').toLowerCase();
-  return material === 'glass' || material === 'mirror';
+  // Curtain-wall towers are often tagged glass on the facade only.
+  return material === 'glass' || material === 'mirror' || material === 'glass;steel' || material === 'glass;metal';
 }
 
 function makeBuilding(outer, holes, tags, sampleHeight, seq) {
@@ -334,6 +335,8 @@ function makeBuilding(outer, holes, tags, sampleHeight, seq) {
     topY: ground + vertical.top,
     minHeight: vertical.minHeight,
     color: wallColor(kind, hashString(tags.name || id), vertical.top, tags),
+    roofColor: roofColour(tags),
+    realColour: Boolean(tags['building:colour'] || tags['building:color'] || tags['building:material']),
     area,
     centroid: centroid(cleaned),
     rings: [ensureWinding(cleaned, true), ...holes.map((h) => ensureWinding(cleanRing(h), false)).filter((h) => h.length >= 3)],

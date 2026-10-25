@@ -9,6 +9,7 @@ import { BinWriter, binReader } from './bin.js';
 // building:
 //   u8 kind | u8 storeys | u16 flags | f32 baseY | f32 topY
 //   u8 roofShape | u8 reserved | f32 roofHeight | u32 color
+//   u32 roofColor (bit 24 set = tagged roof:colour, else derive from wall)
 //   u16 nameBytes | utf8 name
 //   u16 nRings
 //   ring: u16 n | n bytes of edge flags | n * (f32 x, f32 z)
@@ -24,7 +25,8 @@ import { BinWriter, binReader } from './bin.js';
 //   f32 x y z rot scale extra
 
 export const MAGIC = 0x31474853; // 'SHG1'
-export const VERSION = 2;
+// 3: roof colour after the wall colour.
+export const VERSION = 3;
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -85,6 +87,7 @@ export function encodeTile({ tx, tz, buildings = [], land = [], roads = null, pr
     w.u8(0);
     w.f32(b.roofHeight || 0);
     w.u32((b.color ?? 0xcccccc) >>> 0);
+    w.u32(b.roofColor == null ? 0 : ((b.roofColor & 0xffffff) | 0x1000000) >>> 0);
     const name = textEncoder.encode(b.name || '');
     w.u16(name.length);
     w.raw(name);
@@ -119,7 +122,7 @@ export function decodeTile(input) {
   if (r.u32() !== MAGIC) throw new Error('not an SHG1 tile');
   const version = r.u16();
   r.u16();
-  if (version !== VERSION) throw new Error(`tile version ${version}, expected ${VERSION}`);
+  if (version !== VERSION) throw new Error(`tile version ${version}, expected ${VERSION}: the tiles are older than the code, run npm run compile`);
   const tx = r.i32();
   const tz = r.i32();
   const nB = r.u32();
@@ -138,12 +141,14 @@ export function decodeTile(input) {
     r.u8();
     const roofHeight = r.f32();
     const color = r.u32();
+    const roofRaw = r.u32();
+    const roofColor = roofRaw & 0x1000000 ? roofRaw & 0xffffff : null;
     const nameBytes = r.bytes(r.u16());
     const name = textDecoder.decode(nameBytes);
     const rings = [];
     const nRings = r.u16();
     for (let k = 0; k < nRings; k++) rings.push(readRing(r, true));
-    buildings.push({ kind, storeys, flags, baseY, topY, roofShape, roofHeight, color, name, rings });
+    buildings.push({ kind, storeys, flags, baseY, topY, roofShape, roofHeight, color, roofColor, name, rings });
   }
   const land = [];
   for (let i = 0; i < nL; i++) {
