@@ -15,10 +15,11 @@ const TAU = [0.07, 0.13, 0.28];
 const SKY = {
   zenith: new THREE.Color().setRGB(0.045, 0.14, 0.5),
   horizon: new THREE.Color().setRGB(0.58, 0.65, 0.72),
-  setZenith: new THREE.Color().setRGB(0.09, 0.12, 0.26),
+  setZenith: new THREE.Color().setRGB(0.06, 0.11, 0.3),
   setHorizon: new THREE.Color().setRGB(1.05, 0.5, 0.24),
-  nightZenith: new THREE.Color().setRGB(0.004, 0.006, 0.016),
-  nightHorizon: new THREE.Color().setRGB(0.05, 0.04, 0.045),
+  // A deep blue rather than mauve, so the blue hour after sunset reads blue.
+  nightZenith: new THREE.Color().setRGB(0.004, 0.007, 0.022),
+  nightHorizon: new THREE.Color().setRGB(0.028, 0.04, 0.085),
 };
 export const FOG = {
   day: new THREE.Color(0.66, 0.73, 0.84),

@@ -157,7 +157,7 @@ function applySun() {
   env.setSun(new THREE.Vector3(sunPos.x, sunPos.y, sunPos.z));
   const haze = duskHaze(env.elevation, skyPreset);
   cityUniforms.uHaze.value = haze;
-  if (haze > 0) env.fogColor.lerp(hazeFog, haze * 0.82);
+  if (haze > 0) env.fogColor.lerp(hazeFog, haze * 0.6);
   syncPearlShow(hour, pearlPin);
   const shadowMoved = env.follow(controls.target, camera);
   cityUniforms.uSkyGain.value = 1 / env.exposure;

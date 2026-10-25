@@ -64,37 +64,102 @@ function frameAt(pts, i) {
   return { dir, side };
 }
 
+// Riveted steel painted dark grey, as the Garden Bridge is.
+const trussSteel = new THREE.MeshStandardMaterial({
+  color: 0x5c6266, metalness: 0.42, roughness: 0.58,
+  emissive: new THREE.Color(0xffd8a0), emissiveIntensity: 0,
+});
+const pierStone = new THREE.MeshStandardMaterial({ color: 0x8f8a80, metalness: 0.02, roughness: 0.86 });
+
+// Waibaidu (Garden) Bridge, 1907: two spans of camelback through-truss, about
+// 52 m each, meeting on a pier in the creek. Each truss has a polygonal top
+// chord, highest at mid-span, inclined end posts, verticals at every panel
+// point and Pratt diagonals falling toward the middle. Overhead struts and
+// cross-bracing tie the two trusses. Members are rectangular, not tubes.
 function trussBridge(item) {
   const g = new THREE.Group();
-  const pts = resample(item.points, 9);
-  const half = 7.2;
-  const rise = 12;
-  for (const sign of [-1, 1]) {
-    const bottom = [];
-    const top = [];
-    for (let i = 0; i < pts.length; i++) {
-      const { side } = frameAt(pts, i);
-      const t = pts.length === 1 ? 0.5 : i / (pts.length - 1);
-      const arch = 1.4 + rise * 4 * t * (1 - t);
-      const base = pts[i].clone().add(side.clone().multiplyScalar(half * sign));
-      bottom.push(base.clone());
-      top.push(base.clone().add(new THREE.Vector3(0, arch, 0)));
+  const path = item.points.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
+  let length = 0;
+  for (let i = 1; i < path.length; i++) length += path[i].distanceTo(path[i - 1]);
+  const spans = length > 70 ? 2 : 1;
+  const panels = 8;
+  const half = 7.6;
+  const pts = resample(item.points, length / (spans * panels));
+  while (pts.length < spans * panels + 1) pts.push(pts[pts.length - 1].clone());
+  const heightAt = (k) => {
+    // Panel index within its span: low at the end posts, highest mid-span.
+    const s = k / panels;
+    return 5.2 + 5.6 * Math.sin(Math.PI * s) ** 0.8;
+  };
+  const up = new THREE.Vector3(0, 1, 0);
+  for (let sp = 0; sp < spans; sp++) {
+    const i0 = sp * panels;
+    for (const sign of [-1, 1]) {
+      const bottom = [];
+      const top = [];
+      for (let k = 0; k <= panels; k++) {
+        const i = Math.min(pts.length - 1, i0 + k);
+        const { side } = frameAt(pts, i);
+        const base = pts[i].clone().add(side.clone().multiplyScalar(half * sign));
+        base.y += 0.4;
+        bottom.push(base);
+        top.push(base.clone().add(new THREE.Vector3(0, heightAt(k), 0)));
+      }
+      const { side } = frameAt(pts, i0 + panels / 2);
+      for (let k = 0; k < panels; k++) {
+        boxMember(g, bottom[k], bottom[k + 1], up, 0.55, 0.9, trussSteel, 'truss-chord');
+      }
+      // Inclined end posts carry the top chord down to the bearings.
+      boxMember(g, bottom[0], top[1], side, 0.75, 0.75, trussSteel, 'truss-post');
+      boxMember(g, bottom[panels], top[panels - 1], side, 0.75, 0.75, trussSteel, 'truss-post');
+      for (let k = 1; k < panels - 1; k++) boxMember(g, top[k], top[k + 1], side, 0.75, 0.8, trussSteel, 'truss-chord');
+      for (let k = 1; k < panels; k++) boxMember(g, bottom[k], top[k], side, 0.32, 0.5, trussSteel, 'truss-vertical');
+      for (let k = 1; k < panels - 1; k++) {
+        // Pratt: diagonals fall toward mid-span.
+        if (k < panels / 2) boxMember(g, top[k], bottom[k + 1], side, 0.26, 0.42, trussSteel, 'truss-diagonal');
+        else boxMember(g, top[k + 1], bottom[k], side, 0.26, 0.42, trussSteel, 'truss-diagonal');
+      }
     }
-    for (let i = 1; i < bottom.length; i++) {
-      member(g, bottom[i - 1], bottom[i], 0.38, steel);
-      member(g, top[i - 1], top[i], 0.42, steel);
-      member(g, bottom[i], top[i], 0.28, steel);
-      member(g, bottom[i - 1], top[i], 0.22, steel);
+    // Overhead struts at the panel points and X-bracing between them.
+    for (let k = 1; k < panels; k++) {
+      const i = Math.min(pts.length - 1, i0 + k);
+      const { side, dir } = frameAt(pts, i);
+      const y = pts[i].y + 0.4 + heightAt(k);
+      const l = pts[i].clone().add(side.clone().multiplyScalar(-half));
+      const r = pts[i].clone().add(side.clone().multiplyScalar(half));
+      l.y = y;
+      r.y = y;
+      boxMember(g, l, r, dir, 0.35, 0.5, trussSteel, 'truss-strut');
+    }
+    for (let k = 1; k < panels - 1; k++) {
+      const a = Math.min(pts.length - 1, i0 + k);
+      const b = Math.min(pts.length - 1, i0 + k + 1);
+      const fa = frameAt(pts, a);
+      const fb = frameAt(pts, b);
+      const ya = pts[a].y + 0.4 + heightAt(k);
+      const yb = pts[b].y + 0.4 + heightAt(k + 1);
+      const p0 = pts[a].clone().add(fa.side.clone().multiplyScalar(-half)).setY(ya);
+      const p1 = pts[b].clone().add(fb.side.clone().multiplyScalar(half)).setY(yb);
+      boxMember(g, p0, p1, up, 0.16, 0.22, trussSteel, 'truss-brace');
+      const q0 = pts[a].clone().add(fa.side.clone().multiplyScalar(half)).setY(ya);
+      const q1 = pts[b].clone().add(fb.side.clone().multiplyScalar(-half)).setY(yb);
+      boxMember(g, q0, q1, up, 0.16, 0.22, trussSteel, 'truss-brace');
     }
   }
-  // Portal frames at the ends and the crown, so the two trusses read as one bridge.
-  for (const i of [0, Math.floor(pts.length / 2), pts.length - 1]) {
-    const { side } = frameAt(pts, i);
-    const t = i / (pts.length - 1);
-    const arch = 1.4 + rise * 4 * t * (1 - t);
-    const left = pts[i].clone().add(side.clone().multiplyScalar(-half));
-    const right = pts[i].clone().add(side.clone().multiplyScalar(half));
-    member(g, left.clone().setY(left.y + arch), right.clone().setY(right.y + arch), 0.35, steel);
+  // The pier between the spans, down into the creek.
+  if (spans === 2) {
+    const mid = pts[Math.min(pts.length - 1, panels)];
+    const { dir } = frameAt(pts, panels);
+    const pierH = Math.max(3, mid.y - 0.5);
+    const geo = new THREE.BoxGeometry(3.2, pierH, half * 2 + 3.6);
+    geo.translate(0, -pierH / 2, 0);
+    const pier = new THREE.Mesh(geo, pierStone);
+    pier.position.copy(mid);
+    orientBox(pier, dir, new THREE.Vector3(0, 1, 0));
+    pier.castShadow = true;
+    pier.receiveShadow = true;
+    pier.userData.part = 'pier';
+    g.add(pier);
   }
   return g;
 }
@@ -237,5 +302,7 @@ export function createBridges(list) {
 export function syncBridgeNight(night) {
   concrete.emissiveIntensity = night * 0.35;
   cableMat.emissiveIntensity = night * 0.55;
+  // The truss is outlined in warm light at night.
+  trussSteel.emissiveIntensity = night * 0.28;
   void cityUniforms;
 }

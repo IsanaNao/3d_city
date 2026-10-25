@@ -171,7 +171,11 @@ const FACADE_MAIN = /* glsl */`
   float seed = floor(vSeed + 0.5);
   float sf = seed / 997.0;
   bool isRoof = vWall.y < 0.0;
-  bool glassy = vWall.z > 0.5 || kind > 4.5 && kind < 5.5;
+  // vWall.z: odd = glass curtain wall; twos carry a named tower's night style
+  // (src/shared/towers.js): 1 media wall, 2 white, 3 blue outline, 4 gold crown.
+  float wallFlag = floor(vWall.z + 0.5);
+  float namedNight = floor(wallFlag * 0.5 + 0.01);
+  bool glassy = mod(wallFlag, 2.0) > 0.5 || kind > 4.5 && kind < 5.5;
   vec3 wall = pow(diffuseColor.rgb, vec3(2.2));
   vec2 st = isRoof ? vWorld.xz : vec2(vWall.x, vWorld.y);
     wall *= 0.9 + 0.2 * vnoise(st * 0.11 + seed * 0.37);
@@ -479,8 +483,14 @@ const FACADE_MAIN = /* glsl */`
       vec3 soft = mix(vec3(1.0, 0.8, 0.58), lamp, 0.45);
       vec3 room3 = mix(interior * fall, cloth * (0.75 + 0.35 * fall), curtain);
       room3 = mix(room3, vec3(0.3), far * (1.0 - tall));
-      room3 = mix(room3, vec3(1.0, 0.78, 0.48), far);
-      soft = mix(soft, vec3(1.0, 0.74, 0.42), far);
+      // At distance every window used to fade to one amber, so the whole
+      // skyline went orange. Offices read cool white (4000-5000 K), homes
+      // stay warm, and a minority of offices keep a warmer tone.
+      vec3 farTone = office > 0.5
+        ? mix(vec3(1.0, 0.88, 0.7), vec3(0.86, 0.92, 1.0), step(0.3, b2))
+        : mix(vec3(1.0, 0.76, 0.46), vec3(1.0, 0.86, 0.66), b3);
+      room3 = mix(room3, farTone, far);
+      soft = mix(soft, farTone, far);
       float power = uNight * on * glow * 0.78 * 1.75;
       if (kind > 5.5) power *= 0.22;
       gEmissive += pane * (interior * daylight + room3 * soft * power);
@@ -538,13 +548,48 @@ const FACADE_MAIN = /* glsl */`
       gEmissive = mix(gEmissive, gEmissive * accentCol * 1.25 + accentCol * pane * 0.4, accent);
     }
     // A minority of the tall frontage carries a thin show-tinted edge. The rest stay warm floor bands.
-    if (tall > 0.55 && fract(sf * 19.7) > 0.8 && vWall.y > 0.0) {
+    // Outline lighting, as Shanghai's tall frontage has: LED lines up the
+    // corners and round the crown. Most are white or ice blue, some gold,
+    // a few take the show colour. About half of the tall towers carry it.
+    bool namedLine = namedNight > 1.5;
+    if (vWall.y > 0.0 && (namedLine || (tall > 0.55 && height > 100.0 && fract(sf * 19.7) > 0.45))) {
       float edgeDist = min(vWall.x, max(vWall.y - vWall.x, 0.0));
-      float side = 1.0 - smoothstep(0.15, 0.7, edgeDist);
-      float crownLine = smoothstep(0.9, 0.95, v / height) * (1.0 - smoothstep(0.985, 0.998, v / height));
+      float lineW = mix(0.35, 1.4, far);
+      float side = 1.0 - smoothstep(lineW * 0.4, lineW, edgeDist);
+      float crownLine = smoothstep(0.93, 0.95, v / height) * (1.0 - smoothstep(0.965, 0.975, v / height));
+      float pick = fract(sf * 5.3);
+      if (namedNight > 1.5 && namedNight < 2.5) pick = 0.2;
+      if (namedNight > 2.5 && namedNight < 3.5) pick = 0.6;
+      if (namedNight > 3.5) pick = 0.8;
       float led = fract(sf * 2.7 + uShowScheme / 7.0 + uShowPhase * 0.2);
-      vec3 line = mix(vec3(1.0, 0.82, 0.55), hue(led), 0.35);
-      gEmissive += line * uNight * (side * 0.16 + crownLine * 0.4);
+      vec3 line = pick < 0.5 ? vec3(0.9, 0.95, 1.0)
+        : pick < 0.72 ? vec3(0.55, 0.8, 1.0)
+        : pick < 0.9 ? vec3(1.0, 0.82, 0.5)
+        : hue(led);
+      gEmissive += line * uNight * (side * 0.55 + crownLine * 0.9);
+    }
+    // A gold-crown tower floods its top tenth warm.
+    if (namedNight > 3.5) {
+      float top = smoothstep(0.86, 0.94, v / height);
+      gEmissive += vec3(1.0, 0.72, 0.36) * uNight * top * 0.55;
+    }
+    // The riverfront video walls: the face above the podium is one LED
+    // screen. Slow colour fields drift across it; up close the pixels show.
+    if (namedNight > 0.5 && namedNight < 1.5 && vWall.y > 0.0 && v > 14.0 && v < height - 4.0) {
+      float tt = uTime * 0.22;
+      float field = sin(vWall.x * 0.055 + tt * 2.1) + sin(v * 0.04 - tt * 1.3)
+        + sin((vWall.x + v) * 0.026 + tt) + 0.6 * sin(length(vec2(vWall.x - vWall.y * 0.5, v - height * 0.5)) * 0.08 - tt * 2.6);
+      // One theme colour at a time, slowly changing, over a darker ground;
+      // bright shapes drift through it and lines of white text sweep past.
+      vec3 theme = mix(hue(fract(tt * 0.015 + sf * 3.1)), vec3(1.0), 0.22);
+      float shape = smoothstep(0.4, 1.6, field);
+      vec3 screen = theme * (0.16 + 0.84 * shape);
+      float textRow = step(0.82, fract(v / 9.0 - tt * 0.35)) * step(0.35, fract(vWall.x / 2.4 + floor(v / 9.0) * 0.37));
+      screen = mix(screen, vec3(1.0, 0.97, 0.92), textRow * 0.85);
+      vec2 led = fract(vec2(vWall.x, v) / 1.2);
+      float pix = mix(0.55 + 0.45 * step(0.2, led.x) * step(0.2, led.y), 0.8, far);
+      gEmissive = mix(gEmissive, screen * 0.85 * pix, uNight);
+      diffuseColor.rgb *= mix(1.0, 0.25, uNight);
     }
     if (tall > 0.55) {
       float parapet = smoothstep(0.94, 0.975, v / height) * (1.0 - smoothstep(0.99, 1.0, v / height));
@@ -609,7 +654,7 @@ function patchFacade(shader) {
 export function createBuildingMaterial() {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   material.onBeforeCompile = patchFacade;
-  material.customProgramCacheKey = () => 'sh-facade-26';
+  material.customProgramCacheKey = () => 'sh-facade-29';
   return material;
 }
 
@@ -796,11 +841,18 @@ export function createRoadMaterial() {
         ${NOISE}
         ${GROUND_PARS}`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-        ${ROAD}`)
+        ${ROAD}
+        // From a drone height a lamp pool is a texel wide and the streets go
+        // dark; in aerial night footage carriageways are continuous orange
+        // lines, brightest on the arterials.
+        if (vCls < 6.5) {
+          float farRoad = smoothstep(350.0, 1600.0, distance(cameraPosition, vWorld));
+          totalEmissiveRadiance += vec3(1.0, 0.62, 0.3) * uNight * farRoad * (vCls < 2.5 ? 0.38 : 0.16);
+        }`)
       .replace('#include <normal_fragment_maps>', PHOTO_NORMAL)
       .replace('#include <lights_fragment_end>', LAMP_READ);
   };
-  material.customProgramCacheKey = () => 'sh-road-5';
+  material.customProgramCacheKey = () => 'sh-road-7';
   material.polygonOffset = true;
   material.polygonOffsetFactor = -1;
   material.polygonOffsetUnits = -1;
@@ -860,7 +912,10 @@ export function createWaterMaterial() {
         vec3 wr = reflect(wv, n);
         float fresnel = 0.05 + 0.95 * pow(1.0 - max(dot(-wv, n), 0.0), 4.0);
         // the Huangpu is silty. At night it is a dark base; the mirror sits on top by Fresnel.
-        vec3 body = vec3(0.04, 0.055, 0.062) * (0.2 + 0.8 * (1.0 - uDark));
+        // By day it reads as brown-green, not blue: the water body is the
+        // colour of the silt, and the sky it mirrors is tinted by it.
+        vec3 silt = vec3(0.115, 0.105, 0.072);
+        vec3 body = mix(silt, vec3(0.04, 0.055, 0.062) * 0.2, uDark);
         body = mix(body, uHorizon * 0.42, uHaze * 0.28);
         vec3 seen = mix(uHorizon, uSky, pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * uSkyGain * 0.9;
         float thing = 0.0;
@@ -878,7 +933,10 @@ export function createWaterMaterial() {
           // More lift where the sample is still down on the dark quay, so the
           // floodlit wall covers the Bund reach instead of one fringe.
           float low = smoothstep(0.33, 0.43, uv.y);
-          uv.y -= uDark * (onBund * (0.045 + 0.04 * low) + side * 0.105);
+          // These lifts are tuned for an eye near the water; from a drone
+          // height they shift the wrong buildings into the river.
+          float lowEye = 1.0 - smoothstep(120.0, 420.0, cameraPosition.y - vWorld.y);
+          uv.y -= uDark * lowEye * (onBund * (0.045 + 0.04 * low) + side * 0.105);
           uv += vec2(n.x * mix(0.006, 0.012, uDark), n.z * mix(0.012, 0.028, uDark));
           float edge = max(max(-uv.x, uv.x - 1.0), max(-uv.y, uv.y - 1.0));
           float outside = mc.w < 0.0 ? 1.0 : smoothstep(-0.02, 0.08, edge);
@@ -886,6 +944,7 @@ export function createWaterMaterial() {
           thing = 1.0 - outside;
         }
         float cover = mix(fresnel * 0.82, 0.4 + 0.48 * fresnel, uDark);
+        seen *= mix(vec3(0.86, 0.84, 0.72), vec3(1.0), uDark);
         vec3 col = mix(body, seen, cover * thing);
         float s = max(dot(wr, uSunDir), 0.0);
         col += uSunGlint * (pow(s, 600.0) * 6.0 + pow(s, 60.0) * 0.12);

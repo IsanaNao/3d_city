@@ -1,5 +1,6 @@
 import earcut from 'earcut';
 import { BFLAG, KIND, ROOF } from './kinds.js';
+import { namedTower } from './towers.js';
 
 function pairsOf(ring) {
   const src = ring.points ?? ring;
@@ -582,6 +583,7 @@ function families(prepared) {
     if (!g) groups.set(root, g = { lead: item, base: Infinity, top: -Infinity, size: 0 });
     const b = item.building;
     if (b.topY > g.lead.building.topY) g.lead = item;
+    if (!g.name && b.name) g.name = b.name;
     g.base = Math.min(g.base, b.baseY);
     g.top = Math.max(g.top, item.wallTop);
     g.size += 1;
@@ -618,14 +620,16 @@ export function buildBuildingGeometry(buildings) {
     if (!rings.length) continue;
     const fam = item.family;
     const lead = fam.size > 1 ? fam.lead.building : building;
-    const color = unpack(lead.color >>> 0);
+    const named = namedTower(lead.name || fam.name);
+    const color = unpack((named ? named.color : lead.color) >>> 0);
     const attrs = {
       id: index,
       seed: seedOf(lead, fam.size > 1 ? fam.lead.index : index),
       base: fam.size > 1 ? fam.base : building.baseY,
       top: fam.size > 1 ? Math.max(fam.top, wallTop) : wallTop,
       kind: lead.kind,
-      glass: lead.flags & BFLAG.GLASS ? 1 : 0,
+      // Odd = glass curtain wall; the named night style rides in the twos.
+      glass: (named || lead.flags & BFLAG.GLASS ? 1 : 0) + 2 * (named ? named.night : 0),
       // Parapets, crowns and balconies are placed on this part's own walls;
       // base and top above are what the facade shader measures floors from.
       wallBase: building.baseY,

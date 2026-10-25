@@ -71,7 +71,11 @@ export class WaterMirror {
     cam.updateProjectionMatrix();
     const night = cityUniforms.uDark.value > 0.5;
     if (night) {
-      cam.projectionMatrix.elements[5] = 1 / Math.tan(THREE.MathUtils.degToRad(NIGHT_Y_FOV) * 0.5);
+      // Only for an eye near the water. From a drone the wide mirror view
+      // drops towers into the wrong part of the river, so it eases back.
+      const high = THREE.MathUtils.smoothstep(_pos.y - y, 120, 420);
+      const fov = THREE.MathUtils.lerp(NIGHT_Y_FOV, camera.fov, high);
+      cam.projectionMatrix.elements[5] = 1 / Math.tan(THREE.MathUtils.degToRad(fov) * 0.5);
     }
     cam.updateMatrixWorld();
 

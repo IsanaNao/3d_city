@@ -264,10 +264,17 @@ shanghaiGlass.onBeforeCompile = (shader, renderer) => {
     `float story = floor(vLm.y / 16.6);
       float storyTint = 0.74 + 0.48 * fract(sin(story * 17.2) * 43758.5);
       diffuseColor.rgb *= storyTint;
-      totalEmissiveRadiance += vec3(1.0, 0.84, 0.6) * pane * on * warmth * uNight * 0.42 * vColor.rgb * storyTint;`,
+      // Nine zones stacked about 61 m apart; the refuge and sky-lobby floors
+      // between them read as pale rings by day and soft light rings at night.
+      float zone = fract(vLm.y / 61.0);
+      float zoneBand = smoothstep(0.0, 0.012, zone) * (1.0 - smoothstep(0.045, 0.058, zone));
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.66, 0.7, 0.72), zoneBand * 0.75 * (1.0 - uNight));
+      totalEmissiveRadiance += vec3(0.78, 0.9, 1.0) * zoneBand * uNight * 0.55;
+      // Office light here is cool white.
+      totalEmissiveRadiance += vec3(0.86, 0.92, 1.0) * pane * on * warmth * uNight * 0.36 * vColor.rgb * storyTint * (1.0 - zoneBand);`,
   );
 };
-shanghaiGlass.customProgramCacheKey = () => 'lm-shanghai-glass-4';
+shanghaiGlass.customProgramCacheKey = () => 'lm-shanghai-glass-5';
 shanghaiGlass.side = THREE.DoubleSide;
 const glassSilver = glassMaterial(0xb7c3ce);
 glassBlue.side = THREE.DoubleSide;
@@ -383,7 +390,7 @@ function pearlMeasures(h) {
     capsuleC: 342 * s,
     capsuleR: 8 * s,
     // Three Ø9 m columns on a circle; the 7 m legs meet them at 93 m, 60° to the ground.
-    colR: 10.5 * s,
+    colR: 8.2 * s,
     legR: 3.5 * s,
     shaftR: 4.5 * s,
     podR: 6 * s,
@@ -682,7 +689,8 @@ function capRing(group, ring, mat) {
   add(group, geo, mat);
 }
 
-const slotMat = new THREE.MeshStandardMaterial({ color: 0x243038, metalness: 0.22, roughness: 0.48 });
+// The notch is a recess in the same glass, a shade darker: not a black slit.
+const slotMat = new THREE.MeshStandardMaterial({ color: 0x55697a, metalness: 0.5, roughness: 0.22 });
 slotMat.side = THREE.DoubleSide;
 const ribMat = new THREE.MeshStandardMaterial({ color: 0xe7eef3, metalness: 0.48, roughness: 0.3 });
 ribMat.side = THREE.DoubleSide;
@@ -738,7 +746,7 @@ function spiralShade(p, h, yScale) {
   let a = Math.atan2(p.z, p.x) - twist;
   a = Math.atan2(Math.sin(a), Math.cos(a));
   const notch = Math.exp(-((Math.abs(a) / 0.62) ** 2));
-  return 1 - 0.68 * notch;
+  return 1 - 0.3 * notch;
 }
 
 function shanghai(h) {
@@ -2308,8 +2316,8 @@ export function syncLandmarkNight(night) {
   bundStone.emissiveIntensity = 0;
   bundPlain.emissiveIntensity = 0;
   customsWall.emissiveIntensity = 0;
-  copperRoof.emissiveIntensity = night * 0.22;
-  glazeRoof.emissiveIntensity = night * 0.18;
+  copperRoof.emissiveIntensity = night * 0.5;
+  glazeRoof.emissiveIntensity = night * 0.42;
   beaconMat.emissiveIntensity = 0.35 + night * 2;
   clockMat.emissiveIntensity = night * 0.62;
 }

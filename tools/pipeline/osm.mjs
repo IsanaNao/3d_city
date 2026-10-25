@@ -346,9 +346,14 @@ function suppressOutlines(buildings) {
   const kept = [];
   for (const outline of buildings) {
     if (!outline.part) {
-      const covered = parts.some((part) => part.area < outline.area * 0.98
+      const inside = parts.filter((part) => part.area < outline.area * 0.98
         && pointInPoly(part.centroid[0], part.centroid[1], outline.rings[0]));
-      if (covered) continue;
+      if (inside.length) {
+        // The parts draw the tower, but they rarely carry its name. Hand it
+        // down so the click panel and named-tower styling still find it.
+        if (outline.name) for (const part of inside) if (!part.name) part.name = outline.name;
+        continue;
+      }
     }
     kept.push(outline);
   }

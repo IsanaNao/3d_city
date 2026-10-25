@@ -16,7 +16,7 @@
     "compile": "node --max-old-space-size=4096 tools/pipeline/compile.mjs",
     "pipeline": "node tools/pipeline/fetch.mjs && node --max-old-space-size=4096 tools/pipeline/compile.mjs",
     "textures": "node tools/assets/fetch_textures.mjs",
-    "test": "node --test tools/tests/"
+    "test": "node tools/tests/run.mjs"
   },
   "dependencies": {
     "earcut": "^2.2.4",

@@ -47,7 +47,9 @@ export function daylight(altitude) {
 export function duskHaze(altitudeDeg, preset) {
   if (preset === 'dusk') return 1;
   if (preset === 'clear') return 0;
-  return smoothstep(16, 4, altitudeDeg) * (1 - smoothstep(1, -8, altitudeDeg));
+  // Warm haze around sunset only; after the sun is down the sky turns to the
+  // clear blue hour that photographs and films are shot in.
+  return 0.75 * smoothstep(12, 3, altitudeDeg) * (1 - smoothstep(0.5, -4, altitudeDeg));
 }
 
 function lerp(a, b, t) {

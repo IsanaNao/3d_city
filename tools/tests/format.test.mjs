@@ -126,7 +126,9 @@ test('noon in June is high, midnight is night, dusk turns lights on early', () =
   assert.equal(duskHaze(70, 'dusk'), 1);
   assert.equal(duskHaze(6, 'clear'), 0);
   assert.ok(duskHaze(70, '') < 0.05);
-  assert.ok(duskHaze(6, '') > 0.7);
+  // Golden hour is hazy but not fogged in; the blue hour after it is clear.
+  assert.ok(duskHaze(6, '') > 0.4);
+  assert.ok(duskHaze(-5, '') < 0.05);
   assert.ok(duskHaze(-20, '') < 0.05);
   const pinned = pearlShow(21, 'blue');
   assert.equal(pinned.name, 'blue');
@@ -242,4 +244,13 @@ test('stacked parts of one tower share a facade and a floor grid', () => {
   assert.equal(colors.size, 1, 'both parts wear the tower colour');
   const apart = buildBuildingGeometry([part(box(0, 0, 20, 20), 0, 60), part(box(100, 0, 120, 20), 0, 90)]);
   assert.equal(new Set(apart.seed).size, 2, 'separate buildings keep their own facades');
+});
+
+test('a named Lujiazui tower gets its own glass tone and night style', () => {
+  const citi = buildBuildingGeometry([part(box(0, 0, 40, 30), 0, 180, { name: '花旗集团大厦', color: 0xcccccc })]);
+  // Odd = curtain wall, twos = night style: 1 media wall -> 1 + 2 * 1.
+  assert.equal(citi.wall[2], 3);
+  assert.notEqual(citi.color[0].toFixed(3), (0xcc / 255).toFixed(3), 'the table colour replaces the random one');
+  const plain = buildBuildingGeometry([part(box(0, 0, 40, 30), 0, 180, { name: '某某大厦' })]);
+  assert.ok(plain.wall[2] < 2, 'an unlisted tower has no named night style');
 });
