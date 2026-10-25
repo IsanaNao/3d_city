@@ -688,7 +688,9 @@ function placeProps(buildings, roads, land, sampleHeight, signals = []) {
           const deck = road.y[i - 1] + (road.y[i] - road.y[i - 1]) * t;
           const ground = sampleHeight(x, z);
           const clearance = deck - ground;
-          if (clearance > 2.4) {
+          // No piers in the river: the long crossings span it (Nanpu and
+          // Yangpu are cable-stayed, Waibaidu's one pier is modelled).
+          if (clearance > 2.4 && !blocked(x, z)) {
             props.push({
               kind: PROP.PIER, variant: 0, x, y: ground, z,
               rot: Math.atan2(dx, dz), scale: 0.85, extra: clearance,

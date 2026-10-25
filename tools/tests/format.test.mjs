@@ -329,3 +329,9 @@ test('a named Lujiazui tower gets its own glass tone and night style', () => {
   const plain = buildBuildingGeometry([part(box(0, 0, 40, 30), 0, 180, { name: '某某大厦' })]);
   assert.ok(plain.wall[2] < 2, 'an unlisted tower has no named night style');
 });
+
+test('a low building that shares a tower name keeps its own look', () => {
+  const annexe = buildBuildingGeometry([part(box(0, 0, 30, 20), 0, 23, { name: '招商银行上海大厦北塔', color: 0xcccccc })]);
+  assert.ok(annexe.wall[2] < 2, 'no named night style below 60 m');
+  assert.equal(annexe.color[0].toFixed(3), (0xcc / 255).toFixed(3));
+});

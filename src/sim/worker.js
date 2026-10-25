@@ -28,9 +28,18 @@ self.onmessage = async (event) => {
     return;
   }
   if (msg.type === 'step' && streets) {
-    if (msg.dt > 0) stepStreets(streets, msg.dt);
-    const cars = streets.sim ? writeCarPoses(streets.sim, msg.cars?.length === streets.sim.cars.length * CAR_STRIDE ? msg.cars : new Float32Array(streets.sim.cars.length * CAR_STRIDE)) : new Float32Array(0);
-    const people = streets.crowd ? writePersonPoses(streets.crowd, msg.people?.length === streets.crowd.people.length * PERSON_STRIDE ? msg.people : new Float32Array(streets.crowd.people.length * PERSON_STRIDE)) : new Float32Array(0);
-    self.postMessage({ type: 'poses', cars, people }, [cars.buffer, people.buffer]);
+    try {
+      step(msg);
+    } catch (error) {
+      // Report instead of going quiet: the main thread waits for every reply.
+      self.postMessage({ type: 'error', message: String(error) });
+    }
   }
 };
+
+function step(msg) {
+  if (msg.dt > 0) stepStreets(streets, msg.dt);
+  const cars = streets.sim ? writeCarPoses(streets.sim, msg.cars?.length === streets.sim.cars.length * CAR_STRIDE ? msg.cars : new Float32Array(streets.sim.cars.length * CAR_STRIDE)) : new Float32Array(0);
+  const people = streets.crowd ? writePersonPoses(streets.crowd, msg.people?.length === streets.crowd.people.length * PERSON_STRIDE ? msg.people : new Float32Array(streets.crowd.people.length * PERSON_STRIDE)) : new Float32Array(0);
+  self.postMessage({ type: 'poses', cars, people }, [cars.buffer, people.buffer]);
+}

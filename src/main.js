@@ -331,6 +331,13 @@ function packPeople() {
   }
 }
 
+function stopStreets(reason) {
+  console.warn('Street traffic stopped:', reason);
+  streetWorker?.terminate();
+  streetWorker = null;
+  streetBusy = false;
+}
+
 // Ask the worker for the next step unless one is still in flight.
 function requestStreets(dt) {
   if (!streetWorker || streetBusy) return;
@@ -437,9 +444,7 @@ async function boot() {
   streetWorker.onmessage = (event) => {
     const msg = event.data;
     if (msg.type === 'error') {
-      console.warn('No road graph, the city runs without street traffic:', msg.message);
-      streetWorker.terminate();
-      streetWorker = null;
+      stopStreets(msg.message);
     } else if (msg.type === 'ready') {
       streamer.paintRoads({ segments: msg.segments });
       streetCount = msg.cars;
@@ -462,6 +467,9 @@ async function boot() {
       streetFresh = true;
     }
   };
+  // A script error inside the worker would otherwise leave streetBusy set
+  // and the traffic frozen without a word.
+  streetWorker.onerror = (event) => stopStreets(event.message || 'worker error');
   streetWorker.postMessage({ type: 'init', url: new URL(`${city.root}roads.json`, location.href).href });
   applySun();
 }

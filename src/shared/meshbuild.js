@@ -620,7 +620,11 @@ export function buildBuildingGeometry(buildings) {
     if (!rings.length) continue;
     const fam = item.family;
     const lead = fam.size > 1 ? fam.lead.building : building;
-    const named = namedTower(lead.name || fam.name);
+    // The table is for towers. A podium, an annexe or a low building that
+    // shares the name keeps its own look instead of a curtain wall and
+    // outline lights.
+    const famHeight = (fam.size > 1 ? fam.top - fam.base : wallTop - building.baseY);
+    const named = famHeight >= 60 ? namedTower(lead.name || fam.name) : null;
     const color = unpack((named ? named.color : lead.color) >>> 0);
     const attrs = {
       id: index,
