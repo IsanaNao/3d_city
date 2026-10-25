@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TILE, makeProjection, tileOf } from '../../src/shared/geo.js';
@@ -5,6 +6,7 @@ import { KIND, ROOF } from '../../src/shared/kinds.js';
 import { buildBuildingGeometry } from '../../src/shared/meshbuild.js';
 import { classifyKind, defaultHeight, resolveVertical } from '../../src/shared/heights.js';
 import { daylight, duskHaze, nightFactor, sunVector } from '../../src/shared/sun.js';
+import { NAMED_TOWERS } from '../../src/shared/towers.js';
 import { pearlShow } from '../../src/shared/show.js';
 import { decodeTerrain, encodeTerrain, sampleGrid } from '../../src/shared/terrain.js';
 import { decodeTile, encodeTile } from '../../src/shared/tileformat.js';
@@ -135,6 +137,22 @@ test('noon in June is high, midnight is night, dusk turns lights on early', () =
   assert.equal(pinned.fade, 0);
   assert.deepEqual(pearlShow(21, 'blue'), pearlShow(21, 'blue'));
   assert.notEqual(pearlShow(21, '').name, pearlShow(21.4, '').name);
+});
+
+// A typo in a name pattern silently does nothing, so every entry must find
+// a building in the compiled tiles. Skipped when the tiles are not built.
+test('every named-tower pattern matches a building in the tiles', (t) => {
+  const dir = new URL('../../public/tiles/bund/', import.meta.url);
+  if (!fs.existsSync(new URL('manifest.json', dir))) { t.skip('no compiled tiles'); return; }
+  const manifest = JSON.parse(fs.readFileSync(new URL('manifest.json', dir)));
+  const names = new Set();
+  for (const k of manifest.tiles) {
+    const b = fs.readFileSync(new URL(`t_${k}.bin`, dir));
+    for (const x of decodeTile(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)).buildings) if (x.name) names.add(x.name);
+  }
+  for (const entry of NAMED_TOWERS) {
+    assert.ok([...names].some((n) => entry.test.test(n)), `${entry.test} matches nothing`);
+  }
 });
 
 function box(x0, z0, x1, z1) {
