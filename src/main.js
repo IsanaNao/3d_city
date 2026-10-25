@@ -3,8 +3,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { sunVector, duskHaze } from './shared/sun.js';
 import { syncLandmarkNight, syncPearlShow } from './world/landmarks.js';
-import { createSim, prepareGraph, stepSim, carPose } from './sim/traffic.js';
-import { boatPose, createCrowd, stepCrowd, personPose, createBoats, stepBoats } from './sim/crowd.js';
+import { boatPose, createBoats, stepBoats } from './sim/crowd.js';
+import { CAR_STRIDE, PERSON_STRIDE } from './sim/poses.js';
 import { createTrains, prepareLines, stepTrains, trainPoses } from './sim/trains.js';
 import { yawFromHeading } from './sim/path.js';
 import { cityUniforms, createSkyMaterial, makeSignAtlas } from './world/materials.js';
@@ -124,13 +124,17 @@ const streamer = createStreamer({
 });
 
 let cars = null;
-let crowd = null;
+let streetWorker = null;
+let streetBusy = false;
+let streetFresh = false;
+let streetCount = 0;
+let streetPoses = { cars: new Float32Array(0), people: new Float32Array(0) };
+let streetSpare = { cars: null, people: null };
 let people = null;
 let boats = null;
 let boatMesh = null;
 let trains = null;
 let trainMesh = null;
-let sim = null;
 let trainList = [];
 let running = false;
 const raycaster = new THREE.Raycaster();
@@ -262,16 +266,24 @@ function nearEye(x, y, z, range) {
   return dx * dx + dy * dy + dz * dz < range * range;
 }
 
+// Car and person poses arrive from the traffic worker as flat buffers; only
+// the copies near the camera become instances. Colour follows the car index,
+// not the instance slot, so a car keeps its paint as others come and go.
 function packCars() {
-  if (!carSlots) carSlots = new Int32Array(sim.cars.length).fill(-1);
+  const poses = streetPoses.cars;
+  const total = poses.length / CAR_STRIDE;
+  if (!carSlots) carSlots = new Int32Array(total).fill(-1);
   let n = 0;
   let repaint = false;
-  for (let i = 0; i < sim.cars.length; i++) {
-    const pose = carPose(sim, sim.cars[i]);
-    if (!pose || !nearEye(pose.x, pose.y, pose.z, CAR_RANGE)) continue;
-    setVehicleMatrix(cars.body, n, cars.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
-    setVehicleMatrix(cars.glass, n, cars.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
-    setVehicleMatrix(cars.lamps, n, cars.dummy, pose.x, pose.y, pose.z, pose.dx, pose.dz);
+  for (let i = 0; i < total; i++) {
+    const o = i * CAR_STRIDE;
+    const x = poses[o];
+    if (Number.isNaN(x) || !nearEye(x, poses[o + 1], poses[o + 2], CAR_RANGE)) continue;
+    const y = poses[o + 1];
+    const z = poses[o + 2];
+    setVehicleMatrix(cars.body, n, cars.dummy, x, y, z, poses[o + 3], poses[o + 4]);
+    setVehicleMatrix(cars.glass, n, cars.dummy, x, y, z, poses[o + 3], poses[o + 4]);
+    setVehicleMatrix(cars.lamps, n, cars.dummy, x, y, z, poses[o + 3], poses[o + 4]);
     if (carSlots[n] !== i) {
       carSlots[n] = i;
       cars.body.setColorAt(n, carPaint(i, _paint));
@@ -287,16 +299,20 @@ function packCars() {
 }
 
 function packPeople() {
-  if (!personSlots) personSlots = new Int32Array(crowd.people.length).fill(-1);
+  const poses = streetPoses.people;
+  const total = poses.length / PERSON_STRIDE;
+  if (!personSlots) personSlots = new Int32Array(total).fill(-1);
   let n = 0;
   let repaint = false;
-  for (let i = 0; i < crowd.people.length; i++) {
-    const pose = personPose(crowd.people[i]);
-    if (!nearEye(pose.x, pose.y, pose.z, PERSON_RANGE)) continue;
-    const y = pose.y + pose.bob;
-    setVehicleMatrix(people.mesh, n, people.dummy, pose.x, y, pose.z, pose.dx, pose.dz);
-    setVehicleMatrix(people.legs, n, people.dummy, pose.x, y, pose.z, pose.dx, pose.dz);
-    setVehicleMatrix(people.heads, n, people.dummy, pose.x, y, pose.z, pose.dx, pose.dz);
+  for (let i = 0; i < total; i++) {
+    const o = i * PERSON_STRIDE;
+    if (!nearEye(poses[o], poses[o + 1], poses[o + 2], PERSON_RANGE)) continue;
+    const x = poses[o];
+    const y = poses[o + 1] + poses[o + 5];
+    const z = poses[o + 2];
+    setVehicleMatrix(people.mesh, n, people.dummy, x, y, z, poses[o + 3], poses[o + 4]);
+    setVehicleMatrix(people.legs, n, people.dummy, x, y, z, poses[o + 3], poses[o + 4]);
+    setVehicleMatrix(people.heads, n, people.dummy, x, y, z, poses[o + 3], poses[o + 4]);
     if (personSlots[n] !== i) {
       personSlots[n] = i;
       people.mesh.setColorAt(n, shirtPaint(i, _paint));
@@ -313,6 +329,16 @@ function packPeople() {
     people.mesh.instanceColor.needsUpdate = true;
     people.legs.instanceColor.needsUpdate = true;
   }
+}
+
+// Ask the worker for the next step unless one is still in flight.
+function requestStreets(dt) {
+  if (!streetWorker || streetBusy) return;
+  streetBusy = true;
+  const { cars: c, people: p } = streetSpare;
+  streetSpare = { cars: null, people: null };
+  const transfer = [c, p].filter(Boolean).map((b) => b.buffer);
+  streetWorker.postMessage({ type: 'step', dt, cars: c, people: p }, transfer);
 }
 
 function presetsFor(bounds) {
@@ -404,24 +430,39 @@ async function boot() {
   running = true;
   applySun();
 
-  // Street traffic waits for the road graph, which loads behind the first frames.
-  const roads = await city.roads.catch((error) => {
-    console.warn('No road graph, the city runs without street traffic:', error);
-    return null;
-  });
+  // Street traffic waits for the road graph, which the worker fetches and
+  // parses itself behind the first frames.
   await new Promise((resolve) => requestAnimationFrame(resolve));
-  if (!roads) return;
-  streamer.paintRoads(roads);
-  const graph = prepareGraph(roads);
-  const count = Math.min(2800, Math.max(12, Math.round(graph.edges.reduce((s, e) => s + e.length, 0) / 180)));
-  sim = graph.edges.length ? createSim(graph, { count, seed: 7 }) : null;
-  if (sim) {
-    cars = createCarFleet(sim.cars.length);
-    scene.add(cars.body, cars.glass, cars.lamps);
-    crowd = createCrowd(graph, { seed: 11 });
-    people = crowd.people.length ? createPersonFleet(crowd.people.length) : null;
-    if (people) scene.add(people.mesh, people.legs, people.heads);
-  }
+  streetWorker = new Worker(new URL('./sim/worker.js', import.meta.url), { type: 'module' });
+  streetWorker.onmessage = (event) => {
+    const msg = event.data;
+    if (msg.type === 'error') {
+      console.warn('No road graph, the city runs without street traffic:', msg.message);
+      streetWorker.terminate();
+      streetWorker = null;
+    } else if (msg.type === 'ready') {
+      streamer.paintRoads({ segments: msg.segments });
+      streetCount = msg.cars;
+      if (msg.cars) {
+        cars = createCarFleet(msg.cars);
+        scene.add(cars.body, cars.glass, cars.lamps);
+      }
+      if (msg.people) {
+        people = createPersonFleet(msg.people);
+        scene.add(people.mesh, people.legs, people.heads);
+      }
+      applySun();
+      // One zero-length step so parked traffic shows even with ?traffic=0.
+      requestStreets(0);
+    } else if (msg.type === 'poses') {
+      // The previous buffers go back to the worker on the next request.
+      streetSpare = { cars: streetPoses.cars.length ? streetPoses.cars : null, people: streetPoses.people.length ? streetPoses.people : null };
+      streetPoses = { cars: msg.cars, people: msg.people };
+      streetBusy = false;
+      streetFresh = true;
+    }
+  };
+  streetWorker.postMessage({ type: 'init', url: new URL(`${city.root}roads.json`, location.href).href });
   applySun();
 }
 
@@ -497,12 +538,15 @@ renderer.setAnimationLoop(() => {
     }
     const simDt = motionOn ? dt * 2 : dt;
     const simStep = !motionOn || (frame & 1) === 0;
-    if (sim && trafficOn && simStep) stepSim(sim, simDt);
-    if (crowd && trafficOn && simStep) stepCrowd(crowd, simDt);
+    if (trafficOn && simStep) requestStreets(simDt);
     if (boats && trafficOn) stepBoats(boats, dt);
     if (trainsOn) stepTrains(trainList, dt);
-    if (cars && sim) packCars();
-    if (people && crowd) packPeople();
+    // Repack only when the worker has delivered new poses.
+    if (streetFresh) {
+      if (cars) packCars();
+      if (people) packPeople();
+      streetFresh = false;
+    }
     if (boatMesh && boats) {
       boats.forEach((boat, i) => {
         const pose = boatPose(boat);
@@ -540,7 +584,7 @@ renderer.setAnimationLoop(() => {
     if (statsTimer > 0.5) {
       statsTimer = 0;
       const phase = env.night < 0.35 ? '白天' : env.dark < 0.75 ? '黄昏' : '夜晚';
-      statsEl.textContent = `${phase} · 街区 ${streamer.loadedCount} / ${streamer.total} · 车辆 ${sim ? sim.cars.length : 0} · 列车 ${trainList.length}`;
+      statsEl.textContent = `${phase} · 街区 ${streamer.loadedCount} / ${streamer.total} · 车辆 ${streetCount} · 列车 ${trainList.length}`;
     }
     if (streamer.loadedCount !== shadowTiles) {
       shadowTiles = streamer.loadedCount;

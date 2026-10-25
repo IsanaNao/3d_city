@@ -56,4 +56,6 @@ export default defineConfig({
   server: { host: '127.0.0.1', port: 4317, strictPort: true },
   preview: { host: '127.0.0.1', port: 4317, strictPort: true },
   build: { target: 'es2022' },
+  // The traffic worker imports shared modules; module workers keep them as imports.
+  worker: { format: 'es' },
 });

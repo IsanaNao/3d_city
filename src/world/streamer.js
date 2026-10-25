@@ -133,6 +133,12 @@ function distanceField(grid, segments, pad, field) {
 
 function roadSegments(roads) {
   const out = [];
+  // From the traffic worker: a flat ax az bx bz buffer.
+  if (roads?.segments) {
+    const s = roads.segments;
+    for (let k = 0; k + 3 < s.length; k += 4) out.push({ ax: s[k], az: s[k + 1], bx: s[k + 2], bz: s[k + 3] });
+    return out;
+  }
   for (const edge of roads?.edges || []) {
     const p = edge.points;
     if (!p || p.length < 6) continue;
@@ -244,17 +250,12 @@ export async function loadCity(area, base) {
     if (!r.ok) throw new Error(`没有找到 ${area} 的 manifest`);
     return r.json();
   });
-  // The road graph is ~15 MB of JSON. The city draws without it; traffic
-  // and the pavement tint wait for this promise.
-  const roads = fetch(`${root}roads.json`).then((r) => {
-    if (!r.ok) throw new Error(`roads.json ${r.status}`);
-    return r.json();
-  });
+  // The ~15 MB road graph is fetched and parsed by the traffic worker.
   const [terrainBuf, rails] = await Promise.all([
     fetch(`${root}terrain.tile`).then((r) => r.arrayBuffer()),
     fetch(`${root}rails.json`).then((r) => r.json()),
   ]);
-  return { manifest, terrain: decodeTerrain(terrainBuf), roads, rails, root };
+  return { manifest, terrain: decodeTerrain(terrainBuf), rails, root };
 }
 
 export function createStreamer({ scene, getView }) {
