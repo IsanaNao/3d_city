@@ -4,7 +4,7 @@ import { TILE, makeProjection, tileOf } from '../../src/shared/geo.js';
 import { KIND, ROOF } from '../../src/shared/kinds.js';
 import { buildBuildingGeometry } from '../../src/shared/meshbuild.js';
 import { classifyKind, defaultHeight, resolveVertical } from '../../src/shared/heights.js';
-import { daylight, duskHaze, nightFactor, sunVector } from '../../src/shared/sun.js';
+import { blueHour, daylight, duskHaze, nightFactor, sunVector } from '../../src/shared/sun.js';
 import { pearlShow } from '../../src/shared/show.js';
 import { decodeTerrain, encodeTerrain, sampleGrid } from '../../src/shared/terrain.js';
 import { decodeTile, encodeTile } from '../../src/shared/tileformat.js';
@@ -135,6 +135,17 @@ test('noon in June is high, midnight is night, dusk turns lights on early', () =
   assert.equal(pinned.fade, 0);
   assert.deepEqual(pearlShow(21, 'blue'), pearlShow(21, 'blue'));
   assert.notEqual(pearlShow(21, '').name, pearlShow(21.4, '').name);
+});
+
+test('blue hour peaks a few degrees after sunset and leaves noon and night alone', () => {
+  assert.equal(blueHour(40), 0);
+  assert.equal(blueHour(-20), 0);
+  assert.equal(blueHour(-5), 1);
+  assert.ok(blueHour(-1) > 0.3 && blueHour(-1) < 1);
+  assert.ok(blueHour(-11) > 0 && blueHour(-11) < 0.5);
+  // At Shanghai midsummer, 19:45 is inside the window.
+  const deg = sunVector(19.45, 172).altitude * 180 / Math.PI;
+  assert.ok(blueHour(deg) > 0.9);
 });
 
 function box(x0, z0, x1, z1) {
