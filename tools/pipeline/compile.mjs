@@ -1004,6 +1004,9 @@ export function compileDataset({ area, elements, grid: rawGrid, demSource = '' }
   bankQuays(parsed.land);
   const embankments = trimEmbankments(collectEmbankments(parsed.land), areaRect);
   markBundRow(parsed.buildings);
+  const tagged = parsed.buildings.filter((b) => b.realColour).length;
+  const roofs = parsed.buildings.filter((b) => b.roofColor != null).length;
+  console.log(`OSM colour or material on ${tagged} of ${parsed.buildings.length} buildings, roof:colour on ${roofs}`);
 
   const draped = [];
   for (const road of parsed.roads) {

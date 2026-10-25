@@ -649,9 +649,10 @@ export function buildBuildingGeometry(buildings) {
       emitWall(acc, w, covers, color, attrs);
     }
     if (shaped) {
-      addShapedRoof(acc, rings[0], wallTop, building.topY - wallTop, building.roofShape, color, attrs);
+      addShapedRoof(acc, rings[0], wallTop, building.topY - wallTop, building.roofShape, building.roofColor != null ? unpack(building.roofColor) : color, attrs);
     } else {
-      addRoof(acc, rings, building.topY, color, attrs, true);
+      // A tagged roof:colour wins over the wall tone (green tin, red tile).
+      addRoof(acc, rings, building.topY, building.roofColor != null ? unpack(building.roofColor) : color, attrs, true);
       addParapet(acc, rings[0], color, attrs);
       addTowerCrown(acc, rings[0], color, attrs, item, prepared);
     }

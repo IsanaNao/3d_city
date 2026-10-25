@@ -127,18 +127,47 @@ function scaleHex(hex, factor) {
   return (r << 16) | (g << 8) | b;
 }
 
+// OSM colours are free text: names ("dark red", "light_grey"), #rrggbb,
+// #rgb, or hex without the hash. Anything else is ignored rather than guessed.
+export function parseColour(raw) {
+  if (raw == null) return null;
+  let s = String(raw).trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+  if (!s) return null;
+  const hex = s.replace(/^#/, '');
+  if (/^[0-9a-f]{6}$/.test(hex) && (s.startsWith('#') || /[0-9]/.test(hex))) return Number.parseInt(hex, 16);
+  if (/^#[0-9a-f]{3}$/.test(s)) return Number.parseInt(hex.split('').map((c) => c + c).join(''), 16);
+  const shade = s.match(/^(light|dark|pale) (.+)$/);
+  const base = CSS[shade ? shade[2] : s] ?? CSS[(shade ? shade[2] : s).replace(/ /g, '')];
+  if (base == null) return null;
+  if (!shade) return base;
+  return scaleHex(base, shade[1] === 'dark' ? 0.7 : 1.18);
+}
+
+// Typical wall tone per OSM building:material, used when no colour is tagged.
+const MATERIAL_COLOR = {
+  brick: 0x9a5c48, stone: 0xcbbfa6, sandstone: 0xcbb48e, granite: 0xb4ada6, marble: 0xe4e0d8,
+  concrete: 0xb8b5ae, plaster: 0xe2dccf, metal: 0xa9b1b8, steel: 0xa9b1b8, wood: 0x8b6a4a,
+  tiles: 0xd8d0c4, cement_block: 0xb8b5ae,
+};
+
+export function materialColour(tags) {
+  const m = String(tags['building:material'] || tags['building:facade:material'] || '').trim().toLowerCase();
+  return MATERIAL_COLOR[m] ?? null;
+}
+
 function parseColor(tags) {
-  const raw = tags['building:colour'] || tags['building:color'];
-  if (!raw) return null;
-  const s = String(raw).trim().toLowerCase();
-  if (s.startsWith('#') && /^#[0-9a-f]{6}$/.test(s)) return Number.parseInt(s.slice(1), 16);
-  return CSS[s] ?? null;
+  return parseColour(tags['building:colour'] || tags['building:color']);
+}
+
+export function roofColour(tags) {
+  return parseColour(tags['roof:colour'] || tags['roof:color']);
 }
 
 export function wallColor(kind, seed, height, tags = {}) {
   const painted = parseColor(tags);
-  let hex = painted ?? KIND_COLOR[kind] ?? KIND_COLOR[KIND.OTHER];
-  if (!painted && height > 160) hex = 0xa9c0d0;
+  const material = painted == null ? materialColour(tags) : null;
+  let hex = painted ?? material ?? KIND_COLOR[kind] ?? KIND_COLOR[KIND.OTHER];
+  if (painted == null && material == null && height > 160) hex = 0xa9c0d0;
   const factor = 0.9 + (seed % 17) / 100;
   return scaleHex(hex, factor);
 }
