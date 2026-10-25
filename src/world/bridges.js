@@ -4,33 +4,10 @@ import { cityUniforms } from './materials.js';
 // Parametric stand-ins. The road deck itself stays the OSM carriageway;
 // these add the truss, the towers and the cable fans.
 
-const steel = new THREE.MeshStandardMaterial({ color: 0xb7c0c6, metalness: 0.62, roughness: 0.38 });
 const concrete = new THREE.MeshStandardMaterial({
   color: 0xc5c8c2, metalness: 0.08, roughness: 0.72,
   emissive: new THREE.Color(0xffe0b0), emissiveIntensity: 0,
 });
-const cableMat = new THREE.MeshStandardMaterial({
-  color: 0xd5dbe0, metalness: 0.7, roughness: 0.32,
-  emissive: new THREE.Color(0xfff2d0), emissiveIntensity: 0,
-});
-
-function member(group, a, b, radius, mat, sides = 6, part = '') {
-  const dir = new THREE.Vector3().subVectors(b, a);
-  const len = dir.length();
-  if (len < 0.4) return null;
-  const geo = new THREE.CylinderGeometry(radius, radius, len, sides);
-  geo.translate(0, len / 2, 0);
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.copy(a);
-  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.multiplyScalar(1 / len));
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mesh.frustumCulled = false;
-  if (part) mesh.userData.part = part;
-  mesh.userData.anchor = a.clone();
-  group.add(mesh);
-  return mesh;
-}
 
 function resample(points, step) {
   const src = points.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
@@ -191,42 +168,142 @@ function boxMember(group, a, b, across, thickness, depth, mat, part) {
   return mesh;
 }
 
-function towerPair(group, base, dir, height, spread, style) {
-  const side = new THREE.Vector3(-dir.z, 0, dir.x).normalize();
-  const left = base.clone().add(side.clone().multiplyScalar(spread));
-  const right = base.clone().add(side.clone().multiplyScalar(-spread));
-  if (style === 'y') {
-    const top = base.clone();
-    top.y += height;
-    member(group, left, top, 2.6, concrete, 10);
-    member(group, right, top, 2.6, concrete, 10);
-    const beam = 0.42;
-    const a = left.clone().lerp(top, beam);
-    const b = right.clone().lerp(top, beam);
-    member(group, a, b, 1.7, concrete, 8);
-    return { left: top, right: top, side };
+// Tower flood colours follow the 2018 lighting scheme: Nanpu's pylons are lit
+// white, Yangpu's red, and both carry strings of white lamps on the stays.
+const towerMats = {
+  h: new THREE.MeshStandardMaterial({
+    color: 0xc5c8c2, metalness: 0.08, roughness: 0.72,
+    emissive: new THREE.Color(0xf2f4ff), emissiveIntensity: 0,
+  }),
+  y: new THREE.MeshStandardMaterial({
+    color: 0xc5c8c2, metalness: 0.08, roughness: 0.72,
+    emissive: new THREE.Color(0xff3a26), emissiveIntensity: 0,
+  }),
+};
+const beaconMat = new THREE.MeshStandardMaterial({
+  color: 0xffffff, emissive: new THREE.Color(0xfff4e0), emissiveIntensity: 0,
+});
+// Flat crossed ribbons instead of round tubes: a stay is a hairline at any
+// distance, and two quads per cable keep 200+ stays to a single draw call.
+// Matte and close to the sky's value: a fan of 128 sub-pixel lines with
+// metallic highlights beats into moire, a soft grey reads as a light veil.
+const stayMat = new THREE.MeshStandardMaterial({
+  color: 0xb9c0c6, metalness: 0.0, roughness: 0.85, side: THREE.DoubleSide,
+  transparent: true, opacity: 0.75, depthWrite: false,
+});
+stayMat.onBeforeCompile = (shader) => {
+  shader.uniforms.uNight = cityUniforms.uNight;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nattribute float aAlong;\nvarying float vAlong;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAlong = aAlong;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying float vAlong;')
+    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      // One lamp every 4 m along the stay. When lamps shrink below a pixel the
+      // string averages to a steady line instead of shimmering.
+      float cell = vAlong / 4.0;
+      float fw = fwidth(cell);
+      float lamp = 1.0 - smoothstep(0.08, 0.08 + max(fw, 0.04), abs(fract(cell) - 0.5));
+      float far = smoothstep(0.25, 0.8, fw);
+      float glow = mix(0.2 + 1.6 * lamp, 0.32, far);
+      totalEmissiveRadiance += vec3(1.0, 0.97, 0.9) * glow * uNight * 0.9;
+      // Unlit stays at night are dark cable, not lit grey.
+      diffuseColor.rgb *= 1.0 - 0.8 * uNight;
+    `);
+};
+stayMat.customProgramCacheKey = () => 'bridge-stay-2';
+
+function stayRibbons(stays, width) {
+  const pos = [];
+  const along = [];
+  const idx = [];
+  const up = new THREE.Vector3(0, 1, 0);
+  for (const [a, b] of stays) {
+    const dir = b.clone().sub(a);
+    const len = dir.length();
+    if (len < 1) continue;
+    dir.normalize();
+    const side = new THREE.Vector3().crossVectors(dir, up);
+    if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+    side.normalize();
+    const lift = new THREE.Vector3().crossVectors(side, dir).normalize();
+    for (const off of [side, lift]) {
+      const o = off.clone().multiplyScalar(width / 2);
+      const base = pos.length / 3;
+      for (const [p, t] of [[a.clone().sub(o), 0], [a.clone().add(o), 0], [b.clone().add(o), len], [b.clone().sub(o), len]]) {
+        pos.push(p.x, p.y, p.z);
+        along.push(t);
+      }
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
   }
-  // Both Nanpu towers are the same H: two legs across the deck and two crossbeams.
-  // The frame is yawed off the pure cross-section so a side view still shows both
-  // legs instead of stacking them into one pole.
-  const legH = height;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('aAlong', new THREE.Float32BufferAttribute(along, 1));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  return geo;
+}
+
+// Heights are measured from the river (y = 0): the published 150 m and 208 m
+// are pylon heights above water, not above the deck.
+function towerPair(group, base, dir, height, spread, style) {
+  const mat = towerMats[style] || concrete;
+  const side = new THREE.Vector3(-dir.z, 0, dir.x).normalize();
   const along = new THREE.Vector3(dir.x, 0, dir.z).normalize();
-  boxMember(group, left, left.clone().setY(base.y + legH), side, 4.4, 6.6, concrete, 'h-leg');
-  boxMember(group, right, right.clone().setY(base.y + legH), side, 4.4, 6.6, concrete, 'h-leg');
-  const beamAt = (t, tall, deep) => {
-    const a = left.clone().setY(base.y + legH * t);
-    const b = right.clone().setY(base.y + legH * t);
-    boxMember(group, a, b, along, deep, tall, concrete, 'h-beam');
+  const foot = base.clone().setY(0);
+  const deckY = base.y;
+  const topY = height;
+  const beacon = (p) => {
+    const geo = new THREE.BoxGeometry(2.4, 2.4, 2.4);
+    geo.translate(p.x, p.y + 1.2, p.z);
+    const m = new THREE.Mesh(geo, beaconMat);
+    m.userData.part = 'tower-top';
+    group.add(m);
   };
-  beamAt(0.56, 3.2, 5.4);
-  beamAt(0.96, 3.6, 6.0);
-  const anchorY = base.y + legH * 0.9;
+  if (style === 'y') {
+    // Yangpu: an inverted Y. Two raked legs straddle the deck from the water
+    // and join about 60% up; the stays anchor along the single top shaft.
+    const joinY = topY * 0.6;
+    const legFoot = (sgn) => foot.clone().add(side.clone().multiplyScalar(sgn * spread * 1.25));
+    const join = foot.clone().setY(joinY);
+    boxMember(group, legFoot(1), join, side, 5.6, 7.2, mat, 'y-leg');
+    boxMember(group, legFoot(-1), join, side, 5.6, 7.2, mat, 'y-leg');
+    // The lower crossbeam carries the deck.
+    const t = (deckY - 3) / joinY;
+    boxMember(group, legFoot(1).lerp(join, t), legFoot(-1).lerp(join, t), along, 4, 6.4, mat, 'y-beam');
+    boxMember(group, join.clone().setY(joinY - 6), foot.clone().setY(topY), side, 6.4, 8, mat, 'y-shaft');
+    beacon(foot.clone().setY(topY));
+    const anchorAt = (k) => foot.clone().setY(joinY + 8 + (topY - joinY - 14) * k);
+    return { left: anchorAt, right: anchorAt, side, along };
+  }
+  // Nanpu: an H. Two legs from the water, one crossbeam under the deck and one
+  // near the top. The frame is yawed off the pure cross-section so a side
+  // view still shows both legs instead of stacking them into one pole.
+  const left = foot.clone().add(side.clone().multiplyScalar(spread));
+  const right = foot.clone().add(side.clone().multiplyScalar(-spread));
+  boxMember(group, left, left.clone().setY(topY), side, 4.4, 6.6, mat, 'h-leg');
+  boxMember(group, right, right.clone().setY(topY), side, 4.4, 6.6, mat, 'h-leg');
+  const beamAt = (y, tall, deep) => {
+    boxMember(group, left.clone().setY(y), right.clone().setY(y), along, deep, tall, mat, 'h-beam');
+  };
+  beamAt(deckY - 4, 3.6, 6.0);
+  beamAt(topY - 6, 3.6, 6.0);
+  beacon(left.clone().setY(topY));
+  beacon(right.clone().setY(topY));
+  const upper = deckY + (topY - deckY) * 0.45;
   return {
-    left: left.clone().setY(anchorY),
-    right: right.clone().setY(anchorY),
+    left: (k) => left.clone().setY(upper + (topY - 9 - upper) * k),
+    right: (k) => right.clone().setY(upper + (topY - 9 - upper) * k),
     side,
+    along,
   };
 }
+
+// Published stay counts: Nanpu has 22 stays per fan, Yangpu 32, two planes
+// each, fanning both into the main span and back over the side span.
+const STAYS_PER_FAN = { h: 22, y: 32 };
 
 function cableBridge(item) {
   const g = new THREE.Group();
@@ -255,7 +332,7 @@ function cableBridge(item) {
   };
   const height = item.towerH || 150;
   const style = item.style || 'h';
-  // One span direction for both towers, so the two H frames stay parallel.
+  // One span direction for both towers, so the two frames stay parallel.
   let face = dirOf(a0 + main * 0.5);
   if (style === 'h') {
     const yaw = -0.7;
@@ -263,24 +340,41 @@ function cableBridge(item) {
     const s = Math.sin(yaw);
     face = new THREE.Vector3(face.x * c - face.z * s, 0, face.x * s + face.z * c).normalize();
   }
-  const anchors = [];
-  for (const dist of [a0, a0 + main]) {
-    anchors.push(towerPair(g, at(dist), face, height, 20, style));
-  }
-  const fanFrom = Math.max(0, a0 - main * 0.22);
-  const fanTo = Math.min(total, a0 + main + main * 0.22);
-  for (let d = fanFrom; d <= fanTo; d += 26) {
-    const deck = at(d);
-    const tower = d < a0 + main / 2 ? anchors[0] : anchors[1];
-    if (style === 'h') {
-      const side = tower.side;
-      member(g, tower.left, deck.clone().add(side.clone().multiplyScalar(8)), 0.34, cableMat, 4, 'cable');
-      member(g, tower.right, deck.clone().add(side.clone().multiplyScalar(-8)), 0.34, cableMat, 4, 'cable');
-    } else {
-      member(g, tower.left, deck, 0.38, cableMat, 4, 'cable');
+  const spread = style === 'y' ? 16 : 20;
+  const n = STAYS_PER_FAN[style] || 22;
+  const stays = [];
+  const towerDists = [a0, a0 + main];
+  towerDists.forEach((td, ti) => {
+    const tower = towerPair(g, at(td), face, height, spread, style);
+    const inward = ti === 0 ? 1 : -1;
+    const reachMain = main / 2 - 8;
+    // The side spans are shorter than half the main span; the OSM way may be
+    // shorter still, so the back fan is clamped to the deck that exists.
+    const reachBack = Math.min(main * 0.4, ti === 0 ? td : total - td) - 4;
+    for (const [dirSign, reach] of [[inward, reachMain], [-inward, reachBack]]) {
+      if (reach < 20) continue;
+      for (let k = 0; k < n; k++) {
+        const t = (k + 1) / n;
+        const deck = at(td + dirSign * (14 + (reach - 14) * t));
+        // Semi-fan: the longest stay anchors highest on the pylon.
+        if (style === 'h') {
+          stays.push([tower.left(t), deck.clone().add(tower.side.clone().multiplyScalar(spread - 6))]);
+          stays.push([tower.right(t), deck.clone().add(tower.side.clone().multiplyScalar(-(spread - 6)))]);
+        } else {
+          // Yangpu's two planes start together at the shaft and spread to the deck edges.
+          stays.push([tower.left(t), deck.clone().add(tower.side.clone().multiplyScalar(13))]);
+          stays.push([tower.right(t), deck.clone().add(tower.side.clone().multiplyScalar(-13))]);
+        }
+      }
     }
-  }
+  });
+  const ribbons = new THREE.Mesh(stayRibbons(stays, 0.32), stayMat);
+  ribbons.frustumCulled = false;
+  ribbons.userData.part = 'stays';
+  ribbons.userData.count = stays.length;
+  g.add(ribbons);
   g.userData.towers = 2;
+  g.userData.stays = stays.length;
   return g;
 }
 
@@ -301,7 +395,9 @@ export function createBridges(list) {
 
 export function syncBridgeNight(night) {
   concrete.emissiveIntensity = night * 0.35;
-  cableMat.emissiveIntensity = night * 0.55;
+  towerMats.h.emissiveIntensity = night * 0.42;
+  towerMats.y.emissiveIntensity = night * 0.5;
+  beaconMat.emissiveIntensity = 0.3 + night * 2.2;
   // The truss is outlined in warm light at night.
   trussSteel.emissiveIntensity = night * 0.28;
   void cityUniforms;

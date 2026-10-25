@@ -532,19 +532,37 @@ test('named crossings become a truss and two cable-stayed bridges', () => {
   const nanpu = group.children[1];
   let legs = 0;
   let beams = 0;
-  const anchors = [];
+  let stays = null;
   nanpu.traverse((obj) => {
     if (obj.userData?.part === 'h-leg') legs += 1;
     if (obj.userData?.part === 'h-beam') beams += 1;
-    if (obj.userData?.part === 'cable' && obj.userData.anchor) anchors.push(obj.userData.anchor);
+    if (obj.userData?.part === 'stays') stays = obj;
   });
   assert.equal(legs, 4, 'both towers have two legs');
-  assert.equal(beams, 4, 'each H has a mid beam and a top beam');
+  assert.equal(beams, 4, 'each H has a deck beam and a top beam');
+  // Stays are one merged ribbon mesh: four vertices per quad, two quads per
+  // stay, the first two vertices at the pylon end.
+  assert.ok(stays, 'stays are drawn');
+  const pos = stays.geometry.getAttribute('position');
+  const anchors = [];
+  for (let i = 0; i < pos.count; i += 8) anchors.push(new THREE.Vector3(pos.getX(i), 0, pos.getZ(i)));
   const clusters = [];
   for (const anchor of anchors) {
     if (!clusters.some((c) => c.distanceTo(anchor) < 4)) clusters.push(anchor);
   }
-  assert.equal(clusters.length, 4, 'cable fans anchor on both legs of both towers');
+  assert.equal(clusters.length, 4, 'stay fans anchor on both legs of both towers');
+  // 22 stays per fan, main and back span, two planes, two towers; the short
+  // test deck has no room for a back fan.
+  assert.equal(stays.userData.count % 22, 0);
+  assert.ok(stays.userData.count >= 88);
+  let top = -Infinity;
+  nanpu.traverse((obj) => {
+    if (obj.userData?.part === 'h-leg') {
+      obj.geometry.computeBoundingBox();
+      top = Math.max(top, obj.position.y + obj.geometry.boundingBox.max.y);
+    }
+  });
+  assert.ok(Math.abs(top - 40) < 1, 'pylon height is measured from the river');
   const legPos = [];
   nanpu.traverse((obj) => {
     if (obj.userData?.part === 'h-leg') legPos.push(obj.position.clone());
