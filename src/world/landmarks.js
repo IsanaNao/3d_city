@@ -615,34 +615,89 @@ function extrudeUp(shape, depth) {
   return geo;
 }
 
-// White Magnolia Plaza: a glass shaft with the horizontal light shelves SOM
-// designed, and the open observation deck that replaced the helipad.
+// White Magnolia Plaza (Sinar Mas Centre, SOM 2017): a square plan with
+// rounded corners whose four faces bow outward, banded floor by floor with the
+// perforated metal light shelves SOM used for daylighting. Near the top the
+// faces lean in and the corners cut back, so the glass rises past the roof as
+// an open screen instead of ending in a flat box or a cantilevered disk.
+const magnoliaShelf = new THREE.MeshStandardMaterial({
+  color: 0xdfe4e8, metalness: 0.6, roughness: 0.38, emissive: new THREE.Color(0xe8f2ff), emissiveIntensity: 0,
+});
+
+function magnoliaRing(segs, half, bow, corner, y) {
+  const pts = [];
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * Math.PI * 2;
+    const c = Math.cos(a);
+    const sn = Math.sin(a);
+    // A superellipse gives the rounded square; the corner term trims the
+    // diagonals so the crown reads as four petals pulling apart.
+    const n = 5;
+    const r0 = 1 / Math.pow(Math.abs(c) ** n + Math.abs(sn) ** n, 1 / n);
+    const diag = Math.abs(Math.sin(2 * a)) ** 6;
+    const face = Math.abs(Math.cos(2 * a)) ** 4;
+    const r = half * r0 * (1 - corner * diag) + bow * face;
+    pts.push(new THREE.Vector3(c * r, y, sn * r));
+  }
+  // Same winding as ringPoints, which shellBetween and capRing expect.
+  return pts;
+}
+
 function magnolia(h) {
   const g = new THREE.Group();
   const s = h / 319.5;
-  const shaftH = 302 * s;
-  const shaft = extrudeUp(roundedRectShape(48 * s, 40 * s, 14 * s), shaftH);
-  tag(add(g, shaft, glassBlue), 'shaft');
-  for (let y = 16 * s; y < shaftH - 4 * s; y += 24 * s) {
-    const shelf = extrudeUp(roundedRectShape(50.6 * s, 42.6 * s, 15 * s), 0.7 * s);
-    shelf.translate(0, y, 0);
-    tag(add(g, shelf, steel), 'shelf');
+  const segs = 64;
+  const roofY = 300 * s;
+  // Plan half-width and bow along the height: slight entasis at mid-height,
+  // then the crown leans in over the last 40 m.
+  const profile = (y) => {
+    const t = y / h;
+    const lean = t > 0.86 ? (t - 0.86) / 0.14 : 0;
+    return {
+      half: (23 + 0.8 * Math.sin(Math.PI * Math.min(t / 0.86, 1))) * s * (1 - 0.2 * lean * lean),
+      bow: 1.6 * s * (1 - 0.5 * lean),
+      corner: 0.04 + 0.16 * lean * lean,
+    };
+  };
+  const levels = [];
+  for (let y = 0; y < h - 0.01; y += 12 * s) levels.push(y);
+  for (const y of [roofY, h - 6 * s, h]) if (!levels.includes(y)) levels.push(y);
+  levels.sort((x, z) => x - z);
+  const rings = levels.map((y) => { const p = profile(y); return magnoliaRing(segs, p.half, p.bow, p.corner, y); });
+  const shaft = new THREE.Group();
+  for (let i = 0; i + 1 < rings.length && levels[i + 1] <= roofY + 1e-6; i++) shellBetween(shaft, rings[i], rings[i + 1], glassBlue);
+  shaft.children.forEach((m) => tag(m, 'shaft'));
+  g.add(...shaft.children);
+  // The crown screen is the same glass carried past the roof with no lid.
+  const crown = new THREE.Group();
+  for (let i = 0; i + 1 < rings.length; i++) if (levels[i] >= roofY - 1e-6) shellBetween(crown, rings[i], rings[i + 1], glassSilver);
+  crown.children.forEach((m) => tag(m, 'crown'));
+  g.add(...crown.children);
+  const roofRing = magnoliaRing(segs, profile(roofY).half - 0.3 * s, profile(roofY).bow, profile(roofY).corner, roofY);
+  const roof = new THREE.Group();
+  capRing(roof, roofRing, concrete);
+  tag(roof.children[0], 'roof');
+  g.add(roof.children[0]);
+  // Light shelves: one merged mesh so seventy bands cost one draw call.
+  const shelves = [];
+  for (let y = 8 * s; y < roofY - 2 * s; y += 4.4 * s) {
+    const p = profile(y);
+    const outer = magnoliaRing(segs, p.half + 0.9 * s, p.bow, p.corner, y);
+    const inner = magnoliaRing(segs, p.half - 0.1 * s, p.bow, p.corner, y);
+    const shape = new THREE.Shape(outer.map((v) => new THREE.Vector2(v.x, -v.z)));
+    shape.holes.push(new THREE.Path(inner.map((v) => new THREE.Vector2(v.x, -v.z))));
+    const geo = extrudeUp(shape, 0.35 * s);
+    geo.translate(0, y, 0);
+    shelves.push(geo);
   }
-  const deck = extrudeUp(roundedRectShape(62 * s, 52 * s, 18 * s), 1.6 * s);
-  deck.translate(0, shaftH, 0);
-  tag(add(g, deck, concrete), 'deck');
-  const railOuter = roundedRectShape(61 * s, 51 * s, 17.5 * s);
-  const railInner = roundedRectShape(58.6 * s, 48.6 * s, 16.2 * s);
-  railOuter.holes.push(railInner);
-  const rail = extrudeUp(railOuter, 1.25 * s);
-  rail.translate(0, shaftH + 1.6 * s, 0);
-  tag(add(g, rail, glassBlue), 'rail');
-  const core = extrudeUp(roundedRectShape(16 * s, 14 * s, 3 * s), 14 * s);
-  core.translate(0, shaftH + 1.6 * s, 0);
-  tag(add(g, core, glassSilver), 'core');
-  const canopy = extrudeUp(roundedRectShape(56 * s, 46 * s, 16 * s), 0.8 * s);
-  canopy.translate(0, shaftH + 15.6 * s, 0);
-  tag(add(g, canopy, steel), 'canopy');
+  tag(add(g, mergeGeometries(shelves), magnoliaShelf), 'shelf');
+  // Crown top edge: a lit rim, the brightest line on the tower at night.
+  const rimTop = magnoliaRing(segs, profile(h).half + 0.4 * s, profile(h).bow, profile(h).corner, h - 0.8 * s);
+  const rimShape = new THREE.Shape(rimTop.map((v) => new THREE.Vector2(v.x, -v.z)));
+  rimShape.holes.push(new THREE.Path(magnoliaRing(segs, profile(h).half - 0.6 * s, profile(h).bow, profile(h).corner, 0).map((v) => new THREE.Vector2(v.x, -v.z))));
+  const rim = extrudeUp(rimShape, 0.8 * s);
+  rim.translate(0, h - 0.8 * s, 0);
+  tag(add(g, rim, magnoliaShelf), 'rim');
   return g;
 }
 
@@ -2320,4 +2375,6 @@ export function syncLandmarkNight(night) {
   glazeRoof.emissiveIntensity = night * 0.42;
   beaconMat.emissiveIntensity = 0.35 + night * 2;
   clockMat.emissiveIntensity = night * 0.62;
+  // The shelf edges carry linear LEDs, so at night the tower reads as stacked white lines.
+  magnoliaShelf.emissiveIntensity = night * 0.55;
 }
