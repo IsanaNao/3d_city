@@ -292,3 +292,26 @@ function encodeTileSafe(tile) {
   assert.equal(back.buildings.length, tile.buildings.length);
   return bytes;
 }
+
+test('worker pose buffers match the simulation and segments cover every edge', async () => {
+  const { CAR_STRIDE, PERSON_STRIDE, createStreets, roadSegmentBuffer, stepStreets, writeCarPoses, writePersonPoses } = await import('../../src/sim/poses.js');
+  const { carPose } = await import('../../src/sim/traffic.js');
+  const line = (a, b, x0, x1) => ({ a, b, cls: 3, speed: 12, points: [x0, 0, 0, (x0 + x1) / 2, 0, 0, x1, 0, 0] });
+  const roads = {
+    nodes: [{ x: 0, y: 0, z: 0, signal: 0 }, { x: 600, y: 0, z: 0, signal: 0 }],
+    edges: [line(0, 1, 0, 600), line(1, 0, 600, 0)],
+    walks: [{ points: [0, 0, 5, 600, 0, 5] }],
+  };
+  const streets = createStreets(roads);
+  assert.ok(streets.sim.cars.length >= 12);
+  stepStreets(streets, 0.5);
+  const cars = writeCarPoses(streets.sim, new Float32Array(streets.sim.cars.length * CAR_STRIDE));
+  const p = carPose(streets.sim, streets.sim.cars[3]);
+  assert.ok(Math.abs(cars[3 * CAR_STRIDE] - p.x) < 1e-3);
+  assert.ok(Math.abs(cars[3 * CAR_STRIDE + 2] - p.z) < 1e-3);
+  if (streets.crowd.people.length) {
+    const people = writePersonPoses(streets.crowd, new Float32Array(streets.crowd.people.length * PERSON_STRIDE));
+    assert.ok(Number.isFinite(people[0]));
+  }
+  assert.equal(roadSegmentBuffer(roads).length, 2 * 2 * 4);
+});
