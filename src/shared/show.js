@@ -3,7 +3,9 @@
 // produces the same colour, chase phase and crossfade. `pearl=<name>` pins
 // one scheme for screenshots.
 
-export const PEARL_SCHEMES = ['red', 'magenta', 'blue', 'purple', 'gold', 'green', 'rainbow'];
+// The first seven are plain colours; the last four are moving patterns
+// (drifting gradient, rising wave, turning stripes, the two balls alternating).
+export const PEARL_SCHEMES = ['red', 'magenta', 'blue', 'purple', 'gold', 'green', 'rainbow', 'gradient', 'wave', 'spin', 'alternate'];
 
 // Twenty minutes of scene time per scheme, with a short crossfade at the end.
 const SLOT_HOURS = 1 / 3;
@@ -35,6 +37,10 @@ export const SCHEME_RGB = [
   [1, 0.72, 0.22],
   [0.15, 0.95, 0.35],
   [1, 0.35, 0.7],
+  [0.35, 0.5, 1],
+  [0.6, 0.25, 0.75],
+  [1, 0.45, 0.4],
+  [1, 0.42, 0.38],
 ];
 
 export const CROWN_RGB = [
@@ -45,4 +51,8 @@ export const CROWN_RGB = [
   [0.35, 0.8, 1],
   [0.2, 1, 0.55],
   [0.6, 0.4, 1],
+  [0.3, 0.8, 1],
+  [0.45, 0.5, 1],
+  [0.9, 0.5, 0.6],
+  [1, 0.7, 0.4],
 ];

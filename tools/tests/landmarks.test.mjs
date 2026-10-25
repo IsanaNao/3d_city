@@ -233,15 +233,19 @@ test('pearl stands on a stepped circular plinth with stairs', () => {
   assert.ok(legs.min.y > 0.5, 'the tripod stands on the podium');
 });
 
-test('white magnolia has an open observation crown', () => {
+// SOM's tower ends in curved glass carried past the roof as an open screen
+// (no cantilevered disk), and its faces are banded by light shelves.
+test('white magnolia has an open glass crown above the roof', () => {
   const h = 319.5;
   const model = createLandmarks([{ id: 'magnolia', x: 0, z: 0, y: 0, h, yaw: 0 }]).children[0];
-  const deck = partBox(model, 'deck');
+  const roof = partBox(model, 'roof');
   const shaft = partBox(model, 'shaft');
-  const canopy = partBox(model, 'canopy');
-  assert.ok(deck.max.x > shaft.max.x + 3, 'the deck cantilevers past the shaft');
-  assert.ok(canopy.min.y > deck.max.y + 8, 'the viewing level is open under the roof');
-  assert.ok(canopy.max.y > h * 0.98 && canopy.max.y <= h + 0.2);
+  const crown = partBox(model, 'crown');
+  const shelf = partBox(model, 'shelf');
+  assert.ok(crown.max.y > h * 0.99 && crown.max.y <= h + 0.2);
+  assert.ok(crown.max.y > roof.max.y + 12, 'the screen rises well past the roof');
+  assert.ok(crown.max.x < shaft.max.x, 'the crown leans in rather than cantilevering');
+  assert.ok(shelf.max.x > shaft.max.x && shelf.max.x < shaft.max.x + 2, 'shelves are shallow');
   const marks = findLandmarks([{
     name: '金光中心 (写字楼)', area: 3000, topY: 324, baseY: 4,
     centroid: [1, 2], rings: [[[0, 0], [50, 0], [50, 40], [0, 40]]],

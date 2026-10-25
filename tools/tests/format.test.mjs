@@ -7,7 +7,7 @@ import { buildBuildingGeometry } from '../../src/shared/meshbuild.js';
 import { classifyKind, defaultHeight, resolveVertical } from '../../src/shared/heights.js';
 import { daylight, duskHaze, nightFactor, sunVector } from '../../src/shared/sun.js';
 import { NAMED_TOWERS } from '../../src/shared/towers.js';
-import { pearlShow } from '../../src/shared/show.js';
+import { CROWN_RGB, PEARL_SCHEMES, pearlShow, SCHEME_RGB } from '../../src/shared/show.js';
 import { decodeTerrain, encodeTerrain, sampleGrid } from '../../src/shared/terrain.js';
 import { decodeTile, encodeTile } from '../../src/shared/tileformat.js';
 
@@ -153,6 +153,22 @@ test('every named-tower pattern matches a building in the tiles', (t) => {
   for (const entry of NAMED_TOWERS) {
     assert.ok([...names].some((n) => entry.test.test(n)), `${entry.test} matches nothing`);
   }
+});
+
+test('pearl show cycles through colours and the four moving patterns', () => {
+  const names = new Set();
+  for (let h = 0; h < 24; h += 1 / 3) names.add(pearlShow(h + 0.01, '').name);
+  for (const n of ['gradient', 'wave', 'spin', 'alternate']) assert.ok(names.has(n), n);
+  assert.equal(SCHEME_RGB.length, PEARL_SCHEMES.length);
+  assert.equal(CROWN_RGB.length, PEARL_SCHEMES.length);
+  // Patterns are pure functions of the clock and stay slow: the phase only
+  // moves 0.15 of a slot in three scene minutes.
+  assert.deepEqual(pearlShow(21.1, ''), pearlShow(21.1, ''));
+  assert.ok(Math.abs(pearlShow(21.15, '').pattern - pearlShow(21.1, '').pattern) < 0.16);
+  const pinned = pearlShow(3.7, 'spin');
+  assert.equal(pinned.name, 'spin');
+  assert.equal(pinned.next, pinned.scheme);
+  assert.equal(pearlShow(21, 'nonsense').name, pearlShow(21, '').name);
 });
 
 function box(x0, z0, x1, z1) {

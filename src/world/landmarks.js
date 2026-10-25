@@ -29,15 +29,44 @@ uniform float uShowPhase;
 vec3 pearlHue(float h) {
   return clamp(abs(fract(h + vec3(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
 }
+// Set by the sphere shader before showColor: which ball (0 lower, 1 upper,
+// 0.5 anything else) and the true azimuth 0..1. The patterned schemes need
+// both; the plain colours ignore them, so member shaders can leave defaults.
+float gPearlOrb = 0.5;
+float gPearlLon = 0.0;
 vec3 schemeColor(float id, float lat, float lon) {
-  float i = mod(id, 7.0);
+  float i = mod(id, 11.0);
   if (i < 0.5) return vec3(1.0, 0.05, 0.10);
   if (i < 1.5) return vec3(1.0, 0.06, 0.52);
   if (i < 2.5) return vec3(0.15, 0.45, 1.0);
   if (i < 3.5) return vec3(0.55, 0.16, 1.0);
   if (i < 4.5) return vec3(1.0, 0.72, 0.22);
   if (i < 5.5) return vec3(0.15, 0.95, 0.35);
-  return pearlHue(fract(lat * 1.7 + lon * 0.35 + uShowPhase));
+  if (i < 6.5) return pearlHue(fract(lat * 1.7 + lon * 0.35 + uShowPhase));
+  // Patterns move a few cycles per twenty-minute slot: slow enough to read
+  // as a drift, never a flicker. lat runs 0 at the top to 1 at the bottom.
+  if (i < 7.5) {
+    // One broad gradient across both balls, drifting round the tower.
+    float t = 0.5 + 0.5 * sin(lat * 2.4 + gPearlLon * 6.2831853 + uShowPhase * 6.2831853 * 3.0);
+    return mix(vec3(0.55, 0.12, 1.0), vec3(0.1, 0.85, 1.0), t);
+  }
+  if (i < 8.5) {
+    // A soft colour wave rising from the bottom of each ball.
+    float w = fract(lat * 1.2 + uShowPhase * 8.0);
+    float t = smoothstep(0.0, 0.35, w) * (1.0 - smoothstep(0.55, 0.95, w));
+    return mix(vec3(0.15, 0.4, 1.0), vec3(1.0, 0.08, 0.5), t);
+  }
+  if (i < 9.5) {
+    // Six meridian stripes turning slowly about the axis.
+    float st = 0.5 + 0.5 * sin((gPearlLon + uShowPhase * 4.0) * 6.2831853 * 6.0);
+    // Red against saturated gold: a pale stripe is normalised down to grey.
+    return mix(vec3(1.0, 0.04, 0.1), vec3(1.0, 0.62, 0.08), smoothstep(0.25, 0.75, st));
+  }
+  // Upper and lower balls trade gold and pink back and forth.
+  // Cosine so the slot opens on full contrast, not the shared midpoint.
+  float k = 0.5 + 0.5 * cos(uShowPhase * 6.2831853 * 10.0);
+  float side = gPearlOrb < 0.25 ? k : gPearlOrb > 0.75 ? 1.0 - k : 0.5;
+  return mix(vec3(1.0, 0.05, 0.5), vec3(0.2, 0.5, 1.0), side);
 }
 vec3 showColor(float lat, float lon) {
   return mix(schemeColor(uShowScheme, lat, lon), schemeColor(uShowNext, lat, lon), uShowFade);
@@ -103,6 +132,10 @@ pearlMat.onBeforeCompile = (shader) => {
       // Mullions are a lighter rose-silver, not white: from a distance the
       // shell reads as one smooth colour, as it does in photographs.
       vec3 mullion = mix(vec3(0.82, 0.34, 0.38), vec3(0.78, 0.76, 0.78), 0.45);
+      // Only the two main balls are painted 44 and 36 rows high, so the paint
+      // grid tells them apart without another vertex attribute.
+      gPearlOrb = vGrid.y > 40.0 ? 0.0 : vGrid.y > 30.0 ? 1.0 : 0.5;
+      gPearlLon = vPane.x;
       vec3 show = showColor(vLat, pane.x);
       vec3 showN = showNorm(show, 0.42);
       // The shell is an even field of LED points, brightest round the middle.
@@ -143,7 +176,7 @@ pearlMat.onBeforeCompile = (shader) => {
       reflectedLight.indirectSpecular *= 0.32;
       #include <opaque_fragment>`);
 };
-pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-17';
+pearlMat.customProgramCacheKey = () => 'lm-pearl-rose-19';
 const pearlBand = new THREE.MeshStandardMaterial({
   color: 0xf4f1ea, metalness: 0.35, roughness: 0.32,
   emissive: new THREE.Color(0xffe2b0), emissiveIntensity: 0,
@@ -179,13 +212,13 @@ function pearlMemberShader(shader, rings, metal) {
     `);
 }
 columnMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 4, 'vec3(0.96, 0.97, 0.98)');
-columnMat.customProgramCacheKey = () => 'lm-pearl-column-14';
+columnMat.customProgramCacheKey = () => 'lm-pearl-column-16';
 const legMat = new THREE.MeshStandardMaterial({
   color: 0xe2dfd8, metalness: 0.04, roughness: 0.74,
   emissive: new THREE.Color(0x000000), emissiveIntensity: 0,
 });
 legMat.onBeforeCompile = (shader) => pearlMemberShader(shader, 3, 'vec3(0.90, 0.91, 0.92)');
-legMat.customProgramCacheKey = () => 'lm-pearl-leg-8';
+legMat.customProgramCacheKey = () => 'lm-pearl-leg-10';
 const shanghaiCrownMat = new THREE.MeshStandardMaterial({
   color: 0x9eb4c6, metalness: 0.62, roughness: 0.16,
   emissive: new THREE.Color(0x3aa0ff), emissiveIntensity: 0,
@@ -615,34 +648,89 @@ function extrudeUp(shape, depth) {
   return geo;
 }
 
-// White Magnolia Plaza: a glass shaft with the horizontal light shelves SOM
-// designed, and the open observation deck that replaced the helipad.
+// White Magnolia Plaza (Sinar Mas Centre, SOM 2017): a square plan with
+// rounded corners whose four faces bow outward, banded floor by floor with the
+// perforated metal light shelves SOM used for daylighting. Near the top the
+// faces lean in and the corners cut back, so the glass rises past the roof as
+// an open screen instead of ending in a flat box or a cantilevered disk.
+const magnoliaShelf = new THREE.MeshStandardMaterial({
+  color: 0xdfe4e8, metalness: 0.6, roughness: 0.38, emissive: new THREE.Color(0xe8f2ff), emissiveIntensity: 0,
+});
+
+function magnoliaRing(segs, half, bow, corner, y) {
+  const pts = [];
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * Math.PI * 2;
+    const c = Math.cos(a);
+    const sn = Math.sin(a);
+    // A superellipse gives the rounded square; the corner term trims the
+    // diagonals so the crown reads as four petals pulling apart.
+    const n = 5;
+    const r0 = 1 / Math.pow(Math.abs(c) ** n + Math.abs(sn) ** n, 1 / n);
+    const diag = Math.abs(Math.sin(2 * a)) ** 6;
+    const face = Math.abs(Math.cos(2 * a)) ** 4;
+    const r = half * r0 * (1 - corner * diag) + bow * face;
+    pts.push(new THREE.Vector3(c * r, y, sn * r));
+  }
+  // Same winding as ringPoints, which shellBetween and capRing expect.
+  return pts;
+}
+
 function magnolia(h) {
   const g = new THREE.Group();
   const s = h / 319.5;
-  const shaftH = 302 * s;
-  const shaft = extrudeUp(roundedRectShape(48 * s, 40 * s, 14 * s), shaftH);
-  tag(add(g, shaft, glassBlue), 'shaft');
-  for (let y = 16 * s; y < shaftH - 4 * s; y += 24 * s) {
-    const shelf = extrudeUp(roundedRectShape(50.6 * s, 42.6 * s, 15 * s), 0.7 * s);
-    shelf.translate(0, y, 0);
-    tag(add(g, shelf, steel), 'shelf');
+  const segs = 64;
+  const roofY = 300 * s;
+  // Plan half-width and bow along the height: slight entasis at mid-height,
+  // then the crown leans in over the last 40 m.
+  const profile = (y) => {
+    const t = y / h;
+    const lean = t > 0.86 ? (t - 0.86) / 0.14 : 0;
+    return {
+      half: (23 + 0.8 * Math.sin(Math.PI * Math.min(t / 0.86, 1))) * s * (1 - 0.2 * lean * lean),
+      bow: 1.6 * s * (1 - 0.5 * lean),
+      corner: 0.04 + 0.16 * lean * lean,
+    };
+  };
+  const levels = [];
+  for (let y = 0; y < h - 0.01; y += 12 * s) levels.push(y);
+  for (const y of [roofY, h - 6 * s, h]) if (!levels.includes(y)) levels.push(y);
+  levels.sort((x, z) => x - z);
+  const rings = levels.map((y) => { const p = profile(y); return magnoliaRing(segs, p.half, p.bow, p.corner, y); });
+  const shaft = new THREE.Group();
+  for (let i = 0; i + 1 < rings.length && levels[i + 1] <= roofY + 1e-6; i++) shellBetween(shaft, rings[i], rings[i + 1], glassBlue);
+  shaft.children.forEach((m) => tag(m, 'shaft'));
+  g.add(...shaft.children);
+  // The crown screen is the same glass carried past the roof with no lid.
+  const crown = new THREE.Group();
+  for (let i = 0; i + 1 < rings.length; i++) if (levels[i] >= roofY - 1e-6) shellBetween(crown, rings[i], rings[i + 1], glassSilver);
+  crown.children.forEach((m) => tag(m, 'crown'));
+  g.add(...crown.children);
+  const roofRing = magnoliaRing(segs, profile(roofY).half - 0.3 * s, profile(roofY).bow, profile(roofY).corner, roofY);
+  const roof = new THREE.Group();
+  capRing(roof, roofRing, concrete);
+  tag(roof.children[0], 'roof');
+  g.add(roof.children[0]);
+  // Light shelves: one merged mesh so seventy bands cost one draw call.
+  const shelves = [];
+  for (let y = 8 * s; y < roofY - 2 * s; y += 4.4 * s) {
+    const p = profile(y);
+    const outer = magnoliaRing(segs, p.half + 0.9 * s, p.bow, p.corner, y);
+    const inner = magnoliaRing(segs, p.half - 0.1 * s, p.bow, p.corner, y);
+    const shape = new THREE.Shape(outer.map((v) => new THREE.Vector2(v.x, -v.z)));
+    shape.holes.push(new THREE.Path(inner.map((v) => new THREE.Vector2(v.x, -v.z))));
+    const geo = extrudeUp(shape, 0.35 * s);
+    geo.translate(0, y, 0);
+    shelves.push(geo);
   }
-  const deck = extrudeUp(roundedRectShape(62 * s, 52 * s, 18 * s), 1.6 * s);
-  deck.translate(0, shaftH, 0);
-  tag(add(g, deck, concrete), 'deck');
-  const railOuter = roundedRectShape(61 * s, 51 * s, 17.5 * s);
-  const railInner = roundedRectShape(58.6 * s, 48.6 * s, 16.2 * s);
-  railOuter.holes.push(railInner);
-  const rail = extrudeUp(railOuter, 1.25 * s);
-  rail.translate(0, shaftH + 1.6 * s, 0);
-  tag(add(g, rail, glassBlue), 'rail');
-  const core = extrudeUp(roundedRectShape(16 * s, 14 * s, 3 * s), 14 * s);
-  core.translate(0, shaftH + 1.6 * s, 0);
-  tag(add(g, core, glassSilver), 'core');
-  const canopy = extrudeUp(roundedRectShape(56 * s, 46 * s, 16 * s), 0.8 * s);
-  canopy.translate(0, shaftH + 15.6 * s, 0);
-  tag(add(g, canopy, steel), 'canopy');
+  tag(add(g, mergeGeometries(shelves), magnoliaShelf), 'shelf');
+  // Crown top edge: a lit rim, the brightest line on the tower at night.
+  const rimTop = magnoliaRing(segs, profile(h).half + 0.4 * s, profile(h).bow, profile(h).corner, h - 0.8 * s);
+  const rimShape = new THREE.Shape(rimTop.map((v) => new THREE.Vector2(v.x, -v.z)));
+  rimShape.holes.push(new THREE.Path(magnoliaRing(segs, profile(h).half - 0.6 * s, profile(h).bow, profile(h).corner, 0).map((v) => new THREE.Vector2(v.x, -v.z))));
+  const rim = extrudeUp(rimShape, 0.8 * s);
+  rim.translate(0, h - 0.8 * s, 0);
+  tag(add(g, rim, magnoliaShelf), 'rim');
   return g;
 }
 
@@ -2320,4 +2408,6 @@ export function syncLandmarkNight(night) {
   glazeRoof.emissiveIntensity = night * 0.42;
   beaconMat.emissiveIntensity = 0.35 + night * 2;
   clockMat.emissiveIntensity = night * 0.62;
+  // The shelf edges carry linear LEDs, so at night the tower reads as stacked white lines.
+  magnoliaShelf.emissiveIntensity = night * 0.55;
 }
