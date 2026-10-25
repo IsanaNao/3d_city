@@ -52,6 +52,12 @@ export function duskHaze(altitudeDeg, preset) {
   return 0.75 * smoothstep(12, 3, altitudeDeg) * (1 - smoothstep(0.5, -4, altitudeDeg));
 }
 
+// Weight of the blue hour: the sun 3 to 8 degrees down, the window promo films
+// are shot in. Zero by day and once the sky has gone fully dark at -13.
+export function blueHour(altitudeDeg) {
+  return smoothstep(1, -3, altitudeDeg) * (1 - smoothstep(-8, -13, altitudeDeg));
+}
+
 function lerp(a, b, t) {
   return a + (b - a) * t;
 }

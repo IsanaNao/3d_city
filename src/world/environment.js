@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { cityUniforms, createSkyMaterial } from './materials.js';
+import { blueHour } from '../shared/sun.js';
 
 const SHADOW_SIZE = 2048;
 const SUN = 3.4;
@@ -20,6 +21,14 @@ const SKY = {
   // A deep blue rather than mauve, so the blue hour after sunset reads blue.
   nightZenith: new THREE.Color().setRGB(0.004, 0.007, 0.022),
   nightHorizon: new THREE.Color().setRGB(0.028, 0.04, 0.085),
+};
+// Blue hour: a deep saturated blue overhead and, low on the horizon, the faint
+// warm glow the lit city throws back off the haze. Blended in on top of the
+// sunset-to-night ramp so noon and deep night are untouched.
+const BLUE = {
+  zenith: new THREE.Color().setRGB(0.012, 0.04, 0.17),
+  horizon: new THREE.Color().setRGB(0.2, 0.15, 0.15),
+  fog: new THREE.Color(0.06, 0.075, 0.13),
 };
 export const FOG = {
   day: new THREE.Color(0.66, 0.73, 0.84),
@@ -118,6 +127,9 @@ export class Environment {
 
     const zenith = SKY.zenith.clone().lerp(SKY.setZenith, this.warmth).lerp(SKY.nightZenith, this.dark);
     const horizon = SKY.horizon.clone().lerp(SKY.setHorizon, this.warmth * (1 - this.dark * 0.5)).lerp(SKY.nightHorizon, this.dark);
+    this.blue = blueHour(deg);
+    zenith.lerp(BLUE.zenith, this.blue);
+    horizon.lerp(BLUE.horizon, this.blue * 0.85);
     cityUniforms.uSky.value.copy(zenith);
     cityUniforms.uHorizon.value.copy(horizon);
     cityUniforms.uSunDir.value.copy(sun);
@@ -128,6 +140,8 @@ export class Environment {
     cityUniforms.uDay.value = this.daylight;
 
     this.fogColor.copy(FOG.day).lerp(FOG.warm, this.warmth * this.daylight * (1 - this.dark)).lerp(FOG.night, this.dark);
+    // Distant towers sink into blue rather than grey-violet during the blue hour.
+    this.fogColor.lerp(BLUE.fog, this.blue * 0.8);
 
     const light = 0.3 * lum(this.sun.color) * this.sun.intensity * Math.max(this.sunDir.y, 0.05)
       + 1.8 * lum(this.sky.color) + 1.3 * this.dark ** 3;
